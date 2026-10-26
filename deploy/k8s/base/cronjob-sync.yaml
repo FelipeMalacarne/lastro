@@ -5,7 +5,7 @@ metadata:
 spec:
   schedule: "0 */6 * * *"
   timeZone: America/Sao_Paulo
-  # Turned on in Phase 1, once `lastro sync` exists.
+  # Turned on in M1, once `lastro sync` exists.
   suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

@@ -26,6 +26,6 @@ Fixtures in `testdata/pluggy/` hold real API responses, always anonymized: repla
 - Publishes: `SyncCompleted`.
 - Consumes: none.
 
-## Phase
+## Milestone
 
-1
+M1

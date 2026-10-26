@@ -40,7 +40,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F1. Account sync
 
-*Phase 1 · modules: `ingest`, `ledger`*
+*M1 · modules: `ingest`, `ledger`*
 
 - As the owner, I want my checking accounts, cards and investment accounts to sync automatically, so that I never type a transaction by hand.
 - As the owner, I want to know when a connection breaks, so that the data does not go stale silently.
@@ -60,7 +60,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F2. Transactions
 
-*Phases 1 and 3 · modules: `ledger`, web*
+*M1 · modules: `ledger`, web*
 
 - As the owner, I want to see, search and filter all my transactions in one list, so that I can find anything quickly.
 - As the owner, I want transfers between my own accounts and card bill payments to be recognized automatically, so that they never inflate my spending.
@@ -77,7 +77,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F3. Categorization
 
-*Phase 2 · module: `categorize`*
+*M2 · module: `categorize`*
 
 - As the owner, I want transactions categorized automatically, so that I only fix the few mistakes.
 - As the owner, I want every correction to teach the app, so that the same mistake does not happen twice.
@@ -94,7 +94,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F4. Monthly budget
 
-*Phase 3 · module: `budget`*
+*M3 · module: `budget`*
 
 - As the owner, I want to set aside my contribution first and then see how much I can spend per category, so that saving is never what is left over.
 - As the owner, I want to see during the month whether a category is on track, so that I can adjust before it is too late.
@@ -113,7 +113,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F5. Recurring expenses and subscriptions
 
-*Phase 3 · modules: `ledger`, `budget`*
+*M3 · modules: `ledger`, `budget`*
 
 - As the owner, I want my subscriptions and fixed bills detected automatically, so that I know my fixed cost of living and notice when something new appears or a price goes up.
 
@@ -123,7 +123,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F6. Net worth and positions
 
-*Phase 4 · modules: `portfolio`, `market`*
+*M4 · modules: `portfolio`, `market`*
 
 - As the owner, I want to see my total net worth and how it is split across asset classes, so that I know where I stand at a glance.
 - As the owner, I want to see how my net worth evolved over time, so that I can tell real progress from market noise.
@@ -139,7 +139,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F7. Contribution planning
 
-*Phase 4 · module: `portfolio`*
+*M4 · module: `portfolio`*
 
 - As the owner, I want to type my contribution amount and get exactly how much goes to each class, so that I can invest in a minute instead of opening a spreadsheet.
 - As the owner, I want rebalancing to happen through new money, so that I avoid selling and paying tax.
@@ -156,7 +156,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F8. Stock analysis and theses
 
-*Phases 4 and 6 · modules: `portfolio`, `market`*
+*M4 and M5 · modules: `portfolio`, `market`*
 
 - As the owner, I want a one-line thesis for each stock I pick, plus what would break it, so that my decisions stay disciplined.
 - As the owner, I want to know if my stock picking actually beats the index, so that I can drop it if it does not.
@@ -176,7 +176,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F9. Projections
 
-*Phase 5 · module: `planning`*
+*M5 · module: `planning`*
 
 - As the owner, I want to see where my net worth will be in N years with my current contributions, so that I can tell whether I am on track.
 
@@ -190,7 +190,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 ### F10. Insights and questions
 
-*Phase 6 · all modules, read-only*
+*M5 · all modules, read-only*
 
 - As the owner, I want to ask questions in plain language ("how much did I spend on delivery since August?"), so that I don't have to build a report for every question.
 - As the owner, I want to be told when something is unusual, so that I don't have to look for it.
@@ -223,14 +223,14 @@ Measured on my own usage, starting two months after each area ships:
 | Time spent on corrections | under 15 minutes per month |
 | Monthly totals matching the bank statements | 100%, with zero double-counted transfers or card bills |
 | Time to decide a monthly contribution | under 1 minute, with no spreadsheet |
-| Spreadsheet still needed for allocation | no, after Phase 4 |
+| Spreadsheet still needed for allocation | no, after M4 |
 
 ## Open questions
 
 | Question | Blocks |
 |---|---|
-| Category limits or YNAB-style envelopes? Start with limits and see if they are enough? | Phase 3 |
-| Which of my investments actually come through Pluggy, and which need the B3 import? Test early with my real connections. | Phase 4 design |
+| Category limits or YNAB-style envelopes? Start with limits and see if they are enough? | M3 |
+| Which of my investments actually come through Pluggy, and which need the B3 import? Test early with my real connections. | the M1 spike answers it |
 | Where do valuation metrics and dividends come from (brapi free tier or another source), and what are the limits? | F8 P1 |
 | How far back does Open Finance return history on the first sync? | F6 history, F5 detection |
 | Which channel for alerts and reminders: email, Telegram or browser notifications? | F1 P1, F8, F10 |

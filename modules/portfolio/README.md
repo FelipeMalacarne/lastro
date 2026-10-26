@@ -18,6 +18,6 @@
 - What the planner distributes adds up to exactly the contribution amount (it uses `Money.Allocate`, so no cents are lost).
 - The emergency fund is not part of the allocation.
 
-## Phase
+## Milestone
 
-4
+M4

@@ -20,6 +20,6 @@
 
 - Consumes: `ledger.TransactionCategorized`.
 
-## Phase
+## Milestone
 
-3
+M3

@@ -14,6 +14,6 @@
 - Series are append-only: a published value is never edited, only corrected by a new record.
 - Every quote has a date and a source.
 
-## Phase
+## Milestone
 
-4
+M4

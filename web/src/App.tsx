@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 
 type Me = { email: string };
 
-// Phase 0: only confirms the frontend can reach the authenticated API.
-// Tailwind + shadcn/ui arrive in Phase 3, together with the dashboard.
+// M0: only confirms the frontend can reach the authenticated API.
+// Tailwind, shadcn/ui and the Cédula design system arrive in M1, with the Transactions screen.
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);

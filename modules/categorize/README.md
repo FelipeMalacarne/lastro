@@ -29,6 +29,6 @@
 - Consumes: `ledger.TransactionsImported`.
 - Publishes: none. `ledger` publishes `TransactionCategorized`.
 
-## Phase
+## Milestone
 
-2
+M2

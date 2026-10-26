@@ -1,8 +1,8 @@
 // Command lastro: one binary, several roles.
 //
 //	lastro serve        API + embedded frontend
-//	lastro sync         pull accounts and transactions from Pluggy (Phase 1)
-//	lastro contribute   show where this month's contribution should go (Phase 4)
+//	lastro sync         pull accounts and transactions from Pluggy (M1)
+//	lastro contribute   show where this month's contribution should go (M4)
 //	lastro migrate      apply pending migrations
 //	lastro version      print the version
 //

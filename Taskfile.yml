@@ -60,7 +60,7 @@ tasks:
       - task: lint
 
   sqlc:
-    desc: Generate query code (from Phase 1 on)
+    desc: Generate query code (from M1 on)
     cmds:
       - go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 

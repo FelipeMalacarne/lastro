@@ -8,7 +8,7 @@ Guide for coding agents (Claude Code, Codex, Cursor and the like). It applies to
 
 ## Current state
 
-Phase 0 (skeleton) is done. The next task is always the first unchecked box in `docs/PLAN.md`.
+M0 (skeleton and first deploy) is done. The next task is always the first unchecked box in `docs/PLAN.md`.
 
 ## Commands
 

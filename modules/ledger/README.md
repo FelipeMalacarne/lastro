@@ -24,6 +24,6 @@
 - Publishes: `TransactionsImported` (new or changed IDs), `TransactionCategorized`.
 - Consumes: none. It receives commands from `ingest` and `categorize` through its Service.
 
-## Phase
+## Milestone
 
-1
+M1

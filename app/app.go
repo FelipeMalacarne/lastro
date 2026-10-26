@@ -30,7 +30,7 @@ type App struct {
 
 	auth func(http.Handler) http.Handler
 
-	// Phase 1+: one field per module, wired in New in dependency order.
+	// M1 on: one field per module, wired in New in dependency order.
 	// Ledger *ledger.Service
 	// Ingest *ingest.Service
 }
@@ -59,7 +59,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		auth:   authMW,
 	}
 
-	// Phase 1+: wire the modules here. For example:
+	// M1 on: wire the modules here. For example:
 	//   a.Ledger = ledger.New(pool, a.Bus)
 	//   a.Ingest = ingest.New(cfg.Pluggy, a.Ledger, a.Bus)
 	//   events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
@@ -96,7 +96,7 @@ func (a *App) Close() { a.DB.Close() }
 func (a *App) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
-	// Phase 1+: each module registers its own routes. For example:
+	// M1 on: each module registers its own routes. For example:
 	//   a.Ledger.RegisterRoutes(api)
 
 	mux := http.NewServeMux()
