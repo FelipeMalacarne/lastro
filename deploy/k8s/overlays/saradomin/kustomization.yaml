@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: lastro
-# The namespace, the Postgres and the lastro-secrets Secret belong to the cluster:
-# gielinor creates them in clusters/saradomin/apps/lastro, with the Secret encrypted by SOPS.
+# The namespace, the database and the lastro-secrets Secret belong to the cluster. gielinor
+# creates them: the database `lastro` on the shared CloudNativePG cluster
+# (clusters/saradomin/apps/postgres) and the Secret, encrypted by SOPS, in apps/lastro.
 # This overlay only says how the app runs.
 resources:
   - ../../base
