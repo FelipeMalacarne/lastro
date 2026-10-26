@@ -14,6 +14,7 @@ Phase 0 (skeleton) is done. The next task is always the first unchecked box in `
 
 | Command | What it does |
 |---|---|
+| `nix develop` | dev shell from `flake.nix` with every tool except Docker |
 | `task setup` | `go mod tidy` and `npm install` for the frontend |
 | `task db` | starts the local Postgres (compose) |
 | `task migrate` | applies migrations to the database in `.env` |

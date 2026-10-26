@@ -6,7 +6,7 @@ Personal finance for a single person: syncs accounts through Meu Pluggy (Brazili
 
 ## Getting started
 
-Requires Go 1.24+, Node 22+, Docker and [Task](https://taskfile.dev).
+Requires Go 1.24+, Node 22+, Docker and [Task](https://taskfile.dev). With Nix, `nix develop` (or `direnv allow`, which reads `.envrc`) gives you everything except Docker: Go, Node 22, Task, golangci-lint, sqlc, gopls and the Postgres 17 client.
 
 ```sh
 cp .env.example .env
