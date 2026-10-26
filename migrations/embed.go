@@ -19,9 +19,13 @@ import (
 var files embed.FS
 
 // Up applies every pending migration.
-func Up(ctx context.Context, pool *pgxpool.Pool) error {
+func Up(ctx context.Context, pool *pgxpool.Pool) (err error) {
 	sqlDB := stdlib.OpenDBFromPool(pool)
-	defer sqlDB.Close()
+	defer func() {
+		if cerr := sqlDB.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("migrations: close: %w", cerr)
+		}
+	}()
 
 	goose.SetBaseFS(files)
 	if err := goose.SetDialect("postgres"); err != nil {

@@ -83,7 +83,7 @@ func (c *Client) generate(ctx context.Context, system, prompt, format string) (s
 	if err != nil {
 		return "", fmt.Errorf("llm: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", fmt.Errorf("llm: status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
