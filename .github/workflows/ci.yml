@@ -40,9 +40,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # GHCR requires lowercase names: adjust if your username has uppercase letters.
+      # GHCR requires lowercase names, and the owner here has uppercase letters.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/lastro" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v6
         with:
           push: true
           build-args: VERSION=${{ github.sha }}
-          tags: ghcr.io/${{ github.repository_owner }}/lastro:${{ github.sha }}
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
