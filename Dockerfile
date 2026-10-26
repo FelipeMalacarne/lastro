@@ -21,7 +21,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}"
 # 3. Final image: just the binary
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/lastro /lastro
-USER nonroot:nonroot
+# Numeric UID and GID of distroless's nonroot user: with runAsNonRoot, Kubernetes refuses
+# to start a container whose user is a name, because it cannot verify it is not root.
+USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/lastro"]
 CMD ["serve"]
