@@ -12,7 +12,7 @@ When a task is done, check its box in the same commit.
 - [x] Embedded frontend (React + Vite) and `GET /api/v1/me`
 - [x] Dockerfile, compose, Taskfile, golangci with depguard, CI and Kustomize
 - [x] `AGENTS.md`, `CLAUDE.md`, ADRs and a README per module
-- [ ] First deploy to saradomin: Cloudflare Access application, tunnel route, Secret and the overlay in ArgoCD
+- [x] First deploy to saradomin: Cloudflare Access application, tunnel route, Secret and the overlay in ArgoCD
 
 ## Phase 1: ingest + ledger
 
