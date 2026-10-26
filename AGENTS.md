@@ -19,6 +19,7 @@ Phase 0 (skeleton) is done. The next task is always the first unchecked box in `
 | `task db` | starts the local Postgres (compose) |
 | `task migrate` | applies migrations to the database in `.env` |
 | `task dev` | API on :8080 |
+| `task app` | the whole app in Docker on :8080 (Postgres, migrations, API with the embedded frontend) |
 | `task web:dev` | frontend on :5173 with a proxy to the API |
 | `task test` | Go tests |
 | `task lint` | golangci-lint, including the boundary rules |

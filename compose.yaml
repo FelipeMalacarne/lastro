@@ -1,4 +1,19 @@
-# Only what local development needs. Ollama runs on zaros.
+# Local development. Ollama runs on zaros.
+#
+#   docker compose up -d --wait postgres     only the database (what `task db` does)
+#   docker compose --profile app up --build  the whole app, as the cluster runs it (`task app`)
+
+x-lastro-env: &lastro-env
+  LASTRO_ENV: dev
+  LASTRO_DATABASE_URL: postgres://lastro:lastro@postgres:5432/lastro?sslmode=disable
+  LASTRO_LOG_LEVEL: debug
+  LASTRO_AUTH_DISABLED: "true"
+  LASTRO_OLLAMA_URL: ${LASTRO_OLLAMA_URL:-}
+  LASTRO_OLLAMA_MODEL: ${LASTRO_OLLAMA_MODEL:-}
+  LASTRO_PLUGGY_CLIENT_ID: ${LASTRO_PLUGGY_CLIENT_ID:-}
+  LASTRO_PLUGGY_CLIENT_SECRET: ${LASTRO_PLUGGY_CLIENT_SECRET:-}
+  LASTRO_PLUGGY_ITEM_IDS: ${LASTRO_PLUGGY_ITEM_IDS:-}
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -14,6 +29,29 @@ services:
       test: ["CMD-SHELL", "pg_isready -U lastro"]
       interval: 5s
       retries: 10
+
+  # Same order as the cluster: migrations first (the initContainer there), then serve.
+  migrate:
+    profiles: [app]
+    build: .
+    image: lastro:dev
+    command: ["migrate"]
+    environment: *lastro-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    profiles: [app]
+    build: .
+    image: lastro:dev
+    command: ["serve"]
+    environment: *lastro-env
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

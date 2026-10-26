@@ -26,6 +26,11 @@ tasks:
     cmds:
       - go run ./cmd/lastro serve
 
+  app:
+    desc: Run the whole app in Docker (Postgres, migrations, API with the embedded frontend) on :8080
+    cmds:
+      - docker compose --profile app up --build
+
   web:dev:
     desc: Start the frontend on :5173 with a proxy to the API
     dir: web
