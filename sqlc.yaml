@@ -1,0 +1,12 @@
+# Each module gets a block once it has queries (from Phase 1 on).
+# The schema comes from the goose migrations themselves.
+version: "2"
+sql:
+  # - engine: postgresql
+  #   schema: migrations
+  #   queries: modules/ledger/queries.sql
+  #   gen:
+  #     go:
+  #       package: db
+  #       out: modules/ledger/internal/db
+  #       sql_package: pgx/v5

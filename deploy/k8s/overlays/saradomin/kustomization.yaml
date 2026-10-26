@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lastro
+resources:
+  - namespace.yaml
+  - ../../base
+  # The lastro-secrets Secret, in whatever secrets format the cluster already
+  # uses (SealedSecret, SOPS...). Use secret.example.yaml as a reference.
+  # - secret.sealed.yaml
+images:
+  - name: lastro
+    newName: ghcr.io/YOUR_USER/lastro
+    newTag: "0.0.1"

@@ -1,0 +1,71 @@
+# https://taskfile.dev
+version: "3"
+
+dotenv: [".env"]
+
+tasks:
+  setup:
+    desc: Download Go and frontend dependencies
+    cmds:
+      - go mod tidy
+      - npm --prefix web install
+
+  db:
+    desc: Start the local Postgres
+    cmds:
+      - docker compose up -d --wait postgres
+
+  migrate:
+    desc: Apply migrations to the database in .env
+    cmds:
+      - go run ./cmd/lastro migrate
+
+  dev:
+    desc: Start the API on :8080 (run `task web:dev` in another terminal)
+    deps: [db]
+    cmds:
+      - go run ./cmd/lastro serve
+
+  web:dev:
+    desc: Start the frontend on :5173 with a proxy to the API
+    dir: web
+    cmds:
+      - npm run dev
+
+  web:build:
+    desc: Build web/dist, which the Go binary embeds
+    dir: web
+    cmds:
+      - npm run build
+
+  test:
+    desc: Run the Go tests
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run golangci-lint (includes the depguard boundary rules)
+    cmds:
+      - golangci-lint run
+
+  check:
+    desc: What CI runs
+    cmds:
+      - task: test
+      - task: lint
+
+  sqlc:
+    desc: Generate query code (from Phase 1 on)
+    cmds:
+      - go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
+
+  build:
+    desc: Local binary at bin/lastro
+    deps: [web:build]
+    cmds:
+      - CGO_ENABLED=0 go build -o bin/lastro ./cmd/lastro
+
+  image:
+    desc: Local Docker image
+    cmds:
+      - docker build -t lastro:dev .

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(task test)",
+      "Bash(task lint)",
+      "Bash(task check)",
+      "Bash(task sqlc)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go build:*)",
+      "Bash(gofmt:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)"
+    ]
+  }
+}

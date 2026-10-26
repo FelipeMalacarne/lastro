@@ -1,0 +1,35 @@
+# golangci-lint v2
+version: "2"
+
+linters:
+  enable:
+    - depguard
+    - errorlint
+    - gocritic
+  settings:
+    depguard:
+      rules:
+        # Inside a module, only repository.go, http.go and internal/ talk to the
+        # database and HTTP. Aggregates, value objects and services stay pure.
+        pure-domain:
+          list-mode: lax
+          files:
+            - "**/modules/**/*.go"
+            - "!**/modules/**/repository.go"
+            - "!**/modules/**/http.go"
+            - "!**/modules/**/internal/**"
+            - "!$test"
+          deny:
+            - pkg: "github.com/jackc/pgx"
+              desc: "the domain does not talk to the database: use repository.go"
+            - pkg: "net/http"
+              desc: "HTTP belongs in http.go"
+            - pkg: "lastro/platform/llm"
+              desc: "declare an interface in the module and receive the client through the constructor"
+        # The money kernel depends only on the standard library.
+        pure-kernel:
+          list-mode: strict
+          files:
+            - "**/money/*.go"
+          allow:
+            - $gostd
