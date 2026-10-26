@@ -1,13 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: lastro
+# The namespace, the Postgres and the lastro-secrets Secret belong to the cluster:
+# gielinor creates them in clusters/saradomin/apps/lastro, with the Secret encrypted by SOPS.
+# This overlay only says how the app runs.
 resources:
-  - namespace.yaml
   - ../../base
-  # The lastro-secrets Secret, in whatever secrets format the cluster already
-  # uses (SealedSecret, SOPS...). Use secret.example.yaml as a reference.
-  # - secret.sealed.yaml
+  - ingress.yaml
 images:
   - name: lastro
-    newName: ghcr.io/YOUR_USER/lastro
-    newTag: "0.0.1"
+    newName: ghcr.io/felipemalacarne/lastro
+    # CI sets this to the image it just pushed, on every merge to main.
+    newTag: "099a7bf025560de1e3fac3e2499d3ddfd4eec180"

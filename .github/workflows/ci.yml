@@ -25,13 +25,15 @@ jobs:
       - run: go test ./...
       - name: golangci-lint
         run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
+      - name: Kubernetes manifests
+        run: kubectl kustomize deploy/k8s/overlays/saradomin > /dev/null
 
   image:
     needs: check
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
@@ -48,3 +50,14 @@ jobs:
           push: true
           build-args: VERSION=${{ github.sha }}
           tags: ${{ env.IMAGE }}:${{ github.sha }}
+      # Argo CD on saradomin follows this overlay on main, so pointing it at the image just
+      # pushed is the deploy. A push made with GITHUB_TOKEN does not start another run.
+      - name: Deploy to saradomin
+        run: |
+          sed -i "s|^    newTag: .*|    newTag: \"${GITHUB_SHA}\"|" deploy/k8s/overlays/saradomin/kustomization.yaml
+          git diff --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy: saradomin runs ${GITHUB_SHA::7}"
+          git pull --rebase origin main
+          git push origin HEAD:main

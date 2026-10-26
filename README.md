@@ -46,10 +46,11 @@ Everything through `LASTRO_*` variables. The full list, with explanations, is in
 
 ## Deploying to saradomin
 
-1. CI builds and pushes `ghcr.io/<user>/lastro:<sha>` on every push to `main`.
-2. Set the image name and tag in `deploy/k8s/overlays/saradomin/kustomization.yaml` and point ArgoCD at that overlay.
-3. Create the `lastro-secrets` Secret in whatever secrets format the cluster already uses, using `secret.example.yaml` as a reference. If the GHCR image is private, the namespace also needs an `imagePullSecret`.
-4. In Cloudflare: create an Access application for the hostname, copy its AUD tag into the Secret, and point the tunnel route at `http://lastro.lastro.svc:80`.
+The app is served at `https://lastro.ftm.dev.br`, through the saradomin Cloudflare tunnel and behind Cloudflare Access.
+
+1. On every push to `main`, CI builds and pushes `ghcr.io/felipemalacarne/lastro:<sha>`, then commits that tag to `deploy/k8s/overlays/saradomin/kustomization.yaml`.
+2. Argo CD on saradomin follows that overlay on `main`, so the new image goes live without further steps.
+3. The cluster side lives in the [gielinor](https://github.com/FelipeMalacarne/gielinor) repository, in `clusters/saradomin/apps/lastro`. It holds the Argo CD `Application`, the `lastro` namespace, Postgres and the SOPS-encrypted `lastro-secrets`. The tunnel route, DNS record and Access application are in its `terraform/cloudflare/main.tf`. Its README there lists the steps to turn it on.
 
 The Deployment runs `lastro migrate` as an initContainer before `lastro serve`. The sync CronJob starts suspended and is turned on in Phase 1.
 

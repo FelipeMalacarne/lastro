@@ -1,0 +1,22 @@
+# Public only through the saradomin Cloudflare tunnel, with Cloudflare Access in front.
+# There is no LAN host: without the Access JWT every route except /healthz and /readyz
+# answers 401, so a host that skips Access would be useless.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lastro
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: lastro.ftm.dev.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lastro
+                port:
+                  name: http
