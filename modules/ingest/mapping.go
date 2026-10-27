@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	_ "time/tzdata" // the image has no zoneinfo; dates are read in São Paulo
@@ -266,4 +267,31 @@ func fold(s string) string {
 		b.WriteRune(r)
 	}
 	return strings.ToUpper(b.String())
+}
+
+// withoutBuiltBillPayments drops the copies of card bill payments Pluggy
+// builds from the bill data although the bank reported the payment too. The
+// copy has a date and no time; the bank's has its time and the same amount on
+// the same day. A date-only payment without such a twin is the only record
+// of that payment and stays. It returns how many it dropped.
+func withoutBuiltBillPayments(txs []ledger.ImportedTransaction) ([]ledger.ImportedTransaction, int) {
+	dateOnly := func(t time.Time) bool { return t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Nanosecond() == 0 }
+	sameDay := func(a, b time.Time) bool {
+		ay, am, ad := a.Date()
+		by, bm, bd := b.Date()
+		return ay == by && am == bm && ad == bd
+	}
+	out := make([]ledger.ImportedTransaction, 0, len(txs))
+	dropped := 0
+	for _, t := range txs {
+		built := t.Kind == ledger.KindBillPayment && dateOnly(t.Date) && slices.ContainsFunc(txs, func(o ledger.ImportedTransaction) bool {
+			return o.Kind == ledger.KindBillPayment && !dateOnly(o.Date) && o.Amount == t.Amount && sameDay(o.Date, t.Date)
+		})
+		if built {
+			dropped++
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, dropped
 }

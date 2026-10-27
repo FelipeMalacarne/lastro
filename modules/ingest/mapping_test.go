@@ -232,3 +232,30 @@ func TestKindByDescription(t *testing.T) {
 		}
 	}
 }
+
+func TestWithoutBuiltBillPayments(t *testing.T) {
+	sp, _ := time.LoadLocation("America/Sao_Paulo")
+	at := func(d, h, m int) time.Time { return time.Date(2026, 9, d, h, m, 0, 0, sp) }
+	pay := func(id string, when time.Time, cents int64) ledger.ImportedTransaction {
+		ext, _ := ledger.NewExternalID(id)
+		return ledger.ImportedTransaction{ExternalID: ext, Date: when, Description: "Pagamento recebido", Amount: money.BRLCents(cents), Kind: ledger.KindBillPayment, Status: ledger.StatusPosted}
+	}
+	purchase := pay("p", at(1, 0, 0), -4890)
+	purchase.Kind = ledger.KindExpense
+	in := []ledger.ImportedTransaction{
+		pay("built", at(1, 0, 0), 101515), pay("bank", at(1, 19, 7), 101515), // Pluggy's copy and the bank's
+		pay("alone", at(3, 0, 0), 128666),                                    // no twin: the only record
+		pay("other", at(28, 0, 0), 115847), pay("other-bank", at(28, 17, 20), 99999),
+		pay("both-dated-a", at(10, 0, 0), 5000), pay("both-dated-b", at(10, 0, 0), 5000),
+		purchase,
+	}
+	out, dropped := withoutBuiltBillPayments(in)
+	if dropped != 1 || len(out) != len(in)-1 {
+		t.Fatalf("only the copy with a timed twin goes: dropped %d, kept %d", dropped, len(out))
+	}
+	for _, tx := range out {
+		if tx.ExternalID.String() == "built" {
+			t.Error("the built copy stayed")
+		}
+	}
+}

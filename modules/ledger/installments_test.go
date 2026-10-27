@@ -24,7 +24,7 @@ func TestGroupInstallments(t *testing.T) {
 		// Nubank's suffix, and the rounding left on the first installment.
 		row("a3", "Pag*Gatona 3/3", 3, 3, -5767, day(2026, 1, 29)),
 		row("a1", "Pag*Gatona 1/3", 1, 3, -5770, day(2025, 12, 22)),
-		row("a2", "Pag*Gatona 2/3", 2, 3, -5767, day(2025, 12, 29)),
+		row("a2", "PAG*GATONA 2/3", 2, 3, -5767, day(2025, 12, 29)), // the bank's capitals, once
 		// Two purchases at the same shop with the same count: told apart by amount.
 		row("b1", "Fast Shop", 1, 10, -31990, day(2026, 8, 22)),
 		row("b2", "Fast Shop", 2, 10, -31990, day(2026, 9, 22)),

@@ -24,7 +24,7 @@ type InstallmentRow struct {
 // Purchase is one card purchase split into installments, as far as the
 // ledger can tell: the source has no id for it (see GroupInstallments).
 type Purchase struct {
-	Description  string // without the "3/12" some banks append
+	Description  string // the first installment's, without the "3/12" some banks append
 	Total        int
 	Amount       money.Money // of one installment, the latest one's
 	Installments []InstallmentRow
@@ -36,8 +36,9 @@ var installmentSuffix = regexp.MustCompile(`\s*\d{1,3}/\d{1,3}\s*$`)
 // GroupInstallments puts the installments of an account's purchases
 // together. The source has no purchase id, and the purchase date it sends is
 // each future installment's own date, so a purchase is the installments with
-// the same description (without the "n/m" suffix), the same count and the
-// same amount, within a cent per installment: the rounding left over when a
+// the same description (without the "n/m" suffix, ignoring case: Nubank
+// sometimes writes one in capitals), the same count and the same amount,
+// within a cent per installment: the rounding left over when a
 // price is split lands on the first one. An installment number appears once
 // per purchase; a second "3 of 10" of the same shop and amount is another
 // purchase. Purchases come out by their first installment's date.
@@ -45,7 +46,7 @@ func GroupInstallments(rows []InstallmentRow) []Purchase {
 	sorted := slices.Clone(rows)
 	slices.SortFunc(sorted, func(a, b InstallmentRow) int {
 		return cmp.Or(
-			strings.Compare(baseDescription(a.Description), baseDescription(b.Description)),
+			strings.Compare(strings.ToLower(baseDescription(a.Description)), strings.ToLower(baseDescription(b.Description))),
 			cmp.Compare(a.Installment.total, b.Installment.total),
 			cmp.Compare(a.Installment.number, b.Installment.number),
 			a.Date.Compare(b.Date),
@@ -60,7 +61,7 @@ func GroupInstallments(rows []InstallmentRow) []Purchase {
 		base := baseDescription(r.Description)
 		i := slices.IndexFunc(out, func(p Purchase) bool {
 			diff := p.Amount.Cents() - r.Amount.Cents()
-			return p.Description == base && p.Total == r.Installment.total &&
+			return strings.EqualFold(p.Description, base) && p.Total == r.Installment.total &&
 				diff <= int64(p.Total) && diff >= -int64(p.Total) &&
 				!slices.ContainsFunc(p.Installments, func(x InstallmentRow) bool { return x.Installment.number == r.Installment.number })
 		})

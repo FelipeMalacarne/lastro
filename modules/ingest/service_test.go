@@ -13,6 +13,7 @@ import (
 	"lastro/modules/ingest/internal/fixtures"
 	"lastro/modules/ingest/internal/pluggy"
 	"lastro/modules/ledger"
+	"lastro/money"
 	"lastro/platform/db/dbtest"
 	"lastro/platform/events"
 )
@@ -79,7 +80,7 @@ func newSync(t *testing.T) (*Service, *fakePluggy, *ledger.Service) {
 
 func TestSyncEndToEnd(t *testing.T) {
 	ctx := context.Background()
-	s, fake, _ := newSync(t)
+	s, fake, led := newSync(t)
 
 	rep, err := s.Sync(ctx, SyncOptions{})
 	if err != nil {
@@ -128,6 +129,30 @@ func TestSyncEndToEnd(t *testing.T) {
 	}
 	if got := rep.Items[0]; got.Created+got.Updated+got.Removed != 0 || got.Unchanged != 13 {
 		t.Fatalf("reprocess must change nothing: %+v", got)
+	}
+
+	// A transaction the raw records do not hold (imported under an older
+	// rule, say) goes on the next reprocess, whatever its date.
+	var card pluggy.Account
+	for _, a := range fake.set.Accounts["a0000000-0000-4000-8000-000000000001"] {
+		if a.Type == "CREDIT" {
+			card = a
+		}
+	}
+	ext, _ := ledger.NewExternalID(card.ID)
+	stray, _ := ledger.NewExternalID("stray-1")
+	if _, err := led.ImportTransactions(ctx, ledger.ImportBatch{Account: ext, Transactions: []ledger.ImportedTransaction{{
+		ExternalID: stray, Date: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), Description: "Pagamento recebido",
+		Amount: money.BRLCents(148237), Kind: ledger.KindBillPayment, Status: ledger.StatusPosted,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	rep, err = s.Sync(ctx, SyncOptions{Reprocess: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed := rep.Items[0].Removed; removed != 1 {
+		t.Fatalf("the stray transaction is removed: %+v", rep.Items[0])
 	}
 
 	conns, err := s.Connections(ctx)
@@ -211,7 +236,7 @@ func TestSyncMeuPluggyFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := rep.Items[0]
-	if it.Institution != "Nubank" || it.Accounts != 2 || it.Created != 561 || it.Skipped != 0 || it.Investments != 115 || rep.Paired != 22 {
+	if it.Institution != "Nubank" || it.Accounts != 2 || it.Created != 549 || it.Skipped != 0 || it.Investments != 115 || rep.Paired != 22 {
 		t.Fatalf("first sync of the real connection: %+v, paired %d", it, rep.Paired)
 	}
 	rep, err = s.Sync(ctx, SyncOptions{})

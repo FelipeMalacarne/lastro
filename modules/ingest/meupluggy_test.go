@@ -42,14 +42,25 @@ func TestMeuPluggyFixtures(t *testing.T) {
 		if d.Type.IsCard() && (!hasLimit || d.Card.Due().IsZero() || !d.Card.Closes().IsZero()) {
 			t.Errorf("card details: %+v", d.Card)
 		}
+		var ins []ledger.ImportedTransaction
 		for _, pt := range s.Transactions[pa.ID] {
 			in, err := mapTransaction(pt, pa)
 			if err != nil {
 				t.Fatalf("transaction %s: %v", pt.ID, err)
 			}
+			ins = append(ins, in)
+		}
+		// Pluggy builds a date-only copy of 12 of the card's payments, which
+		// Nubank reported with their time; one older copy has no twin.
+		var dropped int
+		ins, dropped = withoutBuiltBillPayments(ins)
+		if want := map[bool]int{true: 12, false: 0}[d.Type.IsCard()]; dropped != want {
+			t.Errorf("%s: dropped %d built bill payments, want %d", d.Type, dropped, want)
+		}
+		for _, in := range ins {
 			tx, err := ledger.NewTransaction(acc, in)
 			if err != nil {
-				t.Fatalf("the ledger refuses %s: %v", pt.ID, err)
+				t.Fatalf("the ledger refuses %s: %v", in.ExternalID, err)
 			}
 			kinds[in.Kind]++
 			if in.Status == ledger.StatusPending {
@@ -61,22 +72,24 @@ func TestMeuPluggyFixtures(t *testing.T) {
 			all = append(all, tx)
 		}
 	}
-	if len(all) != 561 || pending != 39 || installments != 59 {
+	if len(all) != 549 || pending != 39 || installments != 59 {
 		t.Errorf("got %d transactions, %d pending, %d installments", len(all), pending, installments)
 	}
-	// Every "Pagamento recebido" on the card is a bill payment, even the 29
-	// without PAGAMENTO_FATURA. Moves to and from my own investments are
-	// transfers: 131 by operation type and 22 more "Valor recebido de
-	// Investimentos" by description only. "Resgate de Cashback" is income.
-	if kinds[ledger.KindBillPayment] != 35 {
-		t.Errorf("bill payments on the card: %d, want 35", kinds[ledger.KindBillPayment])
+	// Every "Pagamento recebido" on the card is a bill payment, even those
+	// without PAGAMENTO_FATURA: 23 once Pluggy's copies are left out. Moves to
+	// and from my own investments are transfers: 131 by operation type and 22
+	// more "Valor recebido de Investimentos" by description only. "Resgate de
+	// Cashback" is income.
+	if kinds[ledger.KindBillPayment] != 23 {
+		t.Errorf("bill payments on the card: %d, want 23", kinds[ledger.KindBillPayment])
 	}
 	if kinds[ledger.KindTransfer] != 153 {
 		t.Errorf("moves to and from my own investments: %d, want 153", kinds[ledger.KindTransfer])
 	}
 
-	// The 59 installments are 11 purchases, each a run of installments with
-	// no number twice (see ledger.GroupInstallments).
+	// The 59 installments are 10 purchases, each a run of installments with
+	// no number twice (see ledger.GroupInstallments): one of them has its last
+	// installment written in capitals.
 	var rows []ledger.InstallmentRow
 	for _, tx := range all {
 		if !tx.Installment().IsZero() {
@@ -84,8 +97,8 @@ func TestMeuPluggyFixtures(t *testing.T) {
 		}
 	}
 	purchases := ledger.GroupInstallments(rows)
-	if len(purchases) != 11 {
-		t.Errorf("installments group into %d purchases, want 11", len(purchases))
+	if len(purchases) != 10 {
+		t.Errorf("installments group into %d purchases, want 10", len(purchases))
 	}
 	for _, p := range purchases {
 		first := p.Installments[0].Installment.Number()
