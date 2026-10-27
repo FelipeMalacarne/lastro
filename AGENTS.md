@@ -8,7 +8,7 @@ Guide for coding agents (Claude Code, Codex, Cursor and the like). It applies to
 
 ## Current state
 
-M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is done too: market data, positions, the daily valuation, the contribution planner and theses. M5 (planning and insights) brings projections, the scoreboard and alerts. The next task is always the first unchecked box in `docs/PLAN.md`.
+M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is done too: market data, positions, the daily valuation, the contribution planner and theses. M5 (planning and insights) is done: projections with a Monte Carlo, the yearly scoreboard and alerts. M6 is the backlog of remaining features. The next task is always the first unchecked box in `docs/PLAN.md`.
 
 ## Commands
 

@@ -89,9 +89,17 @@ Every transaction has a category or is waiting in the review queue, and every co
 - [x] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (ADR-0007: in the app, with Telegram as an optional push)
 - [x] Monte Carlo (optional)
 
-## Out of the way until M4
+## M6: the rest of the features (backlog)
 
-Splitting a transaction across categories, notes and tags on transactions, valuation metrics, and price alerts.
+What `FEATURES.md` still lists, in the order that pays most. Each screen change starts on the canvas.
+
+- [ ] Split a transaction across categories (F2 P1)
+- [ ] Notes and tags on a transaction (F2 P1)
+- [ ] Dividends received, per stock and per year (F8 P1)
+- [ ] Valuation metrics per stock (P/E, P/B, dividend yield) and their history, once the source is chosen (F8 P1; open question in `FEATURES.md`)
+- [ ] Monthly report at the start of each month, through the alerts channel (F10 P2)
+- [ ] Price alerts, e.g. a stock down more than X% in a day (F8 P2)
+- [ ] Manual entries for cash or accounts outside Open Finance (F1 P2)
 
 ## Parked
 
