@@ -228,26 +228,46 @@ func (s *Service) ArchiveCategory(ctx context.Context, id ledger.CategoryID) (in
 // the category. A rule with the same pattern and account is retargeted
 // instead of duplicated.
 func (s *Service) Learn(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) error {
+	_, err := s.learn(ctx, p, account, category)
+	return err
+}
+
+// learned is the rule a correction taught and its category before it; a
+// zero one means the correction created the rule.
+type learned struct {
+	rule RuleID
+	was  ledger.CategoryID
+}
+
+func (s *Service) learn(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (learned, error) {
 	c, err := s.repo.category(ctx, category)
 	if err != nil {
-		return fmt.Errorf("categorize: learn: %w", err)
+		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
 	now := s.now()
 	rule, err := s.repo.ruleByPattern(ctx, p, account)
 	if err != nil {
-		return fmt.Errorf("categorize: learn: %w", err)
+		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
+	var was ledger.CategoryID
 	if rule == nil {
 		if rule, err = NewRule(p, account, c, now); err != nil {
-			return err
+			return learned{}, err
 		}
-	} else if changed, err := rule.Retarget(c, now); err != nil || !changed {
-		return err
+	} else {
+		was = rule.Category()
+		changed, err := rule.Retarget(c, now)
+		if err != nil {
+			return learned{}, err
+		}
+		if !changed {
+			return learned{rule: rule.ID(), was: was}, nil
+		}
 	}
 	if err := s.repo.saveRule(ctx, rule); err != nil {
-		return fmt.Errorf("categorize: learn: %w", err)
+		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
-	return nil
+	return learned{rule: rule.ID(), was: was}, nil
 }
 
 // Review is the review queue: every transaction waiting for a category,
@@ -273,35 +293,69 @@ func (s *Service) Review(ctx context.Context) (Review, error) {
 	return Review{Waiting: len(txs), Groups: GroupForReview(txs), Suggestions: sugs}, nil
 }
 
+// Change is what a choice did: how many other transactions it categorized,
+// and what puts everything back.
+type Change struct {
+	Categorized int
+	Undo        Undo
+}
+
 // Correct settles part of the queue: the pattern becomes a rule (or
 // retargets the one it already is), and the rules run again over every
 // transaction automation categorized or left waiting (never one I chose by
-// hand). It returns how many transactions it categorized.
-func (s *Service) Correct(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (int, error) {
-	if err := s.Learn(ctx, p, account, category); err != nil {
-		return 0, err
+// hand).
+func (s *Service) Correct(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (Change, error) {
+	before, err := s.snapshot(ctx)
+	if err != nil {
+		return Change{}, fmt.Errorf("categorize: correct: %w", err)
 	}
-	return s.Reapply(ctx)
+	return s.correct(ctx, before, p, account, category)
+}
+
+func (s *Service) correct(ctx context.Context, before snapshot, p Pattern, account ledger.AccountID, category ledger.CategoryID) (Change, error) {
+	l, err := s.learn(ctx, p, account, category)
+	if err != nil {
+		return Change{}, err
+	}
+	n, err := s.Reapply(ctx)
+	if err != nil {
+		return Change{}, err
+	}
+	after, err := s.snapshot(ctx)
+	if err != nil {
+		return Change{}, fmt.Errorf("categorize: correct: %w", err)
+	}
+	return Change{Categorized: n, Undo: Undo{Rule: l.rule, WasRule: l.was, Before: changed(before, after)}}, nil
 }
 
 // SetCategory is my choice for one transaction: it always wins over a rule
 // or the model. With a pattern, it also teaches that rule and runs it over
-// what is still waiting; it returns how many others got a category.
-func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, category ledger.CategoryID, teach *Pattern) (int, error) {
+// what is still waiting; Categorized counts the others that got one.
+func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, category ledger.CategoryID, teach *Pattern) (Change, error) {
 	c, err := s.repo.category(ctx, category)
 	if err != nil {
-		return 0, fmt.Errorf("categorize: set category: %w", err)
+		return Change{}, fmt.Errorf("categorize: set category: %w", err)
 	}
 	if c.Archived {
-		return 0, fmt.Errorf("%w: %s", ErrArchived, c.Name)
+		return Change{}, fmt.Errorf("%w: %s", ErrArchived, c.Name)
 	}
+	before, err := s.snapshot(ctx)
+	if err != nil {
+		return Change{}, fmt.Errorf("categorize: set category: %w", err)
+	}
+	// A manual category is not in the snapshot: read this one's as it is.
+	d, err := s.ledger.Transaction(ctx, tx)
+	if err != nil {
+		return Change{}, fmt.Errorf("categorize: set category: %w", err)
+	}
+	before[tx] = beforeOf(tx, d.Transaction.Category)
 	if err := s.ledger.Categorize(ctx, tx, category, ledger.SourceManual); err != nil {
-		return 0, fmt.Errorf("categorize: set category: %w", err)
+		return Change{}, fmt.Errorf("categorize: set category: %w", err)
 	}
 	if teach == nil {
-		return 0, nil
+		return Change{Undo: Undo{Before: []Before{before[tx]}}}, nil
 	}
-	return s.Correct(ctx, *teach, "", category)
+	return s.correct(ctx, before, *teach, "", category)
 }
 
 // RuleView is a rule as the Categories and rules screen lists it: in the

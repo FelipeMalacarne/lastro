@@ -198,6 +198,15 @@ export type Category = { id: string; name: string; color: NoteColor; budgeted: b
 export type PatternKind = "contains" | "exact";
 export type Pattern = { kind: PatternKind; text: string };
 
+/** What puts a choice back: a choice answers with it and POST /api/v1/undo takes it. */
+export type Undo = { rule?: string; wasRule?: string; before: { transaction: string; category?: string; source?: string }[] };
+export type Change = { categorized: number; undo: Undo };
+
+/** Two undos as one, for a choice made transaction by transaction. */
+export function joinUndo(a: Undo | null, b: Undo): Undo {
+  return a ? { ...b, rule: b.rule ?? a.rule, wasRule: b.wasRule ?? a.wasRule, before: [...a.before, ...b.before] } : b;
+}
+
 export type ReviewGroup = {
   pattern: Pattern | null;
   count: number;

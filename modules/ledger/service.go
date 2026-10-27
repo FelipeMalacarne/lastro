@@ -224,6 +224,30 @@ func (s *Service) Uncategorize(ctx context.Context, id TransactionID) error {
 	return nil
 }
 
+// Restore puts back a transaction's category as it was before a choice
+// that is being undone (see Transaction.Restore).
+func (s *Service) Restore(ctx context.Context, id TransactionID, c CategoryID, src Source) error {
+	var evs []events.Event
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, []TransactionID{id})
+		if err != nil {
+			return err
+		}
+		if len(txs) == 0 {
+			return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+		}
+		if err := txs[0].Restore(c, src); err != nil {
+			return err
+		}
+		evs = txs[0].PullEvents()
+		return r.SaveTransactions(ctx, txs)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: restore %s: %w", id, err)
+	}
+	return s.bus.Publish(ctx, evs...)
+}
+
 // Categorizable returns, of these transactions, the ones automation may
 // categorize: live expenses and income whose category nobody chose by hand.
 // Transfers and card bill payments never get a category.

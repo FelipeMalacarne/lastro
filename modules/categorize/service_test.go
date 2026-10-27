@@ -61,6 +61,20 @@ func categories(t *testing.T, s *Service) map[string]ledger.CategoryView {
 	return out
 }
 
+// ids is each transaction's description by id.
+func ids(t *testing.T, s *Service) map[ledger.TransactionID]string {
+	t.Helper()
+	list, err := s.ledger.Transactions(context.Background(), ledger.TransactionFilter{Month: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[ledger.TransactionID]string{}
+	for _, v := range list.Transactions {
+		out[v.ID] = v.Description
+	}
+	return out
+}
+
 func learn(t *testing.T, s *Service, kind PatternKind, text string, c Category) {
 	t.Helper()
 	if err := s.Learn(context.Background(), pattern(t, kind, text), "", c.ID); err != nil {
@@ -147,9 +161,9 @@ func TestReviewQueue(t *testing.T) {
 		t.Fatalf("four waiting, iFood's two together first: %+v", rv)
 	}
 
-	n, err := s.Correct(ctx, rv.Groups[0].Pattern, "", cats["Restaurants"].ID)
-	if err != nil || n != 2 {
-		t.Fatalf("one correction settles the group: %d %v", n, err)
+	ch, err := s.Correct(ctx, rv.Groups[0].Pattern, "", cats["Restaurants"].ID)
+	if err != nil || ch.Categorized != 2 {
+		t.Fatalf("one correction settles the group: %+v %v", ch, err)
 	}
 	var netflix, drogasil ledger.TransactionID
 	for _, g := range mustReview(t, s).Groups {
@@ -162,8 +176,8 @@ func TestReviewQueue(t *testing.T) {
 			}
 		}
 	}
-	if n, err := s.SetCategory(ctx, netflix, cats["Leisure"].ID, nil); err != nil || n != 0 {
-		t.Fatalf("a choice for one transaction: %d %v", n, err)
+	if ch, err := s.SetCategory(ctx, netflix, cats["Leisure"].ID, nil); err != nil || ch.Categorized != 0 {
+		t.Fatalf("a choice for one transaction: %+v %v", ch, err)
 	}
 	teach := pattern(t, PatternContains, "drogasil")
 	if _, err := s.SetCategory(ctx, drogasil, cats["Health"].ID, &teach); err != nil {
@@ -188,6 +202,62 @@ func TestReviewQueue(t *testing.T) {
 	}
 	if _, err := s.SetCategory(ctx, netflix, cats["Shopping"].ID, nil); !errors.Is(err, ErrArchived) {
 		t.Errorf("never an archived category: %v", err)
+	}
+}
+
+func TestUndo(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	importOctober(t, s, []string{"PAG*IFOOD SP", "PG *IFOOD", "Netflix.com"}, nil)
+	ifood := mustReview(t, s).Groups[0].Pattern
+
+	// A new rule: undoing it removes the rule and puts both back in the queue.
+	ch, err := s.Correct(ctx, ifood, "", cats["Restaurants"].ID)
+	if err != nil || ch.Categorized != 2 || len(ch.Undo.Before) != 2 || !ch.Undo.WasRule.IsZero() {
+		t.Fatalf("the correction and what undoes it: %+v %v", ch, err)
+	}
+	if n, err := s.Undo(ctx, ch.Undo); err != nil || n != 2 {
+		t.Fatalf("undo: %d %v", n, err)
+	}
+	if rv := mustReview(t, s); rv.Waiting != 3 {
+		t.Errorf("all three wait again: %+v", rv)
+	}
+	if rules, _ := s.Rules(ctx); len(rules) != 0 {
+		t.Errorf("the rule is gone: %+v", rules)
+	}
+
+	// A retargeted rule goes back to its category, and so do its transactions.
+	if _, err := s.Correct(ctx, ifood, "", cats["Restaurants"].ID); err != nil {
+		t.Fatal(err)
+	}
+	ch, err = s.Correct(ctx, ifood, "", cats["Groceries"].ID)
+	if err != nil || ch.Undo.WasRule != cats["Restaurants"].ID {
+		t.Fatalf("a retarget remembers the old category: %+v %v", ch, err)
+	}
+	if _, err := s.Undo(ctx, ch.Undo); err != nil {
+		t.Fatal(err)
+	}
+	if c := categories(t, s)["PG *IFOOD"]; c.ID != cats["Restaurants"].ID.String() || c.Source != string(ledger.SourceRule) {
+		t.Errorf("back to Restaurants by the rule: %+v", c)
+	}
+
+	// A manual choice over a rule's goes back to the rule's.
+	var pg ledger.TransactionID
+	for id, d := range ids(t, s) {
+		if d == "PG *IFOOD" {
+			pg = id
+		}
+	}
+	ch, err = s.SetCategory(ctx, pg, cats["Leisure"].ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Undo(ctx, ch.Undo); err != nil {
+		t.Fatal(err)
+	}
+	if c := categories(t, s)["PG *IFOOD"]; c.ID != cats["Restaurants"].ID.String() || c.Source != string(ledger.SourceRule) {
+		t.Errorf("a manual choice undone goes back to the rule's: %+v", c)
 	}
 }
 

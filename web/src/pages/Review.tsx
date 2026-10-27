@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Sparkles } from "lucide-react";
+import { Check, RotateCcw, Sparkles } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -7,7 +7,7 @@ import { CategoryDecision } from "@/components/CategoryDecision";
 import { Kbd } from "@/components/Kbd";
 import { Panel } from "@/components/Panel";
 import { Button } from "@/components/ui/button";
-import { send, useResource, type Pattern, type Review as ReviewData, type ReviewGroup } from "@/lib/api";
+import { joinUndo, send, useResource, type Change, type Pattern, type Review as ReviewData, type ReviewGroup, type Undo } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDay } from "@/lib/format";
 import { useWide } from "@/lib/media";
@@ -23,18 +23,37 @@ export function Review() {
   const [at, setAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ token: Undo; what: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const groups = res.data?.groups ?? [];
   const index = Math.min(at, Math.max(groups.length - 1, 0));
   const group = groups[index];
 
-  // J and K move through the groups, S skips one.
+  async function takeBack() {
+    if (!undo || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await send("POST", "/api/v1/undo", undo.token);
+      setDone(`Undone. ${undo.what}`);
+      setUndo(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // J and K move through the groups, S skips one, U undoes the last choice.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
       if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
-      if (e.key === "j" || e.key === "ArrowDown" || e.key === "s") {
+      if (e.key === "u") {
+        e.preventDefault();
+        void takeBack();
+      } else if (e.key === "j" || e.key === "ArrowDown" || e.key === "s") {
         e.preventDefault();
         setAt((i) => Math.min(i + 1, groups.length - 1));
       } else if (e.key === "k" || e.key === "ArrowUp") {
@@ -44,21 +63,32 @@ export function Review() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [groups.length]);
+  });
 
   async function choose(g: ReviewGroup, category: string, teach: Pattern | null) {
     setBusy(true);
     setError(null);
     try {
       let n: number;
+      let token: Undo | null = null;
       if (teach) {
-        n = (await send<{ categorized: number }>("POST", "/api/v1/review", { pattern: teach, category })).categorized;
+        const r = await send<Change>("POST", "/api/v1/review", { pattern: teach, category });
+        n = r.categorized;
+        token = r.undo;
       } else {
-        for (const t of g.transactions) await send("PUT", `/api/v1/transactions/${t.id}/category`, { category });
+        for (const t of g.transactions) token = joinUndo(token, (await send<Change>("PUT", `/api/v1/transactions/${t.id}/category`, { category })).undo);
         n = g.transactions.length;
       }
       const name = byId.get(category)?.name ?? "the category";
-      setDone(`${name}: ${n} ${n === 1 ? "transaction" : "transactions"}${teach ? `, and a rule for “${teach.text}”` : ""}.`);
+      const many = `${n} ${n === 1 ? "transaction" : "transactions"}`;
+      setDone(`${name}: ${many}${teach ? `, and a rule for “${teach.text}”` : ""}.`);
+      if (token)
+        setUndo({
+          token,
+          what: teach
+            ? `The rule for “${teach.text}” is ${token.wasRule ? "back to its old category" : "gone"} and its ${many} are back as they were.`
+            : `The ${many} are back in the queue.`,
+        });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -78,13 +108,21 @@ export function Review() {
       <PageHeader title="To review" caption={caption} monthless />
 
       {(done || error) && (
-        <p
+        <div
           role="status"
-          className={cn("m-0 flex items-center gap-2 rounded-md px-3.5 py-2 text-[14px] leading-5", error ? "bg-danger-soft" : "bg-inflow-soft")}
+          className={cn(
+            "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md py-2 pr-2 pl-3.5 text-[14px] leading-5",
+            error ? "bg-danger-soft" : undo ? "bg-inflow-soft" : "bg-paper-sunken",
+          )}
         >
-          {!error && <Check className="size-4 text-inflow" aria-hidden />}
-          {error ? `Could not save: ${error}.` : done}
-        </p>
+          {!error && (undo ? <Check className="size-4 text-inflow" aria-hidden /> : <RotateCcw className="size-4 text-ink-muted" aria-hidden />)}
+          <span className="min-w-0 flex-[1_1_320px]">{error ? `Could not save: ${error}.` : done}</span>
+          {undo && !error && (
+            <Button variant="ghost" size="sm" onClick={() => void takeBack()} disabled={busy}>
+              Undo {wide && <Kbd>U</Kbd>}
+            </Button>
+          )}
+        </div>
       )}
 
       {res.error && !res.data && <p className="m-0 type-body text-ink-muted">Could not load the queue: {res.error}.</p>}
@@ -119,6 +157,9 @@ export function Review() {
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <Kbd>S</Kbd> skip
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Kbd>U</Kbd> undo
                   </span>
                 </span>
               )

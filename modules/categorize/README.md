@@ -41,6 +41,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - The LLM answer must be an existing category. If it is not, the transaction is marked "to review".
 - A manual correction always becomes a rule, so the same mistake does not happen twice.
 - If the LLM is unavailable (zaros is off, for example), the transaction waits; it never gets a guessed category.
+- Every choice can be undone: it answers with what puts it back (the rule as it was, removed if the choice created it, and each transaction it changed with its earlier category and who chose it), and undoing restores exactly that, a manual choice included.
 
 ## API
 
@@ -49,8 +50,9 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - `PATCH /api/v1/categories/{id}`: any of `name`, `color` and `budgeted`. 409 for an archived category or a taken name.
 - `DELETE /api/v1/categories/{id}`: archives it and answers `{"rulesRemoved": n}`.
 - `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest`, its newest five transactions and the model's `suggestion` (`category`, `confidence` in percent) when it named one.
-- `POST /api/v1/review` `{"pattern": {"kind", "text"}, "category"}`: teaches the rule and answers how many transactions it categorized.
-- `PUT /api/v1/transactions/{id}/category` `{"category", "teach"}`: my choice for one transaction (manual, never overwritten); with `teach`, it also becomes a rule.
+- `POST /api/v1/review` `{"pattern": {"kind", "text"}, "category"}`: teaches the rule and answers `{"categorized", "undo"}`.
+- `PUT /api/v1/transactions/{id}/category` `{"category", "teach"}`: my choice for one transaction (manual, never overwritten); with `teach`, it also becomes a rule. Answers `{"categorized", "undo"}`.
+- `POST /api/v1/undo`: takes back a choice; the body is the `undo` it answered with (`rule`, `wasRule`, `before`). Answers `{"restored": n}`.
 - `GET /api/v1/patterns/suggest?description=…`: the pattern a correction of that description would teach.
 - `GET /api/v1/rules`: every rule in the order the engine tries them, each with `order`, `meets` (transactions its pattern matches), `decides` (transactions it settles now) and `last` (the newest of those).
 - `POST /api/v1/rules` `{"pattern", "account", "category"}`: teaches a rule directly; `account` is optional.

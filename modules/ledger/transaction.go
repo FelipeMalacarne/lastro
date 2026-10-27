@@ -184,6 +184,28 @@ func (t *Transaction) Uncategorize() error {
 	return nil
 }
 
+// Restore puts back the category a transaction had before a choice I
+// undo, whoever made it, a manual one included. An empty category leaves it
+// waiting for one again.
+func (t *Transaction) Restore(c CategoryID, src Source) error {
+	if t.IsRemoved() {
+		return fmt.Errorf("%w: %s", ErrRemoved, t.id)
+	}
+	if c.IsZero() {
+		t.category, t.categorySrc = CategoryID{}, ""
+		return nil
+	}
+	if _, err := ParseSource(string(src)); err != nil {
+		return err
+	}
+	if t.category == c && t.categorySrc == src {
+		return nil
+	}
+	t.category, t.categorySrc = c, src
+	t.events = append(t.events, TransactionCategorized{TransactionID: t.id, Category: c, Source: src})
+	return nil
+}
+
 // Pair links the two sides of a movement between my own accounts: out
 // leaves one account and in arrives at another, with the same amount. Into
 // a card it is a bill payment; between bank accounts, a transfer. While

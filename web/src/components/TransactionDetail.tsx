@@ -9,7 +9,7 @@ import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { Kbd } from "@/components/Kbd";
 import { Sparkline } from "@/components/Sparkline";
 import { Button } from "@/components/ui/button";
-import { send, typeLabel, useResource, type Pattern, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
+import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail, type Undo } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDate, formatDay, formatMonth, formatWeekday } from "@/lib/format";
 import { Link, hrefWith } from "@/lib/router";
@@ -218,19 +218,36 @@ function CategorySection({ t }: { t: Transaction }) {
   const [open, setOpen] = useState(!t.category);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [undo, setUndo] = useState<Undo | null>(null);
   const current = t.category ? byId.get(t.category.id) : undefined;
   useEffect(() => {
     setOpen(!t.category);
     setMsg(null);
   }, [t.id, t.category]);
+  useEffect(() => setUndo(null), [t.id]);
+
+  async function takeBack() {
+    if (!undo) return;
+    setBusy(true);
+    try {
+      await send("POST", "/api/v1/undo", undo);
+      setUndo(null);
+      setMsg("Undone.");
+    } catch (e) {
+      setMsg(`Could not undo: ${(e as Error).message}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function choose(category: string, teach: Pattern | null) {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await send<{ categorized: number }>("PUT", `/api/v1/transactions/${t.id}/category`, { category, teach });
+      const r = await send<Change>("PUT", `/api/v1/transactions/${t.id}/category`, { category, teach });
       setOpen(false);
-      setMsg(r.categorized ? `And ${r.categorized} more like it.` : null);
+      setUndo(r.undo);
+      setMsg(r.categorized ? `And ${r.categorized} more like it.` : "Saved.");
     } catch (e) {
       setMsg(`Could not save: ${(e as Error).message}.`);
     } finally {
@@ -251,7 +268,16 @@ function CategorySection({ t }: { t: Transaction }) {
           </Button>
         )}
       </div>
-      {msg && <p className="m-0 type-caption text-ink-muted">{msg}</p>}
+      {msg && (
+        <p className="m-0 flex flex-wrap items-center gap-x-2 type-caption text-ink-muted">
+          {msg}
+          {undo && (
+            <Button variant="ghost" size="sm" onClick={() => void takeBack()} disabled={busy}>
+              Undo
+            </Button>
+          )}
+        </p>
+      )}
       {open && <CategoryDecision categories={live} current={t.category?.id} suggested={suggestion.data?.pattern ?? null} onChoose={choose} busy={busy} />}
     </>
   );

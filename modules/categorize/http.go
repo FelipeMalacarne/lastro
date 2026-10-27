@@ -257,12 +257,12 @@ func (s *Service) registerReviewRoutes(mux *http.ServeMux, logger *slog.Logger) 
 			httpx.WriteError(w, r, logger, err)
 			return
 		}
-		n, err := s.Correct(r.Context(), p, "", c)
+		ch, err := s.Correct(r.Context(), p, "", c)
 		if err != nil {
 			httpx.WriteError(w, r, logger, apiError(err))
 			return
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"categorized": n})
+		httpx.JSON(w, http.StatusOK, changeJSON(ch))
 	})
 
 	// PUT /api/v1/transactions/{id}/category {"category": "<id>", "teach": {"kind": "contains", "text": "IFOOD"}}
@@ -295,13 +295,95 @@ func (s *Service) registerReviewRoutes(mux *http.ServeMux, logger *slog.Logger) 
 			}
 			teach = &p
 		}
-		n, err := s.SetCategory(r.Context(), ledger.TransactionID(id), c, teach)
+		ch, err := s.SetCategory(r.Context(), ledger.TransactionID(id), c, teach)
 		if err != nil {
 			httpx.WriteError(w, r, logger, apiError(err))
 			return
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"categorized": n})
+		httpx.JSON(w, http.StatusOK, changeJSON(ch))
 	})
+
+	// POST /api/v1/undo {"rule": "<id>", "wasRule": "<category id>", "before": [...]}
+	// takes back a choice: the body is the "undo" a choice answered with.
+	mux.HandleFunc("POST /api/v1/undo", func(w http.ResponseWriter, r *http.Request) {
+		var in undoJSON
+		if err := decode(w, r, &in, "the undo a choice answered with"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		u, err := in.parse()
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		n, err := s.Undo(r.Context(), u)
+		if err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"restored": n})
+	})
+}
+
+// undoJSON is an Undo on the wire: a choice answers with it, and the undo
+// endpoint takes it back.
+type undoJSON struct {
+	Rule    string       `json:"rule,omitempty"`
+	WasRule string       `json:"wasRule,omitempty"`
+	Before  []beforeJSON `json:"before"`
+}
+
+type beforeJSON struct {
+	Transaction string `json:"transaction"`
+	Category    string `json:"category,omitempty"`
+	Source      string `json:"source,omitempty"`
+}
+
+func changeJSON(ch Change) map[string]any {
+	u := undoJSON{Rule: string(ch.Undo.Rule), WasRule: ch.Undo.WasRule.String(), Before: []beforeJSON{}}
+	for _, b := range ch.Undo.Before {
+		u.Before = append(u.Before, beforeJSON{Transaction: string(b.Transaction), Category: b.Category.String(), Source: string(b.Source)})
+	}
+	return map[string]any{"categorized": ch.Categorized, "undo": u}
+}
+
+func (in undoJSON) parse() (Undo, error) {
+	var u Undo
+	if in.Rule != "" {
+		if !uuidRe.MatchString(in.Rule) {
+			return Undo{}, httpx.BadRequest("rule must be a rule id")
+		}
+		u.Rule = RuleID(in.Rule)
+	}
+	if in.WasRule != "" {
+		c, err := categoryID(in.WasRule)
+		if err != nil {
+			return Undo{}, err
+		}
+		u.WasRule = c
+	}
+	if len(in.Before) > 5000 {
+		return Undo{}, httpx.BadRequest("too many transactions to undo")
+	}
+	for _, b := range in.Before {
+		if !uuidRe.MatchString(b.Transaction) {
+			return Undo{}, httpx.BadRequest("before needs transaction ids")
+		}
+		out := Before{Transaction: ledger.TransactionID(b.Transaction)}
+		if b.Category != "" {
+			c, err := categoryID(b.Category)
+			if err != nil {
+				return Undo{}, err
+			}
+			src, err := ledger.ParseSource(b.Source)
+			if err != nil {
+				return Undo{}, httpx.BadRequest("source must be rule, llm or manual")
+			}
+			out.Category, out.Source = c, src
+		}
+		u.Before = append(u.Before, out)
+	}
+	return u, nil
 }
 
 func categoryID(s string) (ledger.CategoryID, error) {
@@ -406,12 +488,12 @@ func (s *Service) registerRuleRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		if ch.Account != nil {
 			account = *ch.Account
 		}
-		n, err := s.Correct(r.Context(), *ch.Pattern, account, *ch.Category)
+		done, err := s.Correct(r.Context(), *ch.Pattern, account, *ch.Category)
 		if err != nil {
 			httpx.WriteError(w, r, logger, apiError(err))
 			return
 		}
-		httpx.JSON(w, http.StatusCreated, map[string]any{"categorized": n})
+		httpx.JSON(w, http.StatusCreated, map[string]any{"categorized": done.Categorized})
 	})
 
 	// PATCH /api/v1/rules/{id} with any of pattern, account and category.
