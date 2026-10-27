@@ -35,8 +35,8 @@ type Telegram struct {
 	ChatID   string
 }
 
-// Auth configures who gets in (ADR-0008): the OIDC provider, Cloudflare
-// Access while it is still in front, or neither in dev.
+// Auth configures who gets in (ADR-0008): the OIDC provider, or nobody
+// checked in dev.
 type Auth struct {
 	Disabled bool
 	// PublicURL is how lastro is reached, e.g. "https://lastro.ftm.dev.br".
@@ -45,9 +45,6 @@ type Auth struct {
 	// SessionKey seals the web session cookie: 32 bytes, base64. Rotating it
 	// signs every session out.
 	SessionKey []byte
-
-	TeamDomain string // Cloudflare Access, e.g. "your-team.cloudflareaccess.com"
-	Audience   string // AUD tag of the Access application
 }
 
 // OIDC is the identity provider and lastro's clients in it.
@@ -78,8 +75,6 @@ func (o OIDC) Writers() []string {
 	}
 	return append([]string{o.CLIClientID}, o.WriteClients...)
 }
-
-func (a Auth) CloudflareAccess() bool { return a.TeamDomain != "" || a.Audience != "" }
 
 // Ollama configures the local LLM. An empty URL or model disables it.
 type Ollama struct {
@@ -154,8 +149,6 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 				CLIClientID:     get("LASTRO_OIDC_CLI_CLIENT_ID", ""),
 				WriteClients:    splitList(get("LASTRO_OIDC_WRITE_CLIENTS", "")),
 			},
-			TeamDomain: get("LASTRO_CF_ACCESS_TEAM_DOMAIN", ""),
-			Audience:   get("LASTRO_CF_ACCESS_AUD", ""),
 		},
 		Ollama: Ollama{
 			URL:   get("LASTRO_OLLAMA_URL", ""),
@@ -195,19 +188,13 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// validate checks the ways in: at least one, each complete. It also decodes
+// validate checks the provider is configured and complete. It also decodes
 // the session key.
 func (a *Auth) validate(sessionKey string) []error {
-	var errs []error
-	if !a.OIDC.Enabled() && !a.CloudflareAccess() {
-		return []error{errors.New("set LASTRO_OIDC_ISSUER (or LASTRO_CF_ACCESS_TEAM_DOMAIN and LASTRO_CF_ACCESS_AUD), or LASTRO_AUTH_DISABLED=true in dev")}
-	}
-	if a.CloudflareAccess() && (a.TeamDomain == "" || a.Audience == "") {
-		errs = append(errs, errors.New("set both LASTRO_CF_ACCESS_TEAM_DOMAIN and LASTRO_CF_ACCESS_AUD"))
-	}
 	if !a.OIDC.Enabled() {
-		return errs
+		return []error{errors.New("set LASTRO_OIDC_ISSUER, or LASTRO_AUTH_DISABLED=true in dev")}
 	}
+	var errs []error
 	if a.OIDC.Audience == "" || a.OIDC.OwnerSubject == "" {
 		errs = append(errs, errors.New("with LASTRO_OIDC_ISSUER, set LASTRO_OIDC_AUDIENCE and LASTRO_OIDC_OWNER_SUBJECT"))
 	}

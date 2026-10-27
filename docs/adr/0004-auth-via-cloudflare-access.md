@@ -1,6 +1,6 @@
 # ADR-0004: Authentication delegated to Cloudflare Access
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0008](0008-identity-with-zitadel.md) on 2026-10-27. The Access application and its verifier are gone.
 **Date:** 2026-10-26
 **Deciders:** Felipe
 

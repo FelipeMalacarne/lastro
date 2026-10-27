@@ -15,14 +15,13 @@ type Authenticator struct {
 	Logger *slog.Logger
 	Web    *Web      // session cookie, and the redirect to the login
 	OIDC   *Provider // bearer tokens
-	CF     *Verifier // Cloudflare Access, while it is still in front
 	// PublicURL is lastro's own origin; unsafe requests carrying a session
 	// must come from it.
 	PublicURL string
 }
 
-// Require guards the API and the web app: a session, a bearer token or an
-// Access JWT, and a permission that covers the method.
+// Require guards the API and the web app: a session or a bearer token, and a
+// permission that covers the method.
 func (a *Authenticator) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := a.identify(r, true)
@@ -59,9 +58,8 @@ func (a *Authenticator) RequireBearer(resource string) func(http.Handler) http.H
 
 var errNoCredentials = errors.New("auth: no credentials")
 
-// identify tries the session, then a bearer token, then Access. A bearer
-// token that is present but invalid fails the request: it never falls
-// through to the next way in.
+// identify tries the session, then a bearer token. A bearer token that is
+// present but invalid fails the request.
 func (a *Authenticator) identify(r *http.Request, allowSession bool) (Identity, error) {
 	if allowSession && a.Web != nil {
 		if id, ok := a.Web.Session(r); ok {
@@ -73,11 +71,6 @@ func (a *Authenticator) identify(r *http.Request, allowSession bool) (Identity, 
 	}
 	if id, err := a.bearer(r); err != nil || id.Subject != "" {
 		return id, err
-	}
-	if a.CF != nil {
-		if t := a.CF.token(r); t != "" {
-			return a.CF.Verify(r.Context(), t)
-		}
 	}
 	return Identity{}, errNoCredentials
 }

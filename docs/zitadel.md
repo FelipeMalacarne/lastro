@@ -2,7 +2,7 @@
 
 How to set up the provider for lastro ([ADR-0008](adr/0008-identity-with-zitadel.md)) and connect the clients: the web app, the `lastro` CLI and Claude through MCP ([ADR-0009](adr/0009-mcp-server-for-claude.md)). lastro only verifies tokens, so everything here is configuration: nothing in the code names Zitadel.
 
-Until `LASTRO_OIDC_ISSUER` is set, none of this is on and Cloudflare Access keeps working as before.
+Outside dev, lastro does not start without `LASTRO_OIDC_ISSUER`: the provider is the only way in.
 
 ## 1. The project
 
@@ -43,31 +43,22 @@ LASTRO_OIDC_CLI_CLIENT_ID=<lastro-cli>
 
 Rotating `LASTRO_SESSION_KEY` signs every web session out.
 
-## 4. While Cloudflare Access is still in front
-
-Both ways in work at once: a request with a session or a bearer token is checked against Zitadel, and one with only the Access JWT against Access. To try the web login before the switch, open `https://lastro.ftm.dev.br/auth/login`.
-
-OAuth clients cannot get through Access's login page. Until the switch, the CLI and Claude need an Access **bypass** policy on `/mcp`, `/api/` with a bearer token and `/.well-known/oauth-protected-resource`, or they wait for the switch.
-
-## 5. Clients
+## 4. Clients
 
 - **CLI:** `lastro connect https://lastro.ftm.dev.br` shows a link and a code. Confirm it in the browser, and the token stays in `~/.config/lastro/config.json` (0600), refreshed by itself. `lastro whoami` shows who the server sees.
 - **Claude:** Settings → Connectors → Add custom connector, with URL `https://lastro.ftm.dev.br/mcp`. Under Advanced settings, paste `lastro-claude`'s client ID and secret. Claude finds the provider through `/.well-known/oauth-protected-resource/mcp`. Removing `lastro-claude` in Zitadel cuts it off.
 
-## 6. The switch
+## What the spike found (2026-10-27)
 
-Once the web login, the CLI and Claude work:
+Against the Zitadel on saradomin (v4.19.2), what ADR-0008 asked to confirm:
 
-1. Remove `LASTRO_CF_ACCESS_TEAM_DOMAIN` and `LASTRO_CF_ACCESS_AUD`.
-2. Remove the Access application from gielinor's `terraform/cloudflare/main.tf`.
-3. Mark ADR-0004 as superseded.
+- JWT access tokens carry the project ID in `aud`, next to the client IDs of every application in the project. lastro only asks that the project ID be there.
+- Access tokens have `client_id` but no `azp`; lastro reads `azp`, then `client_id`.
+- The device flow works for `lastro-cli` as a public client, and `lastro whoami` shows `write`.
+- The web login works in production. When the browser already has a Zitadel session, the login goes straight back without a page.
 
-The tunnel and the WAF stay.
+In the console:
 
-## What the spike checks
-
-Zitadel's gaps are in ADR-0008. Before the switch, confirm with the real provider:
-
-- JWT access tokens carry the project ID in `aud` (with the scope above).
-- The device flow works for `lastro-cli`.
-- Claude completes the flow with the pre-registered client, with the secret method it uses.
+- The web applications use the **CODE** method (client secret in Basic auth, which is what `golang.org/x/oauth2` sends first). The **PKCE** card makes a public client, which refuses the secret.
+- `lastro-cli` is created from the **PKCE** card (auth method None) and then gets the **Device Code** and **Refresh Token** grant types. The **DEVICECODE** card sets Basic auth, which a CLI without a secret cannot use.
+- A dev application with an `http://localhost` redirect needs **Development mode** on.

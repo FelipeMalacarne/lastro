@@ -72,31 +72,6 @@ func TestRequire(t *testing.T) {
 	}
 }
 
-// A bearer token that fails is final: it never falls through to Access.
-func TestBadBearerDoesNotFallThrough(t *testing.T) {
-	idp := newFakeIdP(t)
-	cf := newCFFixture(t)
-	cf.now = time.Now()
-	a := &Authenticator{Logger: quiet(), OIDC: idp.provider(t), CF: cf.v, PublicURL: publicURL}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/budget", nil)
-	bearer("a.b.c")(req)
-	req.Header.Set(HeaderName, cf.s.sign(t, rs256, cf.validClaims()))
-	rec := httptest.NewRecorder()
-	a.Require(echo()).ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status %d, want 401", rec.Code)
-	}
-
-	// The Access token alone still gets in.
-	req.Header.Del("Authorization")
-	rec = httptest.NewRecorder()
-	a.Require(echo()).ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || rec.Body.String() != "cloudflare-access" {
-		t.Fatalf("Access alone: status %d, body %q", rec.Code, rec.Body)
-	}
-}
-
 func TestUnauthorizedPointsToTheMetadata(t *testing.T) {
 	idp := newFakeIdP(t)
 	a := &Authenticator{Logger: quiet(), Web: newTestWeb(t, idp), OIDC: idp.provider(t), PublicURL: publicURL}

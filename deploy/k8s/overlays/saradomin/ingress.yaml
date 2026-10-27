@@ -1,6 +1,6 @@
-# Public only through the saradomin Cloudflare tunnel, with Cloudflare Access in front.
-# There is no LAN host: without the Access JWT every route except /healthz and /readyz
-# answers 401, so a host that skips Access would be useless.
+# Public only through the saradomin Cloudflare tunnel; lastro signs in by itself against
+# Zitadel (ADR-0008). There is no LAN host: the issuer and the redirects are the public
+# URL, so the same origin everywhere keeps the login working.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

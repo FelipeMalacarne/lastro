@@ -1,11 +1,10 @@
 // Package auth decides who is making a request (ADR-0008).
 //
 // lastro is a resource server: it verifies tokens and never issues them.
-// Three ways in, each on only when configured:
+// Two ways in:
 //
 //   - the web app's session cookie, set by the BFF login against the OIDC provider;
-//   - a bearer token from that provider (the lastro CLI, MCP clients, a phone app);
-//   - the Cloudflare Access JWT, while Access is still in front.
+//   - a bearer token from that provider (the lastro CLI, MCP clients, a phone app).
 //
 // Only the owner gets in, and what a client may do is its Permission.
 package auth
@@ -48,7 +47,7 @@ type Identity struct {
 	Email   string
 	Subject string
 	// ClientID is the OAuth client the token was issued to; "web" for a
-	// session and "cloudflare-access" for an Access JWT.
+	// session.
 	ClientID   string
 	Permission Permission
 }

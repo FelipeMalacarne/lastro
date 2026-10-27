@@ -93,14 +93,21 @@ func TestRoutesNeedCredentials(t *testing.T) {
 	}
 }
 
-func TestNoOIDCNoMetadata(t *testing.T) {
-	h := handlerWith(t, config.Auth{TeamDomain: "team.cloudflareaccess.com", Audience: "aud"})
-	for _, path := range []string{auth.MetadataPath, auth.LoginPath} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
-		// Not served: the path falls to the authenticated web app.
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("%s: status %d, want 401", path, rec.Code)
-		}
+// lastro never runs open: without a provider, and auth not turned off, the
+// app does not start.
+func TestNoProviderNoStart(t *testing.T) {
+	if _, err := newAuth(config.Config{Env: "prod"}, quietApp().Logger); err == nil {
+		t.Fatal("want an error without a sign-in provider")
+	}
+}
+
+// With auth off (dev) there is no metadata, and the answer is a 404, not the
+// web app: that is how `lastro connect` tells sign-in is off.
+func TestAuthOffNoMetadata(t *testing.T) {
+	h := handlerWith(t, config.Auth{Disabled: true})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, auth.MetadataPath, nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status %d, want 404", rec.Code)
 	}
 }

@@ -114,16 +114,17 @@ What living with the app asked for. Each screen change starts on the canvas.
 lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clients that are not a browser: the CLI on my laptop, Claude through MCP and, later, a phone app. Boxes marked "gielinor" are done in that repository.
 
 - [x] Split the binaries (ADR-0010): `cmd/lastrod` with `serve`, `sync`, `market`, `migrate`, `fixtures` and `seed`; `cmd/lastro` as a client, kept out of `app`, the modules and `platform` by depguard; Dockerfile, Taskfile, `AGENTS.md` and the READMEs follow
-- [x] `platform/auth`: generic OIDC verifier (discovery on first use, JWKS, RS256 and ES256, issuer, audience, the owner by `sub`), `Identity` with the client and its permission, `read` for `GET` and `write` for the rest, writers listed in config. Cloudflare Access stays as another way in until the switch
+- [x] `platform/auth`: generic OIDC verifier (discovery on first use, JWKS, RS256 and ES256, issuer, audience, the owner by `sub`), `Identity` with the client and its permission, `read` for `GET` and `write` for the rest, writers listed in config
 - [x] `/.well-known/oauth-protected-resource` (and `/mcp`'s), naming the CLI's client, and `WWW-Authenticate` on `401`
 - [x] Web login through a BFF: `/auth/login`, `/auth/callback`, `/auth/logout`, with PKCE, `state` and `nonce`, the session in a sealed cookie (`LASTRO_SESSION_KEY`), and the web app sent to the login on a `401`
 - [x] `lastro connect <url>`: discovery from the protected resource metadata, the device flow, tokens in `~/.config/lastro` (0600) with refresh, plus `lastro disconnect` and `lastro whoami`
 - [x] Client commands: `lastro sync` (starts a sync on the server and follows it) and `lastro contribute`, which left `lastrod`, with the integration test that runs the client against `app.Handler()`
 - [x] `/mcp`, read-only (ADR-0009): monthly report, budget, transactions with filters, accounts without numbers, categories, portfolio and contribution plan, through the official Go SDK
-- [ ] Spike: Zitadel in the dev compose (`task idp`), with the `lastro` project and its applications as in `docs/zitadel.md`. It confirms what ADR-0008 lists: the project ID in `aud` of JWT access tokens, the device flow with `lastro connect`, and Claude finishing the flow with a pre-registered client. ADR-0008 is then accepted or revised
-- [ ] gielinor: Zitadel on saradomin (namespace, a database on `postgres-main` inside its backup, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off, recovery codes in Vaultwarden. The plan is in gielinor's `clusters/saradomin/apps/zitadel/README.md` (branch `claude/zitadel-saradomin`), and this milestone's PR merges only after the spike
+- [x] Spike, against the Zitadel on saradomin instead of one in the dev compose: the project ID in `aud` of JWT access tokens, the device flow with `lastro connect` and the web login, with the `lastro` project and its applications as in `docs/zitadel.md` (what it found is there too). ADR-0008 is accepted
+- [x] gielinor: Zitadel on saradomin (namespace, a database on `postgres-main` inside its backup, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off, recovery codes in Vaultwarden. How it is set up is in gielinor's `clusters/saradomin/apps/zitadel/README.md`
 - [ ] Sign out in Settings, and the screen for a signed-out or expired session (on the canvas first)
-- [ ] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Claude connector in use from the phone, then the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed and ADR-0004 superseded
+- [x] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed (lastro does not start without a provider outside dev) and ADR-0004 superseded
+- [ ] The Claude connector in use from the phone, with the pre-registered `lastro-claude` (and whether Zitadel needs it on Basic or POST)
 
 ## Parked
 
