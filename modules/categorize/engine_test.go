@@ -1,6 +1,7 @@
 package categorize
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -68,5 +69,49 @@ func TestEngineMostSpecificWins(t *testing.T) {
 	}
 	if NewEngine(nil).Match("IFOOD", checking) != nil {
 		t.Error("no rules, no match")
+	}
+}
+
+func TestEngineDecide(t *testing.T) {
+	restaurants, leisure := category(t, "Restaurants"), category(t, "Leisure")
+	rule := func(text string, account ledger.AccountID, c Category) *Rule {
+		r, err := NewRule(pattern(t, PatternContains, text), account, c, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	e := NewEngine([]*Rule{rule("ifood", "", restaurants), rule("ifood", card, leisure)})
+	tx := func(id, description string, account ledger.AccountID) ledger.Categorizable {
+		return ledger.Categorizable{ID: ledger.TransactionID(id), Account: account, Description: description}
+	}
+
+	tests := []struct {
+		name string
+		txs  []ledger.Categorizable
+		want []Decision
+	}{
+		{"nothing to decide", nil, nil},
+		{"each one by the rule that decides it", []ledger.Categorizable{
+			tx("t1", "PAG*IFOOD SP", checking),
+			tx("t2", "IFOOD *RESTAURANTE", card),
+		}, []Decision{
+			{Transaction: "t1", Category: restaurants.ID},
+			{Transaction: "t2", Category: leisure.ID},
+		}},
+		{"what no rule meets waits in To review", []ledger.Categorizable{
+			tx("t1", "Netflix.com", checking),
+			tx("t2", "PAG*IFOOD SP", checking),
+		}, []Decision{
+			{Transaction: "t2", Category: restaurants.ID},
+		}},
+	}
+	for _, tt := range tests {
+		if got := e.Decide(tt.txs); !slices.Equal(got, tt.want) {
+			t.Errorf("%s: want %+v, got %+v", tt.name, tt.want, got)
+		}
+	}
+	if got := NewEngine(nil).Decide([]ledger.Categorizable{tx("t1", "PAG*IFOOD SP", checking)}); got != nil {
+		t.Errorf("no rules, no decisions: %+v", got)
 	}
 }

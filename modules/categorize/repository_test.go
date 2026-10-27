@@ -10,11 +10,17 @@ import (
 
 	"lastro/modules/ledger"
 	"lastro/platform/db/dbtest"
+	"lastro/platform/events"
 )
 
+// newService wires categorize to a ledger on the same database, with the
+// rules subscribed to its imports as app does.
 func newService(t *testing.T) *Service {
 	t.Helper()
-	s := New(NewRepository(dbtest.New(t)))
+	pool := dbtest.New(t)
+	bus := events.NewBus(nil)
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), bus), nil)
+	events.Subscribe(bus, s.OnTransactionsImported)
 	s.now = func() time.Time { return t0 }
 	return s
 }

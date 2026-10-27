@@ -50,6 +50,10 @@ type Repository interface {
 	// description (ignoring case), by month, in [from, to).
 	DescriptionMonths(ctx context.Context, description string, from, to time.Time) ([]MonthTotal, error)
 	DaySpending(ctx context.Context, from, to time.Time) ([]DayView, error)
+	// Categorizable returns the ones among ids that automation may
+	// categorize; Uncategorized, every one of those still without a category.
+	Categorizable(ctx context.Context, ids []TransactionID) ([]Categorizable, error)
+	Uncategorized(ctx context.Context) ([]Categorizable, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -190,6 +194,30 @@ func (s *Service) Categorize(ctx context.Context, id TransactionID, c CategoryID
 		return fmt.Errorf("ledger: categorize %s: %w", id, err)
 	}
 	return s.bus.Publish(ctx, evs...)
+}
+
+// Categorizable returns, of these transactions, the ones automation may
+// categorize: live expenses and income whose category nobody chose by hand.
+// Transfers and card bill payments never get a category.
+func (s *Service) Categorizable(ctx context.Context, ids []TransactionID) ([]Categorizable, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	txs, err := s.repo.Categorizable(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: categorizable: %w", err)
+	}
+	return txs, nil
+}
+
+// Uncategorized returns every live expense and income still without a
+// category, oldest first.
+func (s *Service) Uncategorized(ctx context.Context) ([]Categorizable, error) {
+	txs, err := s.repo.Uncategorized(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: uncategorized: %w", err)
+	}
+	return txs, nil
 }
 
 // Accounts lists every account with its latest balance.

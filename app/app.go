@@ -65,10 +65,23 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
-	a.Categorize = categorize.New(categorize.NewRepository(pool))
-	// M2 on: subscriptions, e.g. events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
+	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, logger)
+
+	// The rules categorize each import as it commits. After every sync they
+	// also reach whatever is still without a category: transactions imported
+	// before a rule existed, or while the rules could not run.
+	events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
+	events.Subscribe(a.Bus, a.categorizeAfterSync)
 
 	return a, nil
+}
+
+func (a *App) categorizeAfterSync(ctx context.Context, _ ingest.SyncCompleted) error {
+	n, err := a.Categorize.CategorizeUncategorized(ctx)
+	if n > 0 {
+		a.Logger.InfoContext(ctx, "categorized by rules after the sync", "transactions", n)
+	}
+	return err
 }
 
 // NewLogger uses readable text in dev and JSON in prod.

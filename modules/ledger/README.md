@@ -39,6 +39,8 @@
 - `GET /api/v1/transactions/{id}`: one transaction, the other side of its pair, its purchase's installments and how often its description came up in the last six months.
 - `GET /api/v1/transactions/days?month=2026-10`: spending, money in and money moved day by day, every account together, with the month before and what it had spent by the same day.
 
+For `categorize`, the Service answers what automation may categorize: live expenses and income whose category nobody chose by hand. `Categorizable(ids)` filters the given transactions; `Uncategorized()` returns every one still without a category. Transfers and card bill payments are never handed over.
+
 ## Events
 
 - Publishes: `TransactionsImported` (ids of new or changed transactions, after the import commits), `TransactionCategorized` (recorded by the aggregate, published after the commit).

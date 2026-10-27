@@ -14,12 +14,14 @@
 
 ## Flow
 
-1. Receives `TransactionsImported`.
-2. Tries the rules, from the most specific to the most generic.
+1. Receives `TransactionsImported` (`OnTransactionsImported`) and asks the ledger which of those transactions it may categorize (`ledger.Categorizable`).
+2. Tries the rules, from the most specific to the most generic (`Engine.Decide`), and sends each match to `ledger.Categorize` as a rule's choice.
 3. If no rule matches and the LLM is enabled, asks the LLM.
 4. A manual correction in the UI becomes a rule (`Service.Learn`).
 
-Today the module has the categories, the rules and the engine; the handler (step 1) and the LLM (step 3) arrive with the next M2 tasks.
+After every sync, `app` calls `CategorizeUncategorized` (on `ingest.SyncCompleted`), which runs steps 2 and 3 over every transaction still without a category: what was imported before a rule existed, or while the rules could not run.
+
+Today the module has steps 1, 2 and 4; the LLM (step 3) arrives with the `Classifier` task. Until then, what no rule meets waits in To review.
 
 ## Invariants
 
@@ -29,6 +31,9 @@ Today the module has the categories, the rules and the engine; the handler (step
 - At most one rule per pattern (kind and text) and account. A correction that meets a taught pattern retargets that rule instead of adding another.
 - A pattern has at least 3 letters or digits and at most 100 characters.
 - When several rules meet a transaction, the most specific decides: a rule limited to its account before one for every account, then exact before contains, then more words, then more characters, then the most recently taught (my latest correction wins a tie).
+- Only live expenses and income get a category from automation. Transfers and card bill payments never do, and neither does a transaction whose category I chose by hand.
+- Categorizing never fails an import: if the rules cannot run, the transactions wait without a category and the pass after the sync tries again.
+- The TransferMatcher runs after the imports, so a rule may categorize a transaction that the matcher later pairs as a transfer. It keeps that category; totals by category count only expenses and income, so it never counts.
 - The LLM is only called when no rule matches.
 - The LLM answer must be an existing category. If it is not, the transaction is marked "to review".
 - A manual correction always becomes a rule, so the same mistake does not happen twice.
@@ -43,7 +48,7 @@ Today the module has the categories, the rules and the engine; the handler (step
 
 ## Events
 
-- Consumes: `ledger.TransactionsImported` (from the handler task).
+- Consumes: `ledger.TransactionsImported`. After every sync, `app` also runs `CategorizeUncategorized` on `ingest.SyncCompleted`.
 - Publishes: none. `ledger` publishes `TransactionCategorized`.
 
 ## Milestone

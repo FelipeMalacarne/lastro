@@ -47,6 +47,24 @@ func (e *Engine) Match(description string, account ledger.AccountID) *Rule {
 	return nil
 }
 
+// Decision is the category a rule gives one transaction.
+type Decision struct {
+	Transaction ledger.TransactionID
+	Category    ledger.CategoryID
+}
+
+// Decide gives each transaction a rule meets the category of the rule that
+// decides it. The ones no rule meets are left out: they wait in To review.
+func (e *Engine) Decide(txs []ledger.Categorizable) []Decision {
+	var out []Decision
+	for _, t := range txs {
+		if r := e.Match(t.Description, t.Account); r != nil {
+			out = append(out, Decision{Transaction: t.ID, Category: r.category})
+		}
+	}
+	return out
+}
+
 // rank puts the account first and the kind second: 3 for an exact rule on
 // one account, 2 for contains on one account, 1 for exact everywhere and 0
 // for contains everywhere.

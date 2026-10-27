@@ -5,6 +5,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -298,5 +299,69 @@ func TestRepositoryTransactionViews(t *testing.T) {
 	accounts, err := svc.Accounts(ctx)
 	if err != nil || len(accounts) != 2 || accounts[0].Type != "checking" {
 		t.Fatalf("checking first: %+v %v", accounts, err)
+	}
+}
+
+func TestRepositoryCategorizableAndUncategorized(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, published := newService(t)
+	acc := details(t)
+	if _, err := svc.SyncAccount(ctx, acc); err != nil {
+		t.Fatal(err)
+	}
+	salary := imported(t, "salary", 1288000)
+	salary.Kind, salary.Description = KindIncome, "SALARIO"
+	xfer := imported(t, "xfer", -50000)
+	xfer.Kind = KindTransfer
+	gone := imported(t, "gone", -100)
+	b := ImportBatch{Account: acc.ExternalID, From: oct(1), Transactions: []ImportedTransaction{
+		imported(t, "food", -4890), imported(t, "chosen", -2310), imported(t, "ruled", -900), salary, xfer, gone,
+	}}
+	if _, err := svc.ImportTransactions(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	b.Transactions = b.Transactions[:5]
+	if _, err := svc.ImportTransactions(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := repo.AccountByExternalID(ctx, acc.ExternalID)
+	stored, _ := repo.TransactionsForImport(ctx, a.ID(), oct(1), nil, nil)
+	byExt := map[string]TransactionID{}
+	for _, x := range stored {
+		byExt[x.ExternalID().String()] = x.ID()
+	}
+	if err := svc.Categorize(ctx, byExt["chosen"], mustCategory(t, "leisure"), SourceManual); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Categorize(ctx, byExt["ruled"], mustCategory(t, "health"), SourceRule); err != nil {
+		t.Fatal(err)
+	}
+
+	ids := func(cs []Categorizable) map[TransactionID]bool {
+		out := map[TransactionID]bool{}
+		for _, c := range cs {
+			if c.Account != a.ID() || c.Description == "" {
+				t.Errorf("incomplete: %+v", c)
+			}
+			out[c.ID] = true
+		}
+		return out
+	}
+	got, err := svc.Categorizable(ctx, (*published)[0].TransactionIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (map[TransactionID]bool{byExt["food"]: true, byExt["ruled"]: true, byExt["salary"]: true}); !maps.Equal(ids(got), want) {
+		t.Errorf("expenses and income, a rule's category included; never a transfer, a removed one or a manual choice: %+v", got)
+	}
+	got, err = svc.Uncategorized(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (map[TransactionID]bool{byExt["food"]: true, byExt["salary"]: true}); !maps.Equal(ids(got), want) {
+		t.Errorf("only the ones without a category: %+v", got)
+	}
+	if got, err := svc.Categorizable(ctx, nil); got != nil || err != nil {
+		t.Errorf("no ids, nothing: %+v %v", got, err)
 	}
 }
