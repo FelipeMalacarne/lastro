@@ -343,7 +343,22 @@ export type NetWorthPoint = {
   totalCents: number;
 };
 
-export type Holding = {
+/** One lot of a group: a single purchase or contribution, as the bank reports it. */
+export type Lot = {
+  id: string;
+  quantity: string;
+  valueCents: number;
+  basisCents: number;
+  returnBp: number | null;
+  maturity: string | null;
+  asOf: string;
+  priced: boolean;
+};
+
+export type Reserve = "none" | "amount" | "all";
+
+/** A product held, in one or more lots (each Nubank Caixinha contribution is a CDB of its own). */
+export type PositionGroup = {
   id: string;
   name: string;
   institution: string;
@@ -351,16 +366,22 @@ export type Holding = {
   ticker: string | null;
   class: AssetClass;
   autoClass: AssetClass;
-  emergency: boolean;
-  quantity: string;
+  indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
+  rateBp: number;
+  /** How much of it is the emergency fund: none, reserveCents, or all of it. */
+  reserve: Reserve;
+  reserveCents: number;
+  /** What of it is the emergency fund today, and what it lacks to cover reserveCents. */
+  emergencyCents: number;
+  shortCents: number;
   valueCents: number;
   basisCents: number;
   returnBp: number | null;
-  indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
-  rateBp: number;
-  maturity: string | null;
+  firstMaturity: string | null;
+  lastMaturity: string | null;
   asOf: string;
   priced: boolean;
+  lots: Lot[];
 };
 
 export type Thesis = {
@@ -400,7 +421,7 @@ export type PortfolioOverview = {
   }[];
   growth: { date: string; valueCents: number; basisCents: number }[];
   benchmarks: { from: string | null; cdiBp: number | null; ipcaBp: number | null; cdiUntil: string | null; ipcaUntil: string | null };
-  holdings: Holding[];
+  groups: PositionGroup[];
   theses: Thesis[];
 };
 

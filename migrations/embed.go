@@ -36,3 +36,23 @@ func Up(ctx context.Context, pool *pgxpool.Pool) (err error) {
 	}
 	return nil
 }
+
+// DownTo rolls migrations back to a version: tests use it to check that a
+// migration carries the data that was there before it.
+func DownTo(ctx context.Context, pool *pgxpool.Pool, version int64) (err error) {
+	sqlDB := stdlib.OpenDBFromPool(pool)
+	defer func() {
+		if cerr := sqlDB.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("migrations: close: %w", cerr)
+		}
+	}()
+
+	goose.SetBaseFS(files)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("migrations: dialect: %w", err)
+	}
+	if err := goose.DownToContext(ctx, sqlDB, ".", version); err != nil {
+		return fmt.Errorf("migrations: down to %d: %w", version, err)
+	}
+	return nil
+}

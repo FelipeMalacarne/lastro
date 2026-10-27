@@ -22,13 +22,34 @@ type Holding struct {
 	At     time.Time // the day the value is from
 }
 
-// Valuation is the portfolio on a day: each class and the emergency fund,
-// with their value and what was put into them.
+// Valuation is the portfolio on a day: each group, each class and the
+// emergency fund, with their value and what was put into them.
 type Valuation struct {
 	Date      time.Time
 	Holdings  []Holding
+	Groups    []GroupValue
 	Classes   map[Class]Amounts
 	Emergency Amounts
+}
+
+// GroupValue is a group on a day: its open lots, the whole group (the open
+// lots' value; every lot's net in, the closed ones' too) and the part of it
+// that is the emergency fund.
+type GroupValue struct {
+	Group     *Group
+	Holdings  []Holding
+	Amounts   Amounts
+	Emergency Amounts
+}
+
+// Cost is what is still in the open lots, at cost: what "since bought" is
+// measured against.
+func (g GroupValue) Cost() money.Money {
+	var c int64
+	for _, h := range g.Holdings {
+		c += h.Position.Basis().Cents()
+	}
+	return money.BRLCents(c)
 }
 
 // Amounts is a value and its basis: what went in minus what came out, at
@@ -57,38 +78,43 @@ func (v Valuation) Invested() Amounts {
 	return Amounts{Value: money.BRLCents(val), Basis: money.BRLCents(basis)}
 }
 
-// Value values the open positions on a day. A stock or ETF takes the
-// latest quote when it is newer than what its bank reported; everything
-// else is what the bank said.
-func Value(positions []*Position, prices map[string]Price, day time.Time) Valuation {
+// Value values the open lots on a day. A stock or ETF takes the latest
+// quote when it is newer than what its bank reported; everything else is
+// what the bank said. Each group goes to its class, but for the part of it
+// set apart as the emergency fund.
+func Value(groups []*Group, prices map[string]Price, day time.Time) Valuation {
 	v := Valuation{Date: day, Classes: make(map[Class]Amounts, len(Classes))}
-	add := func(a Amounts, value int64, p *Position) Amounts {
-		return Amounts{
-			Value: money.BRLCents(a.Value.Cents() + value),
-			Basis: money.BRLCents(a.Basis.Cents() + p.NetIn().Cents()),
-		}
+	zero := Amounts{Value: money.BRLCents(0), Basis: money.BRLCents(0)}
+	add := func(a, b Amounts) Amounts {
+		return Amounts{Value: money.BRLCents(a.Value.Cents() + b.Value.Cents()), Basis: money.BRLCents(a.Basis.Cents() + b.Basis.Cents())}
 	}
 	for _, c := range Classes {
-		v.Classes[c] = Amounts{Value: money.BRLCents(0), Basis: money.BRLCents(0)}
+		v.Classes[c] = zero
 	}
-	v.Emergency = Amounts{Value: money.BRLCents(0), Basis: money.BRLCents(0)}
-	for _, p := range positions {
-		// A closed position is worth nothing, but what came out of it still
-		// counts in its class's flows.
-		var value int64
-		if p.Open() {
-			h := Holding{Position: p, Value: p.Value, At: p.AsOf}
-			if q, ok := prices[p.Ticker.String()]; ok && !p.Ticker.IsZero() && !p.Quantity.IsZero() && q.Date.After(p.AsOf) && !q.Date.After(day) {
-				h.Value, h.Priced, h.At = p.Quantity.Of(q.Price), true, q.Date
+	v.Emergency = zero
+	for _, g := range groups {
+		gv := GroupValue{Group: g, Amounts: zero}
+		for _, p := range g.Lots {
+			// A closed lot is worth nothing, but what came out of it still
+			// counts in its group's flows.
+			var value int64
+			if p.Open() {
+				h := Holding{Position: p, Value: p.Value, At: p.AsOf}
+				if q, ok := prices[p.Ticker.String()]; ok && !p.Ticker.IsZero() && !p.Quantity.IsZero() && q.Date.After(p.AsOf) && !q.Date.After(day) {
+					h.Value, h.Priced, h.At = p.Quantity.Of(q.Price), true, q.Date
+				}
+				gv.Holdings = append(gv.Holdings, h)
+				value = h.Value.Cents()
 			}
-			v.Holdings = append(v.Holdings, h)
-			value = h.Value.Cents()
+			gv.Amounts = add(gv.Amounts, Amounts{Value: money.BRLCents(value), Basis: p.NetIn()})
 		}
-		if p.Emergency() {
-			v.Emergency = add(v.Emergency, value, p)
-		} else {
-			c := p.Class()
-			v.Classes[c] = add(v.Classes[c], value, p)
+		var rest Amounts
+		gv.Emergency, rest = g.Reserve.split(gv.Amounts)
+		v.Emergency = add(v.Emergency, gv.Emergency)
+		v.Classes[g.Class()] = add(v.Classes[g.Class()], rest)
+		v.Holdings = append(v.Holdings, gv.Holdings...)
+		if len(gv.Holdings) > 0 {
+			v.Groups = append(v.Groups, gv)
 		}
 	}
 	return v

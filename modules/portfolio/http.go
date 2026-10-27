@@ -76,17 +76,28 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// PATCH /api/v1/positions/{id} {"class": "ipca" | "" (automatic), "emergency": true}.
-	mux.HandleFunc("PATCH /api/v1/positions/{id}", func(w http.ResponseWriter, r *http.Request) {
+	// PATCH /api/v1/position-groups/{id} {"class": "ipca" | "" (automatic),
+	// "reserve": "none" | "amount" | "all", "reserveCents": 1200000}.
+	mux.HandleFunc("PATCH /api/v1/position-groups/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Class     *string `json:"class"`
-			Emergency *bool   `json:"emergency"`
+			Class        *string `json:"class"`
+			Reserve      *string `json:"reserve"`
+			ReserveCents int64   `json:"reserveCents"`
 		}
-		if err := decode(w, r, &in, "class and emergency"); err != nil {
+		if err := decode(w, r, &in, "class, reserve and reserveCents"); err != nil {
 			fail(w, r, err)
 			return
 		}
-		if err := s.UpdatePosition(r.Context(), r.PathValue("id"), in.Class, in.Emergency); err != nil {
+		var res *Reserve
+		if in.Reserve != nil {
+			x, err := ParseReserve(*in.Reserve, in.ReserveCents)
+			if err != nil {
+				fail(w, r, err)
+				return
+			}
+			res = &x
+		}
+		if err := s.UpdateGroup(r.Context(), r.PathValue("id"), in.Class, res); err != nil {
 			fail(w, r, err)
 			return
 		}
