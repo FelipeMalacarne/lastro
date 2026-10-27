@@ -14,7 +14,7 @@ import (
 
 func TestCategoryEndpointsValidateFirst(t *testing.T) {
 	mux := http.NewServeMux()
-	New(nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	New(nil, nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	id := "/api/v1/categories/6f1c2d3e-4a5b-4c6d-8e7f-901a2b3c4d5e"
 	tests := []struct {
 		method, path, body string

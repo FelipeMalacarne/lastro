@@ -47,6 +47,14 @@ type CategoryView struct {
 	Source string `json:"source"`
 }
 
+// Categorizable is a transaction categorize may give a category to: a live
+// expense or income whose category nobody chose by hand.
+type Categorizable struct {
+	ID          TransactionID
+	Account     AccountID
+	Description string
+}
+
 // AccountRef names an account inside another view.
 type AccountRef struct {
 	ID          AccountID `json:"id"`

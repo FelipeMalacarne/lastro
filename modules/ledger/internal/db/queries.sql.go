@@ -200,6 +200,44 @@ func (q *Queries) ListBalanceSnapshots(ctx context.Context, accountID string) ([
 	return items, nil
 }
 
+const listCategorizable = `-- name: ListCategorizable :many
+
+SELECT id, account_id, description FROM ledger.transactions
+WHERE id = ANY ($1::uuid[])
+  AND removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND category_source IS DISTINCT FROM 'manual'
+ORDER BY date, id
+`
+
+type ListCategorizableRow struct {
+	ID          string
+	AccountID   string
+	Description string
+}
+
+// What categorize may categorize: live expenses and income (never transfers
+// or card bill payments) whose category nobody chose by hand.
+func (q *Queries) ListCategorizable(ctx context.Context, ids []string) ([]ListCategorizableRow, error) {
+	rows, err := q.db.Query(ctx, listCategorizable, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategorizableRow
+	for rows.Next() {
+		var i ListCategorizableRow
+		if err := rows.Scan(&i.ID, &i.AccountID, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPairCandidates = `-- name: ListPairCandidates :many
 SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
 FROM ledger.transactions t
@@ -439,6 +477,40 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 			&i.LedgerTransaction.UpdatedAt,
 			&i.AccountType,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUncategorized = `-- name: ListUncategorized :many
+SELECT id, account_id, description FROM ledger.transactions
+WHERE category_id IS NULL
+  AND removed_at IS NULL
+  AND kind IN ('expense', 'income')
+ORDER BY date, id
+`
+
+type ListUncategorizedRow struct {
+	ID          string
+	AccountID   string
+	Description string
+}
+
+func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow, error) {
+	rows, err := q.db.Query(ctx, listUncategorized)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUncategorizedRow
+	for rows.Next() {
+		var i ListUncategorizedRow
+		if err := rows.Scan(&i.ID, &i.AccountID, &i.Description); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -379,6 +379,34 @@ func (r *PostgresRepository) TransactionViews(ctx context.Context, f Transaction
 	return out, nil
 }
 
+func (r *PostgresRepository) Categorizable(ctx context.Context, ids []TransactionID) ([]Categorizable, error) {
+	s := make([]string, len(ids))
+	for i, id := range ids {
+		s[i] = string(id)
+	}
+	rows, err := r.q.ListCategorizable(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Categorizable, len(rows))
+	for i, row := range rows {
+		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) Uncategorized(ctx context.Context) ([]Categorizable, error) {
+	rows, err := r.q.ListUncategorized(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Categorizable, len(rows))
+	for i, row := range rows {
+		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description}
+	}
+	return out, nil
+}
+
 func deref(s *string) string {
 	if s == nil {
 		return ""

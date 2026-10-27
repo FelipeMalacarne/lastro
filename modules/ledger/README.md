@@ -30,6 +30,8 @@
 - `GET /api/v1/accounts`: every account with its latest balance.
 - `GET /api/v1/transactions?month=2026-10&account=<id>&flow=in|out|transfer&q=<text>`: a month of live transactions, newest first, each with its account and, for pairs, the other side's account, plus a summary (count, pending, money in and out that counts). The search ignores case and accents.
 
+For `categorize`, the Service answers what automation may categorize: live expenses and income whose category nobody chose by hand. `Categorizable(ids)` filters the given transactions; `Uncategorized()` returns every one still without a category. Transfers and card bill payments are never handed over.
+
 ## Events
 
 - Publishes: `TransactionsImported` (ids of new or changed transactions, after the import commits), `TransactionCategorized` (recorded by the aggregate, published after the commit).

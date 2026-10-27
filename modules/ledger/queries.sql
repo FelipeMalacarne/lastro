@@ -122,3 +122,21 @@ LIMIT sqlc.arg(max_rows);
 -- name: ListAccountViews :many
 SELECT id, name, institution, type, number, currency, balance_cents, balance_at FROM ledger.accounts
 ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id;
+
+-- What categorize may categorize: live expenses and income (never transfers
+-- or card bill payments) whose category nobody chose by hand.
+
+-- name: ListCategorizable :many
+SELECT id, account_id, description FROM ledger.transactions
+WHERE id = ANY (sqlc.arg(ids)::uuid[])
+  AND removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND category_source IS DISTINCT FROM 'manual'
+ORDER BY date, id;
+
+-- name: ListUncategorized :many
+SELECT id, account_id, description FROM ledger.transactions
+WHERE category_id IS NULL
+  AND removed_at IS NULL
+  AND kind IN ('expense', 'income')
+ORDER BY date, id;

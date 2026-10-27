@@ -47,7 +47,7 @@ Every transaction has a category or is waiting in the review queue, and every co
 
 - [x] `categorize`: categories (CRUD, seeded with the eight note colours) and the `Rule` aggregate, with tests
 - [x] Rule engine, from the most specific rule to the most generic
-- [ ] `TransactionsImported` handler
+- [x] `TransactionsImported` handler
 - [ ] Review queue screen, where a manual correction becomes a rule
 - [ ] `Classifier` via Ollama, validating that the answer is an existing category, with its suggestions in the queue
 - [ ] List, edit and delete rules
