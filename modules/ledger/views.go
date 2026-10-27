@@ -66,6 +66,26 @@ type Categorizable struct {
 	Description string
 	Date        time.Time // the calendar day
 	AmountCents int64     // negative when money left the account
+	Category    string    // its category's id, or empty while it has none
+	Source      Source    // who chose it: a rule or the model (never by hand)
+}
+
+// DescriptionCount is how often a description came in an account, and when
+// last: what categorize needs to say how many transactions a rule meets.
+type DescriptionCount struct {
+	Description string
+	Account     AccountID
+	Count       int
+	Last        time.Time
+}
+
+// CategoryTotal is a range's expenses and income in one category (empty:
+// still without one): money out and in, as positive cents, and how many.
+type CategoryTotal struct {
+	Category string `json:"category"` // empty: none yet
+	OutCents int64  `json:"outCents"`
+	InCents  int64  `json:"inCents"`
+	Count    int    `json:"count"`
 }
 
 // AccountRef names an account inside another view.

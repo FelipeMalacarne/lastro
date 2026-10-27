@@ -201,6 +201,54 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
 	return items, nil
 }
 
+const listAutomatable = `-- name: ListAutomatable :many
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
+WHERE removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND category_source IS DISTINCT FROM 'manual'
+ORDER BY date, id
+`
+
+type ListAutomatableRow struct {
+	ID             string
+	AccountID      string
+	Description    string
+	Date           time.Time
+	AmountCents    int64
+	CategoryID     *string
+	CategorySource *string
+}
+
+// Every live expense and income whose category nobody chose by hand: what
+// rules and the model may (re)categorize.
+func (q *Queries) ListAutomatable(ctx context.Context) ([]ListAutomatableRow, error) {
+	rows, err := q.db.Query(ctx, listAutomatable)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAutomatableRow
+	for rows.Next() {
+		var i ListAutomatableRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+			&i.CategoryID,
+			&i.CategorySource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBalanceSnapshots = `-- name: ListBalanceSnapshots :many
 SELECT account_id, date, balance_cents, currency, taken_at FROM ledger.balance_snapshots WHERE account_id = $1 ORDER BY date
 `
@@ -233,7 +281,7 @@ func (q *Queries) ListBalanceSnapshots(ctx context.Context, accountID string) ([
 
 const listCategorizable = `-- name: ListCategorizable :many
 
-SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE id = ANY ($1::uuid[])
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -242,11 +290,13 @@ ORDER BY date, id
 `
 
 type ListCategorizableRow struct {
-	ID          string
-	AccountID   string
-	Description string
-	Date        time.Time
-	AmountCents int64
+	ID             string
+	AccountID      string
+	Description    string
+	Date           time.Time
+	AmountCents    int64
+	CategoryID     *string
+	CategorySource *string
 }
 
 // What categorize may categorize: live expenses and income (never transfers
@@ -266,6 +316,58 @@ func (q *Queries) ListCategorizable(ctx context.Context, ids []string) ([]ListCa
 			&i.Description,
 			&i.Date,
 			&i.AmountCents,
+			&i.CategoryID,
+			&i.CategorySource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoryTotals = `-- name: ListCategoryTotals :many
+SELECT category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND date >= $1::date AND date < $2::date
+GROUP BY category_id
+`
+
+type ListCategoryTotalsParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListCategoryTotalsRow struct {
+	CategoryID *string
+	OutCents   int64
+	InCents    int64
+	N          int32
+}
+
+// Live expenses and income in a date range by category (null: none yet):
+// money out, money in and how many.
+func (q *Queries) ListCategoryTotals(ctx context.Context, arg ListCategoryTotalsParams) ([]ListCategoryTotalsRow, error) {
+	rows, err := q.db.Query(ctx, listCategoryTotals, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategoryTotalsRow
+	for rows.Next() {
+		var i ListCategoryTotalsRow
+		if err := rows.Scan(
+			&i.CategoryID,
+			&i.OutCents,
+			&i.InCents,
+			&i.N,
 		); err != nil {
 			return nil, err
 		}
@@ -359,6 +461,47 @@ func (q *Queries) ListDaySpending(ctx context.Context, arg ListDaySpendingParams
 			&i.Purchases,
 			&i.InCents,
 			&i.MovedCents,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDescriptionCounts = `-- name: ListDescriptionCounts :many
+SELECT description, account_id, count(*)::int AS n, max(date)::date AS last_date
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+GROUP BY description, account_id
+`
+
+type ListDescriptionCountsRow struct {
+	Description string
+	AccountID   string
+	N           int32
+	LastDate    time.Time
+}
+
+// Each description of live expenses and income, by account: how often it
+// came and when last. What a rule would meet, without loading every row.
+func (q *Queries) ListDescriptionCounts(ctx context.Context) ([]ListDescriptionCountsRow, error) {
+	rows, err := q.db.Query(ctx, listDescriptionCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDescriptionCountsRow
+	for rows.Next() {
+		var i ListDescriptionCountsRow
+		if err := rows.Scan(
+			&i.Description,
+			&i.AccountID,
+			&i.N,
+			&i.LastDate,
 		); err != nil {
 			return nil, err
 		}
@@ -785,7 +928,7 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 }
 
 const listUncategorized = `-- name: ListUncategorized :many
-SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE category_id IS NULL
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -793,11 +936,13 @@ ORDER BY date, id
 `
 
 type ListUncategorizedRow struct {
-	ID          string
-	AccountID   string
-	Description string
-	Date        time.Time
-	AmountCents int64
+	ID             string
+	AccountID      string
+	Description    string
+	Date           time.Time
+	AmountCents    int64
+	CategoryID     *string
+	CategorySource *string
 }
 
 func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow, error) {
@@ -815,6 +960,8 @@ func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow
 			&i.Description,
 			&i.Date,
 			&i.AmountCents,
+			&i.CategoryID,
+			&i.CategorySource,
 		); err != nil {
 			return nil, err
 		}

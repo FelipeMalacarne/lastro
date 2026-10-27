@@ -200,7 +200,7 @@ ORDER BY date;
 -- or card bill payments) whose category nobody chose by hand.
 
 -- name: ListCategorizable :many
-SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE id = ANY (sqlc.arg(ids)::uuid[])
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -208,8 +208,37 @@ WHERE id = ANY (sqlc.arg(ids)::uuid[])
 ORDER BY date, id;
 
 -- name: ListUncategorized :many
-SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE category_id IS NULL
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
 ORDER BY date, id;
+
+-- name: ListAutomatable :many
+-- Every live expense and income whose category nobody chose by hand: what
+-- rules and the model may (re)categorize.
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
+WHERE removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND category_source IS DISTINCT FROM 'manual'
+ORDER BY date, id;
+
+-- name: ListDescriptionCounts :many
+-- Each description of live expenses and income, by account: how often it
+-- came and when last. What a rule would meet, without loading every row.
+SELECT description, account_id, count(*)::int AS n, max(date)::date AS last_date
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+GROUP BY description, account_id;
+
+-- name: ListCategoryTotals :many
+-- Live expenses and income in a date range by category (null: none yet):
+-- money out, money in and how many.
+SELECT category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY category_id;

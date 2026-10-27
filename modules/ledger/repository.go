@@ -586,7 +586,7 @@ func (r *PostgresRepository) Categorizable(ctx context.Context, ids []Transactio
 	}
 	out := make([]Categorizable, len(rows))
 	for i, row := range rows {
-		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description, Date: row.Date, AmountCents: row.AmountCents}
+		out[i] = categorizable(db.ListAutomatableRow(row))
 	}
 	return out, nil
 }
@@ -598,7 +598,50 @@ func (r *PostgresRepository) Uncategorized(ctx context.Context) ([]Categorizable
 	}
 	out := make([]Categorizable, len(rows))
 	for i, row := range rows {
-		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description, Date: row.Date, AmountCents: row.AmountCents}
+		out[i] = categorizable(db.ListAutomatableRow(row))
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) Automatable(ctx context.Context) ([]Categorizable, error) {
+	rows, err := r.q.ListAutomatable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Categorizable, len(rows))
+	for i, row := range rows {
+		out[i] = categorizable(row)
+	}
+	return out, nil
+}
+
+func categorizable(row db.ListAutomatableRow) Categorizable {
+	return Categorizable{
+		ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description,
+		Date: row.Date, AmountCents: row.AmountCents, Category: deref(row.CategoryID), Source: Source(deref(row.CategorySource)),
+	}
+}
+
+func (r *PostgresRepository) DescriptionCounts(ctx context.Context) ([]DescriptionCount, error) {
+	rows, err := r.q.ListDescriptionCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DescriptionCount, len(rows))
+	for i, row := range rows {
+		out[i] = DescriptionCount{Description: row.Description, Account: AccountID(row.AccountID), Count: int(row.N), Last: row.LastDate}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) CategoryTotals(ctx context.Context, from, to time.Time) ([]CategoryTotal, error) {
+	rows, err := r.q.ListCategoryTotals(ctx, db.ListCategoryTotalsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CategoryTotal, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryTotal{Category: deref(row.CategoryID), OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
 	}
 	return out, nil
 }

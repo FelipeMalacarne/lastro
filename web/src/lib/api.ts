@@ -209,3 +209,18 @@ export type ReviewGroup = {
 };
 
 export type Review = { waiting: number; groups: ReviewGroup[] };
+
+export type Rule = {
+  id: string;
+  order: number;
+  pattern: Pattern;
+  account: string | null;
+  category: string;
+  meets: number;
+  decides: number;
+  last: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CategoryTotal = { category: string; outCents: number; inCents: number; count: number };

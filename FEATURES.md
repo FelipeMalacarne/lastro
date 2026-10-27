@@ -90,7 +90,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [x] The review queue suggests a category and accepts it with one click or key.
-- [ ] Rules can be listed, edited and deleted.
+- [x] Rules can be listed, edited and deleted.
 
 ### F4. Monthly budget
 

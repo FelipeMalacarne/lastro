@@ -121,7 +121,7 @@ func (r *Repository) ruleByPattern(ctx context.Context, p Pattern, account ledge
 }
 
 func (r *Repository) saveRule(ctx context.Context, rule *Rule) error {
-	return r.q.SaveRule(ctx, db.SaveRuleParams{
+	return ruleTaken(r.q.SaveRule(ctx, db.SaveRuleParams{
 		ID:          string(rule.id),
 		PatternKind: string(rule.pattern.kind),
 		Pattern:     rule.pattern.text,
@@ -129,7 +129,39 @@ func (r *Repository) saveRule(ctx context.Context, rule *Rule) error {
 		CategoryID:  rule.category.String(),
 		CreatedAt:   rule.createdAt,
 		UpdatedAt:   rule.updatedAt,
-	})
+	}))
+}
+
+// rule returns one rule, or ErrRuleNotFound.
+func (r *Repository) rule(ctx context.Context, id RuleID) (*Rule, error) {
+	row, err := r.q.GetRule(ctx, string(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: %s", ErrRuleNotFound, id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return ruleFromRow(row)
+}
+
+func (r *Repository) deleteRule(ctx context.Context, id RuleID) error {
+	n, err := r.q.DeleteRule(ctx, string(id))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %s", ErrRuleNotFound, id)
+	}
+	return nil
+}
+
+// ruleTaken turns the one-rule-per-pattern-and-account violation into ErrRuleTaken.
+func ruleTaken(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "rules_pattern_kind_pattern_account_id_key" {
+		return fmt.Errorf("%w", ErrRuleTaken)
+	}
+	return err
 }
 
 func categoryFromRow(row db.CategorizeCategory) (Category, error) {

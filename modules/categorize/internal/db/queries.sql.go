@@ -40,6 +40,18 @@ func (q *Queries) DeleteCategoryRules(ctx context.Context, categoryID string) (i
 	return result.RowsAffected(), nil
 }
 
+const deleteRule = `-- name: DeleteRule :execrows
+DELETE FROM categorize.rules WHERE id = $1
+`
+
+func (q *Queries) DeleteRule(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRule, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getCategory = `-- name: GetCategory :one
 SELECT id, name, color, budgeted, archived_at, created_at, updated_at FROM categorize.categories WHERE id = $1
 `
@@ -53,6 +65,25 @@ func (q *Queries) GetCategory(ctx context.Context, id string) (CategorizeCategor
 		&i.Color,
 		&i.Budgeted,
 		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getRule = `-- name: GetRule :one
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at FROM categorize.rules WHERE id = $1
+`
+
+func (q *Queries) GetRule(ctx context.Context, id string) (CategorizeRule, error) {
+	row := q.db.QueryRow(ctx, getRule, id)
+	var i CategorizeRule
+	err := row.Scan(
+		&i.ID,
+		&i.PatternKind,
+		&i.Pattern,
+		&i.AccountID,
+		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -209,7 +240,12 @@ func (q *Queries) ListSuggestions(ctx context.Context) ([]CategorizeSuggestion, 
 const saveRule = `-- name: SaveRule :exec
 INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (id) DO UPDATE SET category_id = EXCLUDED.category_id, updated_at = EXCLUDED.updated_at
+ON CONFLICT (id) DO UPDATE SET
+    pattern_kind = EXCLUDED.pattern_kind,
+    pattern = EXCLUDED.pattern,
+    account_id = EXCLUDED.account_id,
+    category_id = EXCLUDED.category_id,
+    updated_at = EXCLUDED.updated_at
 `
 
 type SaveRuleParams struct {

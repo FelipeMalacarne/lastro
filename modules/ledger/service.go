@@ -54,6 +54,9 @@ type Repository interface {
 	// categorize; Uncategorized, every one of those still without a category.
 	Categorizable(ctx context.Context, ids []TransactionID) ([]Categorizable, error)
 	Uncategorized(ctx context.Context) ([]Categorizable, error)
+	Automatable(ctx context.Context) ([]Categorizable, error)
+	DescriptionCounts(ctx context.Context) ([]DescriptionCount, error)
+	CategoryTotals(ctx context.Context, from, to time.Time) ([]CategoryTotal, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -218,6 +221,36 @@ func (s *Service) Uncategorized(ctx context.Context) ([]Categorizable, error) {
 		return nil, fmt.Errorf("ledger: uncategorized: %w", err)
 	}
 	return txs, nil
+}
+
+// Automatable returns every live expense and income whose category nobody
+// chose by hand: what a changed rule may recategorize.
+func (s *Service) Automatable(ctx context.Context) ([]Categorizable, error) {
+	txs, err := s.repo.Automatable(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: automatable: %w", err)
+	}
+	return txs, nil
+}
+
+// DescriptionCounts returns how often each description of live expenses and
+// income came, by account, and when last.
+func (s *Service) DescriptionCounts(ctx context.Context) ([]DescriptionCount, error) {
+	out, err := s.repo.DescriptionCounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: description counts: %w", err)
+	}
+	return out, nil
+}
+
+// CategoryTotals sums a month's live expenses and income by category.
+func (s *Service) CategoryTotals(ctx context.Context, month time.Time) ([]CategoryTotal, error) {
+	from := monthOf(month)
+	out, err := s.repo.CategoryTotals(ctx, from, from.AddDate(0, 1, 0))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: category totals: %w", err)
+	}
+	return out, nil
 }
 
 // Accounts lists every account with its latest balance.

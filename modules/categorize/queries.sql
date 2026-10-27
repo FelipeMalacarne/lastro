@@ -29,7 +29,18 @@ WHERE pattern_kind = $1 AND pattern = $2 AND account_id IS NOT DISTINCT FROM sql
 -- name: SaveRule :exec
 INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (id) DO UPDATE SET category_id = EXCLUDED.category_id, updated_at = EXCLUDED.updated_at;
+ON CONFLICT (id) DO UPDATE SET
+    pattern_kind = EXCLUDED.pattern_kind,
+    pattern = EXCLUDED.pattern,
+    account_id = EXCLUDED.account_id,
+    category_id = EXCLUDED.category_id,
+    updated_at = EXCLUDED.updated_at;
+
+-- name: GetRule :one
+SELECT * FROM categorize.rules WHERE id = $1;
+
+-- name: DeleteRule :execrows
+DELETE FROM categorize.rules WHERE id = $1;
 
 -- name: ListSuggestions :many
 -- What the model said about each merchant, leaving out answers that name a

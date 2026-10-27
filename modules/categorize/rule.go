@@ -64,3 +64,24 @@ func (r *Rule) Matches(description string, account ledger.AccountID) bool {
 	}
 	return r.pattern.Matches(description)
 }
+
+// Reshape changes what the rule looks for and where. It reports whether
+// anything changed; at most one rule per pattern and account still holds,
+// in the database.
+func (r *Rule) Reshape(p Pattern, account ledger.AccountID, now time.Time) (bool, error) {
+	if p.IsZero() {
+		return false, fmt.Errorf("%w: rule without a pattern", ErrInvalid)
+	}
+	if p == r.pattern && account == r.account {
+		return false, nil
+	}
+	r.pattern, r.account, r.updatedAt = p, account, now
+	return true, nil
+}
+
+func (r *Rule) ID() RuleID                  { return r.id }
+func (r *Rule) Pattern() Pattern            { return r.pattern }
+func (r *Rule) Account() ledger.AccountID   { return r.account }
+func (r *Rule) Category() ledger.CategoryID { return r.category }
+func (r *Rule) CreatedAt() time.Time        { return r.createdAt }
+func (r *Rule) UpdatedAt() time.Time        { return r.updatedAt }

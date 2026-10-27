@@ -17,6 +17,10 @@ var (
 	ErrNotFound = errors.New("categorize: not found")
 	// ErrNameTaken means a live category already has that name.
 	ErrNameTaken = errors.New("categorize: a category with this name exists")
+	// ErrRuleNotFound means there is no rule with that id.
+	ErrRuleNotFound = errors.New("categorize: no such rule")
+	// ErrRuleTaken means another rule already has that pattern and account.
+	ErrRuleTaken = errors.New("categorize: a rule with this pattern and account exists")
 )
 
 // Service is categorize's public facade: the category CRUD the screens use,
@@ -268,13 +272,14 @@ func (s *Service) Review(ctx context.Context) (Review, error) {
 }
 
 // Correct settles part of the queue: the pattern becomes a rule (or
-// retargets the one it already is), and the rules run over everything still
-// waiting. It returns how many transactions got a category.
+// retargets the one it already is), and the rules run again over every
+// transaction automation categorized or left waiting (never one I chose by
+// hand). It returns how many transactions it categorized.
 func (s *Service) Correct(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (int, error) {
 	if err := s.Learn(ctx, p, account, category); err != nil {
 		return 0, err
 	}
-	return s.CategorizeUncategorized(ctx)
+	return s.Reapply(ctx)
 }
 
 // SetCategory is my choice for one transaction: it always wins over a rule
@@ -295,4 +300,127 @@ func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, cate
 		return 0, nil
 	}
 	return s.Correct(ctx, *teach, "", category)
+}
+
+// RuleView is a rule as the Categories and rules screen lists it: in the
+// order the engine tries them, with how many transactions it meets and how
+// many it decides (meets with no more specific rule before it).
+type RuleView struct {
+	Rule    *Rule
+	Order   int // 1 is tried first
+	Meets   int
+	Decides int
+	Last    time.Time // the latest transaction it meets; zero when none
+}
+
+// Rules lists every rule in the order they are tried.
+func (s *Service) Rules(ctx context.Context) ([]RuleView, error) {
+	rules, err := s.repo.rules(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("categorize: rules: %w", err)
+	}
+	counts, err := s.ledger.DescriptionCounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("categorize: rules: %w", err)
+	}
+	e := NewEngine(rules)
+	views := make([]RuleView, len(e.rules))
+	at := make(map[RuleID]int, len(e.rules))
+	for i, r := range e.rules {
+		views[i] = RuleView{Rule: r, Order: i + 1}
+		at[r.id] = i
+	}
+	for _, c := range counts {
+		for _, r := range e.rules {
+			if r.Matches(c.Description, c.Account) {
+				v := &views[at[r.id]]
+				v.Meets += c.Count
+				if c.Last.After(v.Last) {
+					v.Last = c.Last
+				}
+			}
+		}
+		if r := e.Match(c.Description, c.Account); r != nil {
+			views[at[r.id]].Decides += c.Count
+		}
+	}
+	return views, nil
+}
+
+// RuleChange is an edit of a rule; a nil field stays as it is.
+type RuleChange struct {
+	Pattern  *Pattern
+	Account  *ledger.AccountID // empty: every account
+	Category *ledger.CategoryID
+}
+
+// UpdateRule edits a rule and runs the rules again over every transaction
+// automation categorized, so they follow it. It returns how many changed.
+func (s *Service) UpdateRule(ctx context.Context, id RuleID, ch RuleChange) (int, error) {
+	r, err := s.repo.rule(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("categorize: update rule: %w", err)
+	}
+	now := s.now()
+	p, account := r.pattern, r.account
+	if ch.Pattern != nil {
+		p = *ch.Pattern
+	}
+	if ch.Account != nil {
+		account = *ch.Account
+	}
+	if _, err := r.Reshape(p, account, now); err != nil {
+		return 0, err
+	}
+	if ch.Category != nil {
+		c, err := s.repo.category(ctx, *ch.Category)
+		if err != nil {
+			return 0, fmt.Errorf("categorize: update rule: %w", err)
+		}
+		if _, err := r.Retarget(c, now); err != nil {
+			return 0, err
+		}
+	}
+	if err := s.repo.saveRule(ctx, r); err != nil {
+		return 0, fmt.Errorf("categorize: update rule: %w", err)
+	}
+	return s.Reapply(ctx)
+}
+
+// DeleteRule removes a rule. The transactions it categorized keep their
+// category until a correction or another rule changes it.
+func (s *Service) DeleteRule(ctx context.Context, id RuleID) error {
+	if err := s.repo.deleteRule(ctx, id); err != nil {
+		return fmt.Errorf("categorize: delete rule: %w", err)
+	}
+	return nil
+}
+
+// Reapply runs the rules over every transaction automation may categorize
+// (never one I chose by hand), so a new or changed rule reaches what earlier
+// rules or the model decided. It returns how many changed.
+func (s *Service) Reapply(ctx context.Context) (int, error) {
+	txs, err := s.ledger.Automatable(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("categorize: reapply: %w", err)
+	}
+	rules, err := s.repo.rules(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("categorize: reapply: %w", err)
+	}
+	current := make(map[ledger.TransactionID]ledger.Categorizable, len(txs))
+	for _, t := range txs {
+		current[t.ID] = t
+	}
+	var changed []Decision
+	for _, d := range NewEngine(rules).Decide(txs) {
+		if t := current[d.Transaction]; t.Category != d.Category.String() || t.Source != ledger.SourceRule {
+			changed = append(changed, d)
+		}
+	}
+	n, err := s.categorize(ctx, changed, ledger.SourceRule)
+	if err != nil {
+		return n, fmt.Errorf("categorize: reapply: %w", err)
+	}
+	return n, nil
 }

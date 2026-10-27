@@ -72,6 +72,22 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, v, err)
 	})
 
+	// GET /api/v1/transactions/categories?month=2026-10: the month's expenses
+	// and income by category (an empty category: still without one).
+	mux.HandleFunc("GET /api/v1/transactions/categories", func(w http.ResponseWriter, r *http.Request) {
+		month, err := time.Parse("2006-01", r.URL.Query().Get("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest(`month must look like "2026-10"`))
+			return
+		}
+		totals, err := s.CategoryTotals(r.Context(), month)
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"month": month.Format("2006-01"), "categories": totals})
+	})
+
 	mux.HandleFunc("GET /api/v1/transactions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if !uuidRe.MatchString(id) {

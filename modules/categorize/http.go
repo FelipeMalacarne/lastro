@@ -39,6 +39,7 @@ type categoryBody struct {
 // RegisterRoutes adds categorize's endpoints to the authenticated API.
 func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	s.registerReviewRoutes(mux, logger)
+	s.registerRuleRoutes(mux, logger)
 
 	mux.HandleFunc("GET /api/v1/categories", func(w http.ResponseWriter, r *http.Request) {
 		cs, err := s.Categories(r.Context())
@@ -141,6 +142,10 @@ func apiError(err error) error {
 		return httpx.Conflict("a category with this name exists")
 	case errors.Is(err, ErrArchived):
 		return httpx.Conflict("the category is archived")
+	case errors.Is(err, ErrRuleNotFound):
+		return httpx.NotFound("no such rule")
+	case errors.Is(err, ErrRuleTaken):
+		return httpx.Conflict("a rule with this pattern and account exists")
 	case errors.Is(err, ledger.ErrNotFound):
 		return httpx.NotFound("no such transaction")
 	case errors.Is(err, ledger.ErrRemoved):
@@ -304,4 +309,147 @@ func categoryID(s string) (ledger.CategoryID, error) {
 		return ledger.CategoryID{}, httpx.BadRequest("category must be a category id")
 	}
 	return ledger.NewCategoryID(s)
+}
+
+type ruleJSON struct {
+	ID        string      `json:"id"`
+	Order     int         `json:"order"`
+	Pattern   patternJSON `json:"pattern"`
+	Account   *string     `json:"account"` // null: every account
+	Category  string      `json:"category"`
+	Meets     int         `json:"meets"`
+	Decides   int         `json:"decides"`
+	Last      *string     `json:"last"` // the latest transaction it meets
+	CreatedAt time.Time   `json:"createdAt"`
+	UpdatedAt time.Time   `json:"updatedAt"`
+}
+
+// ruleBody is what POST and PATCH accept. On PATCH a missing field stays;
+// "account": "" means every account.
+type ruleBody struct {
+	Pattern  *patternJSON `json:"pattern"`
+	Account  *string      `json:"account"`
+	Category *string      `json:"category"`
+}
+
+func (b ruleBody) change() (RuleChange, error) {
+	var ch RuleChange
+	if b.Pattern != nil {
+		p, err := b.Pattern.parse()
+		if err != nil {
+			return ch, apiError(err)
+		}
+		ch.Pattern = &p
+	}
+	if b.Account != nil {
+		if *b.Account != "" && !uuidRe.MatchString(*b.Account) {
+			return ch, httpx.BadRequest("account must be an account id, or empty for every account")
+		}
+		a := ledger.AccountID(*b.Account)
+		ch.Account = &a
+	}
+	if b.Category != nil {
+		c, err := categoryID(*b.Category)
+		if err != nil {
+			return ch, err
+		}
+		ch.Category = &c
+	}
+	return ch, nil
+}
+
+func (s *Service) registerRuleRoutes(mux *http.ServeMux, logger *slog.Logger) {
+	// GET /api/v1/rules: every rule, in the order the engine tries them.
+	mux.HandleFunc("GET /api/v1/rules", func(w http.ResponseWriter, r *http.Request) {
+		views, err := s.Rules(r.Context())
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		out := make([]ruleJSON, len(views))
+		for i, v := range views {
+			j := ruleJSON{
+				ID: string(v.Rule.ID()), Order: v.Order, Category: v.Rule.Category().String(),
+				Pattern: patternJSON{Kind: v.Rule.Pattern().Kind(), Text: v.Rule.Pattern().Text()},
+				Meets:   v.Meets, Decides: v.Decides, CreatedAt: v.Rule.CreatedAt(), UpdatedAt: v.Rule.UpdatedAt(),
+			}
+			if a := v.Rule.Account(); a != "" {
+				s := string(a)
+				j.Account = &s
+			}
+			if !v.Last.IsZero() {
+				d := v.Last.Format(time.DateOnly)
+				j.Last = &d
+			}
+			out[i] = j
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"rules": out})
+	})
+
+	// POST /api/v1/rules {"pattern": {...}, "account": "", "category": "<id>"}
+	mux.HandleFunc("POST /api/v1/rules", func(w http.ResponseWriter, r *http.Request) {
+		var in ruleBody
+		if err := decode(w, r, &in, "pattern, account and category"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		ch, err := in.change()
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if ch.Pattern == nil || ch.Category == nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("pattern and category are required"))
+			return
+		}
+		var account ledger.AccountID
+		if ch.Account != nil {
+			account = *ch.Account
+		}
+		n, err := s.Correct(r.Context(), *ch.Pattern, account, *ch.Category)
+		if err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		httpx.JSON(w, http.StatusCreated, map[string]any{"categorized": n})
+	})
+
+	// PATCH /api/v1/rules/{id} with any of pattern, account and category.
+	mux.HandleFunc("PATCH /api/v1/rules/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !uuidRe.MatchString(id) {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("id must be a rule id"))
+			return
+		}
+		var in ruleBody
+		if err := decode(w, r, &in, "pattern, account and category"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		ch, err := in.change()
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		n, err := s.UpdateRule(r.Context(), RuleID(id), ch)
+		if err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"categorized": n})
+	})
+
+	// DELETE /api/v1/rules/{id}
+	mux.HandleFunc("DELETE /api/v1/rules/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !uuidRe.MatchString(id) {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("id must be a rule id"))
+			return
+		}
+		if err := s.DeleteRule(r.Context(), RuleID(id)); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 }

@@ -266,3 +266,47 @@ func TestTheModelCategorizesWhatNoRuleMeets(t *testing.T) {
 		t.Errorf("and the transaction waits: %+v", rv)
 	}
 }
+
+func TestRulesListEditAndDelete(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	learn(t, s, PatternContains, "uber", cats["Transport"])
+	learn(t, s, PatternContains, "uber eats", cats["Restaurants"])
+	importOctober(t, s, []string{"UBER *TRIP", "UBER *EATS", "UBER *EATS PENDING", "NETFLIX.COM"}, nil)
+
+	views, err := s.Rules(ctx)
+	if err != nil || len(views) != 2 {
+		t.Fatalf("two rules: %+v %v", views, err)
+	}
+	eats, uber := views[0], views[1]
+	if eats.Rule.Pattern().Text() != "UBER EATS" || eats.Order != 1 || eats.Meets != 2 || eats.Decides != 2 {
+		t.Errorf("more words first, deciding both Uber Eats: %+v", eats)
+	}
+	if uber.Meets != 3 || uber.Decides != 1 || uber.Last.IsZero() {
+		t.Errorf("Uber meets all three but decides one: %+v", uber)
+	}
+
+	// Pointing Uber Eats at Leisure moves the two it decided.
+	leisure := cats["Leisure"].ID
+	if n, err := s.UpdateRule(ctx, eats.Rule.ID(), RuleChange{Category: &leisure}); err != nil || n != 2 {
+		t.Fatalf("retarget and reapply: %d %v", n, err)
+	}
+	if c := categories(t, s)["UBER *EATS"]; c.ID != leisure.String() {
+		t.Errorf("the transactions follow the rule: %+v", c)
+	}
+	// Reshaping it onto Uber's pattern collides.
+	same := pattern(t, PatternContains, "uber")
+	if _, err := s.UpdateRule(ctx, eats.Rule.ID(), RuleChange{Pattern: &same}); !errors.Is(err, ErrRuleTaken) {
+		t.Errorf("one rule per pattern and account: %v", err)
+	}
+	if err := s.DeleteRule(ctx, eats.Rule.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRule(ctx, eats.Rule.ID()); !errors.Is(err, ErrRuleNotFound) {
+		t.Errorf("deleting twice: %v", err)
+	}
+	if n, err := s.Reapply(ctx); err != nil || n != 2 {
+		t.Errorf("without it, Uber decides the Eats too: %d %v", n, err)
+	}
+}
