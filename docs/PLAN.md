@@ -105,11 +105,10 @@ After M6, a design audit against the canvas added what the boards drew and the s
 
 ## M7: my own identity (ADR-0008, ADR-0009)
 
-lastro leaves Cloudflare Access for a Zitadel shared by both clusters, and opens up to clients that are not a browser: the CLI on my laptop, Claude through MCP and, later, a phone app. Boxes marked "gielinor" are done in that repository.
+lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clients that are not a browser: the CLI on my laptop, Claude through MCP and, later, a phone app. Boxes marked "gielinor" are done in that repository.
 
 - [ ] Spike: Zitadel in the dev compose (`task idp`), with the `lastro` project and its applications provisioned from code. It confirms what ADR-0008 lists: `aud` and the roles claim in JWT access tokens, the device flow, and Claude finishing the flow with a pre-registered client. ADR-0008 and ADR-0009 are then accepted or revised
-- [ ] gielinor: Barman Cloud backup to R2 for zamorak's Postgres, like saradomin's
-- [ ] gielinor: Zitadel on zamorak (namespace, database, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off
+- [ ] gielinor: Zitadel on saradomin (namespace, a database on `postgres-main` inside its backup, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off, recovery codes in Vaultwarden
 - [ ] `platform/auth`: generic OIDC verifier (discovery, JWKS, RS256 and ES256, issuer, audience, owner role), `Identity` with the client and its permission, `read` for `GET` and `write` for the rest. Cloudflare Access stays as a second issuer until the switch
 - [ ] `/.well-known/oauth-protected-resource` and `WWW-Authenticate` on `401`
 - [ ] Web login through a BFF: `/auth/login`, `/auth/callback`, `/auth/logout`, sessions in the `auth` schema, and the screen for a signed-out or expired session (on the canvas first)

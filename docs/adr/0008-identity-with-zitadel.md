@@ -12,7 +12,7 @@ ADR-0004 put Cloudflare Access in front of lastro and had the app verify the Acc
 - **An MCP server** that Claude connects to (see ADR-0009). MCP clients speak OAuth 2.1: they discover the authorization server from the resource, then get a token through a redirect. They cannot get through the Access login wall.
 - **A phone app**, later, using Authorization Code with PKCE.
 
-I also want one identity provider for the services of both clusters (Argo CD, Vaultwarden, n8n, Grafana…), not one login per app.
+An identity provider in the cluster can also serve other services that speak OIDC (Argo CD, Grafana), so that is a bonus, not the reason. lastro's own clients justify it alone.
 
 ## Decision
 
@@ -27,9 +27,9 @@ I also want one identity provider for the services of both clusters (Argo CD, Va
 - The middleware tries the session cookie, then the bearer token. `LASTRO_AUTH_DISABLED` keeps its rule: dev only.
 - OAuth plumbing uses `golang.org/x/oauth2`. Writing PKCE and the code exchange by hand is the kind of code where a vetted library earns the dependency. JWT verification stays on the standard library, as today.
 
-### The provider is Zitadel, on zamorak
+### The provider is Zitadel, on saradomin
 
-- One Zitadel instance for both clusters, at `auth.ftm.dev.br`, through the zamorak Cloudflare tunnel.
+- One Zitadel instance at `auth.ftm.dev.br`, through the saradomin Cloudflare tunnel, with its database on `postgres-main`, which is already backed up to R2.
 - lastro is a Zitadel project with JWT access tokens and these applications:
   - `lastro-web`: Web, confidential, code with PKCE.
   - `lastro-cli`: Native, device code (RFC 8628) and refresh tokens.
@@ -59,17 +59,22 @@ The tunnel stays (no open port at home), and so does Cloudflare's WAF and rate l
 - Zitadel has had fast major versions with breaking changes (v3 dropped CockroachDB, v4 split the login). Upgrades get read before they get applied.
 - The licence is AGPL since v3, which costs nothing for self-hosting.
 
-### Why zamorak and not saradomin
+### Why saradomin and not zamorak
 
-- The provider must stay up when what it protects is down. Zamorak is in the cloud, away from home power and internet. When the house goes dark, the apps on zamorak still log in.
-- Zamorak already runs the shared services (Argo CD, Vaultwarden, n8n).
-- Financial data stays at home. Zamorak only holds identities.
+- lastro is the main client. With the provider on another site, logging in to lastro needs both sites up. On saradomin it shares lastro's failure domain: if the house is down, lastro is down anyway.
+- `postgres-main` already has a backup to R2. Zamorak's Postgres has none.
+- The cost: zamorak services that move to Zitadel depend on the house. Few will, so that is accepted. Zamorak's Argo CD can stay behind Cloudflare Access.
+
+### What stays out of the provider
+
+- **Vaultwarden.** Its master password is the key that encrypts the vault, and SSO does not replace it. Vaultwarden is also where the provider's recovery codes and admin credentials live, so it cannot depend on the provider.
+- Apps that have their own login and no OIDC (n8n's community edition, for one) are not worth a second login in front of them.
 
 ## Consequences
 
-- **Zamorak's Postgres needs a backup before Zitadel goes there.** Today only saradomin's `postgres-main` is backed up to R2. Losing the provider's database means losing users, passkeys and clients.
-- If zamorak is down, nobody can start a new session in lastro. Existing sessions and unexpired tokens keep working, because the JWKS is cached. lastro sessions are not re-checked against the provider on every request.
-- If the house is down, lastro is down, as it is today.
+- Losing the provider's database means losing users, passkeys and clients, so Zitadel's database joins `postgres-main`'s backup and a restore is tested once.
+- If Zitadel is down while lastro is up, nobody can start a new session. Existing sessions and unexpired tokens keep working, because the JWKS is cached and lastro sessions are not re-checked against the provider on every request.
+- The break-glass for the provider (recovery codes, the instance admin) lives in Vaultwarden, on zamorak.
 - lastro reaches Zitadel through its public URL. The issuer must match what tokens carry, so no internal shortcut.
 - Once accepted:
   - ADR-0004 becomes Superseded.
@@ -79,4 +84,3 @@ The tunnel stays (no open port at home), and so does Cloudflare's WAF and rate l
   - JWT access tokens carry the project ID in `aud` and the roles claim.
   - The device flow works for `lastro-cli`.
   - Claude completes the flow with the pre-registered client.
-  - Images exist for zamorak's architecture.
