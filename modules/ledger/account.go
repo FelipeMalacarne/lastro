@@ -27,6 +27,7 @@ type Account struct {
 	currency    money.Currency
 	balance     money.Money
 	balanceAt   time.Time
+	card        CardDetails
 }
 
 // AccountDetails is what a source knows about an account at a given moment.
@@ -38,6 +39,7 @@ type AccountDetails struct {
 	Number      string // as the bank formats it; only the last four digits are kept
 	Balance     money.Money
 	BalanceAt   time.Time
+	Card        CardDetails // credit cards only; as of BalanceAt
 }
 
 // NewAccount creates an account. Its currency is the currency of the
@@ -71,7 +73,7 @@ func (a *Account) Refresh(d AccountDetails) error {
 		return fmt.Errorf("%w: account %s is in %s, got %s", ErrCurrencyChanged, a.externalID, a.currency, d.Balance.Currency())
 	}
 	if d.BalanceAt.Before(a.balanceAt) {
-		d.Balance, d.BalanceAt = a.balance, a.balanceAt
+		d.Balance, d.BalanceAt, d.Card = a.balance, a.balanceAt, a.card
 	}
 	a.apply(d)
 	return nil
@@ -82,6 +84,7 @@ func (a *Account) apply(d AccountDetails) {
 	a.institution = strings.TrimSpace(d.Institution)
 	a.number = lastDigits(d.Number, 4)
 	a.balance, a.balanceAt = d.Balance, d.BalanceAt
+	a.card = d.Card
 }
 
 func (d AccountDetails) validate() error {
@@ -96,6 +99,12 @@ func (d AccountDetails) validate() error {
 	}
 	if _, err := money.Zero(d.Balance.Currency()); err != nil {
 		return fmt.Errorf("%w: account %s balance: %w", ErrInvalid, d.ExternalID, err)
+	}
+	if !d.Card.IsZero() && !d.Type.IsCard() {
+		return fmt.Errorf("%w: account %s is not a card but has card details", ErrInvalid, d.ExternalID)
+	}
+	if limit, _, ok := d.Card.Limit(); ok && limit.Currency() != d.Balance.Currency() {
+		return fmt.Errorf("%w: account %s card limit in %s, balance in %s", ErrInvalid, d.ExternalID, limit.Currency(), d.Balance.Currency())
 	}
 	return nil
 }
@@ -137,3 +146,4 @@ func (a *Account) Number() string           { return a.number }
 func (a *Account) Currency() money.Currency { return a.currency }
 func (a *Account) Balance() money.Money     { return a.balance }
 func (a *Account) BalanceAt() time.Time     { return a.balanceAt }
+func (a *Account) Card() CardDetails        { return a.card }

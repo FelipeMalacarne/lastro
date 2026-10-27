@@ -71,3 +71,30 @@ export function dayLabel(day: string, today: string): string {
 export function todayISO(now = new Date()): string {
   return `${monthOf(now)}-${String(now.getDate()).padStart(2, "0")}`;
 }
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** "2026-10-26" → "26 Oct 2026". */
+export function formatDate(day: string): string {
+  return `${formatDay(day)} ${day.slice(0, 4)}`;
+}
+
+/** "2026-10-22" → "Thursday, 22 Oct". */
+export function formatWeekday(day: string): string {
+  const [y, mo, d] = day.split("-").map(Number);
+  return `${WEEKDAYS[new Date(y, mo - 1, d).getDay()]}, ${formatDay(day)}`;
+}
+
+/** An axis label in whole reais: 821430 → "8.214". */
+export function formatAxis(cents: number): string {
+  const v = Math.round(cents / 100);
+  return (v < 0 ? MINUS : "") + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/** A step for about n gridlines up to max, in cents: 1, 2, 2,5 or 5 times a power of ten. */
+export function niceStep(max: number, n = 4): number {
+  const raw = Math.max(max, 1) / n;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * pow >= raw) return m * pow;
+  return 10 * pow;
+}

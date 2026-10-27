@@ -41,6 +41,16 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] Pluggy credentials and item ids on saradomin (gielinor `apps/lastro/pluggy-secrets.yaml`, the `lastro-pluggy` Secret)
 - [x] First sync on saradomin, seen on lastro.ftm.dev.br (the CronJob runs at minute 17 of 0h, 6h, 12h and 18h; needs me to look)
 
+## Between M1 and M2: a UI round
+
+Asked for after the first real sync: more to click and more to see. Designed on the canvas first ("UI round" row).
+
+- [x] Card details from Pluggy (limit, available, due day) on the account
+- [x] Read endpoints: an account, its rebuilt daily balance, its months and flows, its purchases in installments, one transaction in full, a month's spending by day
+- [x] Account page: balance chart, money in and out by month, where a month went; for a card, the limit in use, spending by month with committed installments, installments in progress and bills paid
+- [x] Transactions: the month's spending by day against the month before, click a day to list it; click a transaction for its detail (side panel on desktop, sheet on a phone), with ↑ ↓ and Esc
+- [x] Pluggy's built copies of card bill payments left out of the ledger; a reprocess removes what the raw records no longer hold
+
 ## M2: categorized without effort (F3)
 
 Every transaction has a category or is waiting in the review queue, and every correction teaches a rule.

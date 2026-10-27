@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { navigate, useLocation } from "@/lib/router";
 import { SidebarAccounts } from "@/shell/Accounts";
 import { AppShell } from "@/shell/AppShell";
+import { AccountPage } from "@/pages/Account";
 import { Gallery } from "@/pages/Gallery";
 import { Soon } from "@/pages/Soon";
 import { Transactions } from "@/pages/Transactions";
@@ -19,6 +20,8 @@ export function App() {
 }
 
 function page(path: string) {
+  const account = /^\/accounts\/([0-9a-f-]{36})$/.exec(path);
+  if (account) return <AccountPage key={account[1]} id={account[1]} />;
   switch (path) {
     case "/dashboard":
       return <Soon title="Dashboard" milestone="M3" what="The month at a glance: spending so far, by category against your 6-month average, and what is left in the budget." />;

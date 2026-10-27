@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	_ "time/tzdata" // the image has no zoneinfo; dates are read in São Paulo
@@ -61,7 +62,7 @@ func mapAccount(a pluggy.Account, institution string, at time.Time) (ledger.Acco
 	if err != nil {
 		return ledger.AccountDetails{}, fmt.Errorf("%w: account %s in %q", errUnsupported, a.ID, a.CurrencyCode)
 	}
-	return ledger.AccountDetails{
+	d := ledger.AccountDetails{
 		ExternalID:  ext,
 		Name:        cmp.Or(strings.TrimSpace(a.Name), strings.TrimSpace(a.MarketingName), typeName(typ)),
 		Institution: institution,
@@ -69,7 +70,42 @@ func mapAccount(a pluggy.Account, institution string, at time.Time) (ledger.Acco
 		Number:      a.Number,
 		Balance:     balance,
 		BalanceAt:   at.In(saoPaulo), // the balance's day is São Paulo's
-	}, nil
+	}
+	if typ.IsCard() && a.CreditData != nil {
+		d.Card = mapCard(*a.CreditData, balance.Currency())
+	}
+	return d, nil
+}
+
+// mapCard reads the card's limit and bill days. Each part is optional: what
+// does not parse is left out rather than failing the account.
+func mapCard(c pluggy.CreditData, cur money.Currency) ledger.CardDetails {
+	var limit, available *money.Money
+	l, errL := parseCents(c.CreditLimit)
+	av, errA := parseCents(c.AvailableCreditLimit)
+	if c.CreditLimit != "" && c.AvailableCreditLimit != "" && errL == nil && errA == nil {
+		lm, err1 := money.New(l, cur)
+		am, err2 := money.New(av, cur)
+		if err1 == nil && err2 == nil {
+			limit, available = &lm, &am
+		}
+	}
+	day := func(s string) time.Time {
+		if s == "" {
+			return time.Time{}
+		}
+		t, err := parseDate(s)
+		if err != nil {
+			return time.Time{}
+		}
+		return t
+	}
+	card, err := ledger.NewCardDetails(limit, available, day(c.BalanceDueDate), day(c.BalanceCloseDate))
+	if err != nil {
+		// A negative limit: keep the bill days, drop the amounts.
+		card, _ = ledger.NewCardDetails(nil, nil, day(c.BalanceDueDate), day(c.BalanceCloseDate))
+	}
+	return card
 }
 
 func typeName(t ledger.AccountType) string {
@@ -231,4 +267,31 @@ func fold(s string) string {
 		b.WriteRune(r)
 	}
 	return strings.ToUpper(b.String())
+}
+
+// withoutBuiltBillPayments drops the copies of card bill payments Pluggy
+// builds from the bill data although the bank reported the payment too. The
+// copy has a date and no time; the bank's has its time and the same amount on
+// the same day. A date-only payment without such a twin is the only record
+// of that payment and stays. It returns how many it dropped.
+func withoutBuiltBillPayments(txs []ledger.ImportedTransaction) ([]ledger.ImportedTransaction, int) {
+	dateOnly := func(t time.Time) bool { return t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Nanosecond() == 0 }
+	sameDay := func(a, b time.Time) bool {
+		ay, am, ad := a.Date()
+		by, bm, bd := b.Date()
+		return ay == by && am == bm && ad == bd
+	}
+	out := make([]ledger.ImportedTransaction, 0, len(txs))
+	dropped := 0
+	for _, t := range txs {
+		built := t.Kind == ledger.KindBillPayment && dateOnly(t.Date) && slices.ContainsFunc(txs, func(o ledger.ImportedTransaction) bool {
+			return o.Kind == ledger.KindBillPayment && !dateOnly(o.Date) && o.Amount == t.Amount && sameDay(o.Date, t.Date)
+		})
+		if built {
+			dropped++
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, dropped
 }

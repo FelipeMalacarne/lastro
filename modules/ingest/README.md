@@ -9,7 +9,7 @@
 - Pluggy client in `internal/pluggy/`. No other module sees Pluggy types.
 - Sync state per item (`ingest.items`): Pluggy's status for the connection, when Pluggy last refreshed it from the bank, when the Meu Pluggy authorization ends, and how lastro's own last read went.
 - `Connection` (`connection.go`): the health the screens show, in the `SyncStatus` states: `ok`, `syncing`, `stale` (the bank's data is more than 2 days old) and `reauth` (Meu Pluggy needs me to log in again, or the authorization ended).
-- Raw payloads (`ingest.raw_records`): every record as Pluggy sent it, rewritten only when it changes, and marked gone when Pluggy stops returning it. `lastro sync --reprocess` rebuilds the ledger from them without calling the API.
+- Raw payloads (`ingest.raw_records`): every record as Pluggy sent it, rewritten only when it changes, and marked gone when Pluggy stops returning it. `lastro sync --reprocess` rebuilds the ledger from them without calling the API, matching each account from its first stored transaction on, so what the records no longer hold is removed whatever its date.
 - Which ledger account each Pluggy account became (`ingest.item_accounts`).
 
 ## Sync
@@ -20,9 +20,10 @@
 
 Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains each rule.
 
-- Accounts: `BANK`/`CHECKING_ACCOUNT` → checking, `BANK`/`SAVINGS_ACCOUNT` → savings, `CREDIT` → credit card, whose balance is negated (Pluggy reports what I owe). Anything else is skipped.
+- Accounts: `BANK`/`CHECKING_ACCOUNT` → checking, `BANK`/`SAVINGS_ACCOUNT` → savings, `CREDIT` → credit card, whose balance is negated (Pluggy reports what I owe), with its `creditData` limit, available limit and bill days as card details (a part that does not parse is left out). Anything else is skipped.
 - Amounts: direction from `type` (`DEBIT` out, `CREDIT` in), magnitude from the literal, in the account's currency (`amountInAccountCurrency` for purchases abroad).
 - Dates: midnight UTC is a calendar day; any other time is read in America/São Paulo.
+- Card bill payments Pluggy builds from the bill data although the bank reported them too (date-only, same amount, same day as the bank's timed one) stay in the raw store and out of the ledger.
 - Kinds: on a card, an inflow with `PAGAMENTO_FATURA` (or "pagamento recebido/de fatura") is a bill payment and everything else an expense (refunds reduce spending); on a bank account, a redemption or automatic investment move is a transfer (by operation type, or by description such as Nubank's "Valor recebido de Investimentos"), a cashback redemption is income, other inflows income and outflows expenses. Transfers between my accounts are paired later by the ledger's `TransferMatcher`.
 - `providerId` becomes the ledger's bank reference (Open Finance connectors only; MeuPluggy sends none).
 - A MeuPluggy item's connector is `MeuPluggy`, not the bank: `institution.go` names it from the COMPE code of its checking account (260 is Nubank), then from an account name.

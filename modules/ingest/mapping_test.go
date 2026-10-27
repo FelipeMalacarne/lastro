@@ -64,6 +64,21 @@ func TestMapAccounts(t *testing.T) {
 		}
 	}
 
+	card, _ := mapAccount(accs["b0000000-0000-4000-8000-000000000012"], "Nubank", at)
+	limit, available, ok := card.Card.Limit()
+	if !ok || limit != money.BRLCents(1500000) || available != money.BRLCents(1346980) ||
+		card.Card.Due().Format(time.DateOnly) != "2026-11-10" || card.Card.Closes().Format(time.DateOnly) != "2026-11-03" {
+		t.Errorf("the card's limit and bill days: %+v", card.Card)
+	}
+	if chk, _ := mapAccount(accs["b0000000-0000-4000-8000-000000000011"], "Nubank", at); !chk.Card.IsZero() {
+		t.Errorf("checking has no card details: %+v", chk.Card)
+	}
+	broken := accs["b0000000-0000-4000-8000-000000000012"]
+	broken.CreditData = &pluggy.CreditData{CreditLimit: "-5", AvailableCreditLimit: "10", BalanceDueDate: "soon"}
+	if d, err := mapAccount(broken, "Nubank", at); err != nil || !d.Card.IsZero() {
+		t.Errorf("card data that does not parse is left out, not fatal: %+v %v", d.Card, err)
+	}
+
 	if _, err := mapAccount(pluggy.Account{ID: "x", Type: "INVESTMENT", Balance: "1", CurrencyCode: "BRL"}, "Bank", at); !errors.Is(err, errUnsupported) {
 		t.Errorf("want errUnsupported for an unknown type, got %v", err)
 	}
@@ -214,6 +229,33 @@ func TestKindByDescription(t *testing.T) {
 		got := kindOf(pluggy.Transaction{OperationType: tt.op}, tt.card, tt.cents, tt.description)
 		if got != tt.want {
 			t.Errorf("%q on card=%v: got %s, want %s", tt.description, tt.card, got, tt.want)
+		}
+	}
+}
+
+func TestWithoutBuiltBillPayments(t *testing.T) {
+	sp, _ := time.LoadLocation("America/Sao_Paulo")
+	at := func(d, h, m int) time.Time { return time.Date(2026, 9, d, h, m, 0, 0, sp) }
+	pay := func(id string, when time.Time, cents int64) ledger.ImportedTransaction {
+		ext, _ := ledger.NewExternalID(id)
+		return ledger.ImportedTransaction{ExternalID: ext, Date: when, Description: "Pagamento recebido", Amount: money.BRLCents(cents), Kind: ledger.KindBillPayment, Status: ledger.StatusPosted}
+	}
+	purchase := pay("p", at(1, 0, 0), -4890)
+	purchase.Kind = ledger.KindExpense
+	in := []ledger.ImportedTransaction{
+		pay("built", at(1, 0, 0), 101515), pay("bank", at(1, 19, 7), 101515), // Pluggy's copy and the bank's
+		pay("alone", at(3, 0, 0), 128666),                                    // no twin: the only record
+		pay("other", at(28, 0, 0), 115847), pay("other-bank", at(28, 17, 20), 99999),
+		pay("both-dated-a", at(10, 0, 0), 5000), pay("both-dated-b", at(10, 0, 0), 5000),
+		purchase,
+	}
+	out, dropped := withoutBuiltBillPayments(in)
+	if dropped != 1 || len(out) != len(in)-1 {
+		t.Fatalf("only the copy with a timed twin goes: dropped %d, kept %d", dropped, len(out))
+	}
+	for _, tx := range out {
+		if tx.ExternalID.String() == "built" {
+			t.Error("the built copy stayed")
 		}
 	}
 }

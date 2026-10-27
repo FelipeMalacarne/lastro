@@ -12,7 +12,7 @@ import (
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
 
-SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at FROM ledger.accounts WHERE external_id = $1
+SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts WHERE external_id = $1
 `
 
 // Write side: load and save aggregates. repository.go maps these rows.
@@ -31,6 +31,37 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, externalID string)
 		&i.BalanceAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreditLimitCents,
+		&i.AvailableCreditCents,
+		&i.BillDueDate,
+		&i.BillCloseDate,
+	)
+	return i, err
+}
+
+const getAccountView = `-- name: GetAccountView :one
+SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts WHERE id = $1
+`
+
+func (q *Queries) GetAccountView(ctx context.Context, id string) (LedgerAccount, error) {
+	row := q.db.QueryRow(ctx, getAccountView, id)
+	var i LedgerAccount
+	err := row.Scan(
+		&i.ID,
+		&i.ExternalID,
+		&i.Name,
+		&i.Institution,
+		&i.Type,
+		&i.Number,
+		&i.Currency,
+		&i.BalanceCents,
+		&i.BalanceAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreditLimitCents,
+		&i.AvailableCreditCents,
+		&i.BillDueDate,
+		&i.BillCloseDate,
 	)
 	return i, err
 }
@@ -90,32 +121,22 @@ func (q *Queries) GetTransactions(ctx context.Context, ids []string) ([]GetTrans
 }
 
 const listAccountViews = `-- name: ListAccountViews :many
-SELECT id, name, institution, type, number, currency, balance_cents, balance_at FROM ledger.accounts
+SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts
 ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id
 `
 
-type ListAccountViewsRow struct {
-	ID           string
-	Name         string
-	Institution  string
-	Type         string
-	Number       string
-	Currency     string
-	BalanceCents int64
-	BalanceAt    time.Time
-}
-
-func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, error) {
+func (q *Queries) ListAccountViews(ctx context.Context) ([]LedgerAccount, error) {
 	rows, err := q.db.Query(ctx, listAccountViews)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListAccountViewsRow
+	var items []LedgerAccount
 	for rows.Next() {
-		var i ListAccountViewsRow
+		var i LedgerAccount
 		if err := rows.Scan(
 			&i.ID,
+			&i.ExternalID,
 			&i.Name,
 			&i.Institution,
 			&i.Type,
@@ -123,6 +144,12 @@ func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, 
 			&i.Currency,
 			&i.BalanceCents,
 			&i.BalanceAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreditLimitCents,
+			&i.AvailableCreditCents,
+			&i.BillDueDate,
+			&i.BillCloseDate,
 		); err != nil {
 			return nil, err
 		}
@@ -135,7 +162,7 @@ func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, 
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at FROM ledger.accounts ORDER BY institution, type, name, id
+SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts ORDER BY institution, type, name, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
@@ -159,6 +186,10 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
 			&i.BalanceAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreditLimitCents,
+			&i.AvailableCreditCents,
+			&i.BillDueDate,
+			&i.BillCloseDate,
 		); err != nil {
 			return nil, err
 		}
@@ -238,6 +269,250 @@ func (q *Queries) ListCategorizable(ctx context.Context, ids []string) ([]ListCa
 	return items, nil
 }
 
+const listDailyNet = `-- name: ListDailyNet :many
+SELECT date, sum(amount_cents)::bigint AS net_cents
+FROM ledger.transactions
+WHERE account_id = $1 AND removed_at IS NULL AND date <= $2::date
+GROUP BY date
+ORDER BY date
+`
+
+type ListDailyNetParams struct {
+	AccountID string
+	Until     time.Time
+}
+
+type ListDailyNetRow struct {
+	Date     time.Time
+	NetCents int64
+}
+
+// What an account's live transactions add up to each day, up to a day.
+func (q *Queries) ListDailyNet(ctx context.Context, arg ListDailyNetParams) ([]ListDailyNetRow, error) {
+	rows, err := q.db.Query(ctx, listDailyNet, arg.AccountID, arg.Until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDailyNetRow
+	for rows.Next() {
+		var i ListDailyNetRow
+		if err := rows.Scan(&i.Date, &i.NetCents); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDaySpending = `-- name: ListDaySpending :many
+SELECT
+    date,
+    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0), 0)::bigint AS spent_cents,
+    count(*) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0)::int AS purchases,
+    COALESCE(sum(amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents > 0), 0)::bigint AS in_cents,
+    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('transfer', 'bill_payment') AND amount_cents < 0), 0)::bigint AS moved_cents
+FROM ledger.transactions
+WHERE removed_at IS NULL AND date >= $1::date AND date < $2::date
+GROUP BY date
+ORDER BY date
+`
+
+type ListDaySpendingParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListDaySpendingRow struct {
+	Date       time.Time
+	SpentCents int64
+	Purchases  int32
+	InCents    int64
+	MovedCents int64
+}
+
+// Every account's live transactions by day: spending (outflows that count),
+// money in that counts, and money moved (transfers out and card bills paid).
+func (q *Queries) ListDaySpending(ctx context.Context, arg ListDaySpendingParams) ([]ListDaySpendingRow, error) {
+	rows, err := q.db.Query(ctx, listDaySpending, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDaySpendingRow
+	for rows.Next() {
+		var i ListDaySpendingRow
+		if err := rows.Scan(
+			&i.Date,
+			&i.SpentCents,
+			&i.Purchases,
+			&i.InCents,
+			&i.MovedCents,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDescriptionMonths = `-- name: ListDescriptionMonths :many
+SELECT date_trunc('month', date)::date AS month, sum(amount_cents)::bigint AS cents, count(*)::int AS n
+FROM ledger.transactions
+WHERE removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND lower(description) = lower($1)
+  AND date >= $2::date AND date < $3::date
+GROUP BY 1
+ORDER BY 1
+`
+
+type ListDescriptionMonthsParams struct {
+	Description string
+	DateFrom    time.Time
+	DateTo      time.Time
+}
+
+type ListDescriptionMonthsRow struct {
+	Month time.Time
+	Cents int64
+	N     int32
+}
+
+// Each month's live transactions with one description (ignoring case), in
+// every account, that count: what the detail's history shows.
+func (q *Queries) ListDescriptionMonths(ctx context.Context, arg ListDescriptionMonthsParams) ([]ListDescriptionMonthsRow, error) {
+	rows, err := q.db.Query(ctx, listDescriptionMonths, arg.Description, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDescriptionMonthsRow
+	for rows.Next() {
+		var i ListDescriptionMonthsRow
+		if err := rows.Scan(&i.Month, &i.Cents, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInstallments = `-- name: ListInstallments :many
+SELECT id, description, installment_number, installment_total, amount_cents, currency, date, status
+FROM ledger.transactions
+WHERE account_id = $1 AND removed_at IS NULL AND installment_total IS NOT NULL
+ORDER BY date, id
+`
+
+type ListInstallmentsRow struct {
+	ID                string
+	Description       string
+	InstallmentNumber *int16
+	InstallmentTotal  *int16
+	AmountCents       int64
+	Currency          string
+	Date              time.Time
+	Status            string
+}
+
+// An account's live installments, for GroupInstallments.
+func (q *Queries) ListInstallments(ctx context.Context, accountID string) ([]ListInstallmentsRow, error) {
+	rows, err := q.db.Query(ctx, listInstallments, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInstallmentsRow
+	for rows.Next() {
+		var i ListInstallmentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Description,
+			&i.InstallmentNumber,
+			&i.InstallmentTotal,
+			&i.AmountCents,
+			&i.Currency,
+			&i.Date,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMonthFlows = `-- name: ListMonthFlows :many
+SELECT
+    date_trunc('month', t.date)::date AS month, t.kind, t.amount_cents > 0 AS inflow,
+    ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
+    ca.institution AS counterpart_institution, ca.type AS counterpart_account_type,
+    sum(t.amount_cents)::bigint AS cents, count(*)::int AS n
+FROM ledger.transactions t
+LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
+LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
+WHERE t.account_id = $1 AND t.removed_at IS NULL AND t.amount_cents <> 0
+GROUP BY 1, 2, 3, 4, 5, 6, 7
+ORDER BY 1, 2, 3, 5
+`
+
+type ListMonthFlowsRow struct {
+	Month                  time.Time
+	Kind                   string
+	Inflow                 bool
+	CounterpartAccountID   *string
+	CounterpartAccountName *string
+	CounterpartInstitution *string
+	CounterpartAccountType *string
+	Cents                  int64
+	N                      int32
+}
+
+// An account's live transactions by month, kind and direction, and for pairs
+// by the other side's account.
+func (q *Queries) ListMonthFlows(ctx context.Context, accountID string) ([]ListMonthFlowsRow, error) {
+	rows, err := q.db.Query(ctx, listMonthFlows, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMonthFlowsRow
+	for rows.Next() {
+		var i ListMonthFlowsRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.Kind,
+			&i.Inflow,
+			&i.CounterpartAccountID,
+			&i.CounterpartAccountName,
+			&i.CounterpartInstitution,
+			&i.CounterpartAccountType,
+			&i.Cents,
+			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPairCandidates = `-- name: ListPairCandidates :many
 SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
 FROM ledger.transactions t
@@ -303,7 +578,7 @@ const listTransactionViews = `-- name: ListTransactionViews :many
 
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
-    t.installment_number, t.installment_total, t.category_id, t.category_source,
+    t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -312,27 +587,29 @@ JOIN ledger.accounts a ON a.id = t.account_id
 LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
 LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
 WHERE t.removed_at IS NULL
-  AND t.date >= $1::date
-  AND t.date < $2::date
-  AND ($3::uuid IS NULL OR t.account_id = $3::uuid)
-  AND (
-      $4::text IS NULL
-      OR ($4::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
-      OR ($4::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
-      OR ($4::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
-  )
+  AND ($1::uuid IS NULL OR t.id = $1::uuid)
+  AND ($2::date IS NULL OR t.date >= $2::date)
+  AND ($3::date IS NULL OR t.date < $3::date)
+  AND ($4::uuid IS NULL OR t.account_id = $4::uuid)
   AND (
       $5::text IS NULL
+      OR ($5::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+      OR ($5::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+      OR ($5::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+  )
+  AND (
+      $6::text IS NULL
       OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
-         LIKE '%' || translate(lower($5::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+         LIKE '%' || translate(lower($6::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
   )
 ORDER BY t.date DESC, t.created_at DESC, t.id
-LIMIT $6
+LIMIT $7
 `
 
 type ListTransactionViewsParams struct {
-	DateFrom  time.Time
-	DateTo    time.Time
+	ID        *string
+	DateFrom  *time.Time
+	DateTo    *time.Time
 	AccountID *string
 	Flow      *string
 	Search    *string
@@ -351,6 +628,7 @@ type ListTransactionViewsRow struct {
 	InstallmentTotal       *int16
 	CategoryID             *string
 	CategorySource         *string
+	CounterpartID          *string
 	AccountID              string
 	AccountName            string
 	AccountInstitution     string
@@ -362,12 +640,14 @@ type ListTransactionViewsRow struct {
 }
 
 // Read side: what the Transactions screen lists (CQRS-lite: straight to a DTO).
-// A month of live transactions, newest first, with each one's account and,
-// for pairs, the other side's account. flow is 'in' or 'out' (money that
-// counts, by direction) or 'transfer' (transfers and card bill payments).
-// search matches the description ignoring case and accents.
+// Live transactions in a date range (or one, by id), newest first, with each
+// one's account and, for pairs, the other side and its account. flow is 'in'
+// or 'out' (money that counts, by direction) or 'transfer' (transfers and
+// card bill payments). search matches the description ignoring case and
+// accents.
 func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionViewsParams) ([]ListTransactionViewsRow, error) {
 	rows, err := q.db.Query(ctx, listTransactionViews,
+		arg.ID,
 		arg.DateFrom,
 		arg.DateTo,
 		arg.AccountID,
@@ -394,6 +674,7 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 			&i.InstallmentTotal,
 			&i.CategoryID,
 			&i.CategorySource,
+			&i.CounterpartID,
 			&i.AccountID,
 			&i.AccountName,
 			&i.AccountInstitution,
@@ -522,27 +803,37 @@ func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow
 }
 
 const saveAccount = `-- name: SaveAccount :exec
-INSERT INTO ledger.accounts (id, external_id, name, institution, type, number, currency, balance_cents, balance_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO ledger.accounts (
+    id, external_id, name, institution, type, number, currency, balance_cents, balance_at,
+    credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     institution = EXCLUDED.institution,
     number = EXCLUDED.number,
     balance_cents = EXCLUDED.balance_cents,
     balance_at = EXCLUDED.balance_at,
+    credit_limit_cents = EXCLUDED.credit_limit_cents,
+    available_credit_cents = EXCLUDED.available_credit_cents,
+    bill_due_date = EXCLUDED.bill_due_date,
+    bill_close_date = EXCLUDED.bill_close_date,
     updated_at = now()
 `
 
 type SaveAccountParams struct {
-	ID           string
-	ExternalID   string
-	Name         string
-	Institution  string
-	Type         string
-	Number       string
-	Currency     string
-	BalanceCents int64
-	BalanceAt    time.Time
+	ID                   string
+	ExternalID           string
+	Name                 string
+	Institution          string
+	Type                 string
+	Number               string
+	Currency             string
+	BalanceCents         int64
+	BalanceAt            time.Time
+	CreditLimitCents     *int64
+	AvailableCreditCents *int64
+	BillDueDate          *time.Time
+	BillCloseDate        *time.Time
 }
 
 func (q *Queries) SaveAccount(ctx context.Context, arg SaveAccountParams) error {
@@ -556,6 +847,10 @@ func (q *Queries) SaveAccount(ctx context.Context, arg SaveAccountParams) error 
 		arg.Currency,
 		arg.BalanceCents,
 		arg.BalanceAt,
+		arg.CreditLimitCents,
+		arg.AvailableCreditCents,
+		arg.BillDueDate,
+		arg.BillCloseDate,
 	)
 	return err
 }

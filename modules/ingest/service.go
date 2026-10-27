@@ -270,6 +270,11 @@ func (s *Service) importAccount(ctx context.Context, rep *ItemReport, itemID str
 			return err
 		}
 	}
+	// The raw store keeps them; the ledger does not count a payment twice.
+	var dropped int
+	if batch.Transactions, dropped = withoutBuiltBillPayments(batch.Transactions); dropped > 0 {
+		s.logger.InfoContext(ctx, "Pluggy's built copies of card bill payments left out", "account", pa.ID, "count", dropped)
+	}
 	res, err := s.ledger.ImportTransactions(ctx, batch)
 	if err != nil {
 		return err
@@ -307,11 +312,30 @@ func (s *Service) reprocessItem(ctx context.Context, id string) (ItemReport, err
 		if err != nil {
 			return rep, err
 		}
-		if err := s.importAccount(ctx, &rep, id, pa, txs, time.Time{}, balanceAt, false); err != nil {
+		// The stored records are everything Pluggy still returns, so the
+		// ledger matches them from the first one on: what they no longer
+		// hold (Pluggy's built copies of bill payments, say) is removed.
+		if err := s.importAccount(ctx, &rep, id, pa, txs, earliest(txs), balanceAt, false); err != nil {
 			return rep, err
 		}
 	}
 	return rep, nil
+}
+
+// earliest is the first day among the transactions, zero for none (or one
+// whose date does not parse, so nothing is removed on a guess).
+func earliest(txs []pluggy.Transaction) time.Time {
+	var first time.Time
+	for _, t := range txs {
+		d, err := parseDate(t.Date)
+		if err != nil {
+			return time.Time{}
+		}
+		if first.IsZero() || d.Before(first) {
+			first = d
+		}
+	}
+	return first
 }
 
 func decodeRaw[T any](ctx context.Context, s *Service, kind, parent string) ([]T, error) {

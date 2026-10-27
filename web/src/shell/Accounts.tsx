@@ -1,7 +1,11 @@
+import { ChevronRight } from "lucide-react";
+
 import { Amount } from "@/components/Amount";
 import { Panel } from "@/components/Panel";
 import { SyncStatus } from "@/components/SyncStatus";
 import { typeName, useResource, type Account, type Connection } from "@/lib/api";
+import { Link, useLocation } from "@/lib/router";
+import { cn } from "@/lib/utils";
 
 export type Bank = { connection: Connection | null; institution: string; accounts: Account[] };
 
@@ -27,6 +31,7 @@ export function useBanks(): { banks: Bank[]; loading: boolean; error?: string } 
 /** The sidebar's list: each connection's freshness, then its accounts and balances. */
 export function SidebarAccounts() {
   const { banks } = useBanks();
+  const { path } = useLocation();
   if (banks.length === 0) return null;
   return (
     <section aria-label="Accounts" className="flex flex-col gap-3 px-2">
@@ -34,12 +39,23 @@ export function SidebarAccounts() {
       {banks.map((b) => (
         <div key={b.connection?.itemId ?? b.institution} className="flex flex-col gap-0.5">
           <SyncStatus compact institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.short ?? "never"} />
-          {b.accounts.map((a) => (
-            <div key={a.id} className="flex items-baseline justify-between gap-2 pl-[22px] type-caption text-ink-muted">
-              <span className="truncate">{typeName[a.type]}</span>
-              <Amount cents={a.balanceCents} size="sm" />
-            </div>
-          ))}
+          {b.accounts.map((a) => {
+            const here = path === `/accounts/${a.id}`;
+            return (
+              <Link
+                key={a.id}
+                to={`/accounts/${a.id}`}
+                aria-current={here ? "page" : undefined}
+                className={cn(
+                  "-mx-2 flex min-h-8 items-baseline justify-between gap-2 rounded-sm py-1.5 pr-2 pl-[30px] type-caption no-underline transition-colors",
+                  here ? "bg-tinta-soft font-semibold text-tinta hover:text-tinta" : "text-ink-muted hover:bg-paper-sunken hover:text-ink",
+                )}
+              >
+                <span className="truncate">{a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
+                <Amount cents={a.balanceCents} size="sm" tone={here ? "ink" : "auto"} />
+              </Link>
+            );
+          })}
         </div>
       ))}
     </section>
@@ -56,10 +72,17 @@ export function AccountsPanel({ banks }: { banks: Bank[] }) {
           <div key={b.connection?.itemId ?? b.institution} className={i < banks.length - 1 ? "flex flex-col gap-1 border-b border-rule pb-3" : "flex flex-col gap-1"}>
             <SyncStatus institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.detail ?? "Not synced yet"} />
             {b.accounts.map((a) => (
-              <div key={a.id} className="flex items-baseline justify-between gap-2 pl-10 text-[14px] leading-5">
+              <Link
+                key={a.id}
+                to={`/accounts/${a.id}`}
+                className="flex min-h-11 items-center justify-between gap-2 pl-10 text-[14px] leading-5 text-ink no-underline hover:text-ink"
+              >
                 <span className="text-ink-muted">{typeName[a.type]}</span>
-                <Amount cents={a.balanceCents} />
-              </div>
+                <span className="inline-flex items-center gap-1.5">
+                  <Amount cents={a.balanceCents} />
+                  <ChevronRight className="size-3.5 text-ink-muted" aria-hidden />
+                </span>
+              </Link>
             ))}
           </div>
         ))}

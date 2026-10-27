@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
+
+	"lastro/money"
 )
 
 // ErrInvalid wraps every value object constructor error, so callers can
@@ -162,3 +165,46 @@ func ParseAccountType(s string) (AccountType, error) {
 
 func (t AccountType) String() string { return string(t) }
 func (t AccountType) IsCard() bool   { return t == AccountCreditCard }
+
+// CardDetails is what the bank says about a card's limit and its bill, as of
+// the balance it came with. Banks share different parts: each one is
+// optional, and the zero value knows nothing.
+type CardDetails struct {
+	limit, available money.Money
+	hasLimit         bool
+	due, closes      time.Time // calendar days; zero when not reported
+}
+
+// NewCardDetails takes the limit and what is still available (nil when the
+// bank does not report them, which it does together) and the bill's due and
+// closing days (zero when not reported). The limit is never negative; the
+// available amount can be, on a card over its limit.
+func NewCardDetails(limit, available *money.Money, due, closes time.Time) (CardDetails, error) {
+	var c CardDetails
+	if (limit == nil) != (available == nil) {
+		return CardDetails{}, fmt.Errorf("%w: a card limit comes with what is available", ErrInvalid)
+	}
+	if limit != nil {
+		if limit.IsNegative() || limit.Currency() != available.Currency() {
+			return CardDetails{}, fmt.Errorf("%w: card limit %s, available %s", ErrInvalid, limit, available)
+		}
+		c.limit, c.available, c.hasLimit = *limit, *available, true
+	}
+	if !due.IsZero() {
+		c.due = civilDate(due)
+	}
+	if !closes.IsZero() {
+		c.closes = civilDate(closes)
+	}
+	return c, nil
+}
+
+// Limit returns the limit and what is available, when the bank reports them.
+func (c CardDetails) Limit() (limit, available money.Money, ok bool) {
+	return c.limit, c.available, c.hasLimit
+}
+
+// Due and Closes are the bill's due and closing days, zero when unknown.
+func (c CardDetails) Due() time.Time    { return c.due }
+func (c CardDetails) Closes() time.Time { return c.closes }
+func (c CardDetails) IsZero() bool      { return c == CardDetails{} }
