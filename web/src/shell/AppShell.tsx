@@ -45,7 +45,14 @@ export function AppShell({ accounts, children }: Props) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      // R opens the review queue from anywhere.
+      if (e.key === "r" && location.pathname !== "/review") {
+        e.preventDefault();
+        navigate("/review");
+        return;
+      }
+      if (e.key !== "/") return;
       e.preventDefault();
       if (location.pathname !== "/transactions") navigate("/transactions" + location.search);
       requestAnimationFrame(() => document.querySelector<HTMLInputElement>("[data-search]")?.focus());
@@ -121,7 +128,7 @@ export function AppShell({ accounts, children }: Props) {
 }
 
 /** The page name with one caption line, and the month and actions on the right. */
-export function PageHeader({ title, caption, actions }: { title: string; caption?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, caption, actions, monthless }: { title: string; caption?: ReactNode; actions?: ReactNode; monthless?: boolean }) {
   const { month, prev, next, isCurrent } = useMonth();
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
@@ -130,7 +137,7 @@ export function PageHeader({ title, caption, actions }: { title: string; caption
         {caption && <p className="m-0 type-caption text-ink-muted">{caption}</p>}
       </div>
       <div className="hidden items-center gap-2 lg:flex">
-        <MonthSwitcher label={formatMonth(month)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />
+        {!monthless && <MonthSwitcher label={formatMonth(month)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
         {actions}
       </div>
     </header>

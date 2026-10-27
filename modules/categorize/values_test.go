@@ -98,3 +98,34 @@ func TestCleanName(t *testing.T) {
 		}
 	}
 }
+
+func TestSuggestPattern(t *testing.T) {
+	tests := []struct {
+		description string
+		want        string // "" when nothing can be suggested
+	}{
+		{"PAG*IFOOD SP", "IFOOD"},
+		{"DROGASIL 2104 SAO PAULO", "DROGASIL"},
+		{"UBER *TRIP HELP.UBER.COM", "UBER TRIP"},
+		{"UBER *EATS PENDING", "UBER EATS"},
+		{"Pão de Açúcar Loja 12", "PAO DE ACUCAR"},
+		{"Netflix.com", "NETFLIX"},
+		{"IFOOD *IFOOD", "IFOOD"},
+		{"ESTORNO NETFLIX.COM", "NETFLIX"},
+		{"Pix enviado Fulano de Tal", "FULANO DE TAL"},
+		{"Posto Ipiranga", "POSTO IPIRANGA"},
+		{"Mercado Pago *Feira Livre do Bairro", "MERCADO PAGO FEIRA"},
+		{"123 456 BAR", "BAR"},
+		{"PIX", "PIX"},
+		{"!!", ""},
+	}
+	for _, tt := range tests {
+		p, ok := SuggestPattern(tt.description)
+		if got := p.Text(); ok != (tt.want != "") || got != tt.want || (ok && p.Kind() != PatternContains) {
+			t.Errorf("SuggestPattern(%q) = %q %v, want %q", tt.description, got, ok, tt.want)
+		}
+		if ok && !p.Matches(tt.description) {
+			t.Errorf("the suggestion for %q must match it", tt.description)
+		}
+	}
+}

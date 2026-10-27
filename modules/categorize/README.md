@@ -10,6 +10,8 @@
 - `Pattern` (value object, `values.go`): what a rule looks for in a description, `exact` or `contains`, normalized: accents dropped, upper case, anything that is not a letter or a digit read as a space. "Pág*iFood SP" and "PAG IFOOD SP" are the same. `contains` matches whole words in a row: "IFOOD" meets "PAG*IFOOD SP", "BAR" never meets "BARBEARIA".
 - `Rule` (aggregate, `rule.go`): a pattern, optionally limited to one ledger account, that leads to a category.
 - `Engine` (domain service, `engine.go`): of the rules a transaction meets, picks the most specific (see the invariants).
+- `SuggestPattern` (`values.go`): reads the merchant out of a description for a correction to teach: it skips what banks put before it ("PAG*", "Pix enviado", "ESTORNO") and stops at what they append (a number, a city or state, a site), up to three words. "PAG*IFOOD SP" suggests contains IFOOD.
+- `GroupForReview` (domain service, `review.go`): the review queue groups the transactions waiting for a category by the pattern each one suggests, the groups that settle the most first, so one correction settles a whole merchant.
 - `Classifier` (port, from M2's LLM task): minimal interface implemented by the Ollama client and injected by `app`.
 
 ## Flow
@@ -17,7 +19,7 @@
 1. Receives `TransactionsImported` (`OnTransactionsImported`) and asks the ledger which of those transactions it may categorize (`ledger.Categorizable`).
 2. Tries the rules, from the most specific to the most generic (`Engine.Decide`), and sends each match to `ledger.Categorize` as a rule's choice.
 3. If no rule matches and the LLM is enabled, asks the LLM.
-4. A manual correction in the UI becomes a rule (`Service.Learn`).
+4. A manual correction in the UI becomes a rule (`Service.Correct` and `Service.SetCategory`, through `Learn`), and the rules then run over everything still waiting.
 
 After every sync, `app` calls `CategorizeUncategorized` (on `ingest.SyncCompleted`), which runs steps 2 and 3 over every transaction still without a category: what was imported before a rule existed, or while the rules could not run.
 
@@ -45,6 +47,10 @@ Today the module has steps 1, 2 and 4; the LLM (step 3) arrives with the `Classi
 - `POST /api/v1/categories` `{"name", "color", "budgeted"}`: `budgeted` defaults to true. 409 when the name is taken.
 - `PATCH /api/v1/categories/{id}`: any of `name`, `color` and `budgeted`. 409 for an archived category or a taken name.
 - `DELETE /api/v1/categories/{id}`: archives it and answers `{"rulesRemoved": n}`.
+- `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest` and its newest five transactions.
+- `POST /api/v1/review` `{"pattern": {"kind", "text"}, "category"}`: teaches the rule and answers how many transactions it categorized.
+- `PUT /api/v1/transactions/{id}/category` `{"category", "teach"}`: my choice for one transaction (manual, never overwritten); with `teach`, it also becomes a rule.
+- `GET /api/v1/patterns/suggest?description=…`: the pattern a correction of that description would teach.
 
 ## Events
 

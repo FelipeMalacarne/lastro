@@ -168,3 +168,49 @@ func (s *Service) Learn(ctx context.Context, p Pattern, account ledger.AccountID
 	}
 	return nil
 }
+
+// Review is the review queue: every transaction waiting for a category,
+// grouped by the rule a correction would teach.
+type Review struct {
+	Waiting int
+	Groups  []ReviewGroup
+}
+
+// Review returns the queue.
+func (s *Service) Review(ctx context.Context) (Review, error) {
+	txs, err := s.ledger.Uncategorized(ctx)
+	if err != nil {
+		return Review{}, fmt.Errorf("categorize: review: %w", err)
+	}
+	return Review{Waiting: len(txs), Groups: GroupForReview(txs)}, nil
+}
+
+// Correct settles part of the queue: the pattern becomes a rule (or
+// retargets the one it already is), and the rules run over everything still
+// waiting. It returns how many transactions got a category.
+func (s *Service) Correct(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (int, error) {
+	if err := s.Learn(ctx, p, account, category); err != nil {
+		return 0, err
+	}
+	return s.CategorizeUncategorized(ctx)
+}
+
+// SetCategory is my choice for one transaction: it always wins over a rule
+// or the model. With a pattern, it also teaches that rule and runs it over
+// what is still waiting; it returns how many others got a category.
+func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, category ledger.CategoryID, teach *Pattern) (int, error) {
+	c, err := s.repo.category(ctx, category)
+	if err != nil {
+		return 0, fmt.Errorf("categorize: set category: %w", err)
+	}
+	if c.Archived {
+		return 0, fmt.Errorf("%w: %s", ErrArchived, c.Name)
+	}
+	if err := s.ledger.Categorize(ctx, tx, category, ledger.SourceManual); err != nil {
+		return 0, fmt.Errorf("categorize: set category: %w", err)
+	}
+	if teach == nil {
+		return 0, nil
+	}
+	return s.Correct(ctx, *teach, "", category)
+}

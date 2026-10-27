@@ -82,7 +82,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, v, err)
 	})
 
-	// GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&q=ifood
+	// GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&q=ifood
 	mux.HandleFunc("GET /api/v1/transactions", func(w http.ResponseWriter, r *http.Request) {
 		f, err := parseFilter(r)
 		if err != nil {
@@ -119,6 +119,12 @@ func parseFilter(r *http.Request) (TransactionFilter, error) {
 	}
 	if f.Search = strings.TrimSpace(q.Get("q")); len([]rune(f.Search)) > 100 {
 		return TransactionFilter{}, httpx.BadRequest("search is limited to 100 characters")
+	}
+	if c := q.Get("category"); c != "" {
+		if c != CategoryNone && !uuidRe.MatchString(c) {
+			return TransactionFilter{}, httpx.BadRequest(`category must be a category id or "none"`)
+		}
+		f.Category = c
 	}
 	if d := q.Get("day"); d != "" {
 		day, err := time.Parse(time.DateOnly, d)

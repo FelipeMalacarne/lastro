@@ -97,7 +97,8 @@ ORDER BY t.date, t.id;
 -- one's account and, for pairs, the other side and its account. flow is 'in'
 -- or 'out' (money that counts, by direction) or 'transfer' (transfers and
 -- card bill payments). search matches the description ignoring case and
--- accents.
+-- accents. category is a category id, or 'none' for the expenses and income
+-- still without one.
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
@@ -113,6 +114,11 @@ WHERE t.removed_at IS NULL
   AND (sqlc.narg(date_from)::date IS NULL OR t.date >= sqlc.narg(date_from)::date)
   AND (sqlc.narg(date_to)::date IS NULL OR t.date < sqlc.narg(date_to)::date)
   AND (sqlc.narg(account_id)::uuid IS NULL OR t.account_id = sqlc.narg(account_id)::uuid)
+  AND (
+      sqlc.narg(category)::text IS NULL
+      OR (sqlc.narg(category)::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+      OR t.category_id = sqlc.narg(category)::text
+  )
   AND (
       sqlc.narg(flow)::text IS NULL
       OR (sqlc.narg(flow)::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
@@ -194,7 +200,7 @@ ORDER BY date;
 -- or card bill payments) whose category nobody chose by hand.
 
 -- name: ListCategorizable :many
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
 WHERE id = ANY (sqlc.arg(ids)::uuid[])
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -202,7 +208,7 @@ WHERE id = ANY (sqlc.arg(ids)::uuid[])
 ORDER BY date, id;
 
 -- name: ListUncategorized :many
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
 WHERE category_id IS NULL
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')

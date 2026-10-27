@@ -233,7 +233,7 @@ func (q *Queries) ListBalanceSnapshots(ctx context.Context, accountID string) ([
 
 const listCategorizable = `-- name: ListCategorizable :many
 
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
 WHERE id = ANY ($1::uuid[])
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -245,6 +245,8 @@ type ListCategorizableRow struct {
 	ID          string
 	AccountID   string
 	Description string
+	Date        time.Time
+	AmountCents int64
 }
 
 // What categorize may categorize: live expenses and income (never transfers
@@ -258,7 +260,13 @@ func (q *Queries) ListCategorizable(ctx context.Context, ids []string) ([]ListCa
 	var items []ListCategorizableRow
 	for rows.Next() {
 		var i ListCategorizableRow
-		if err := rows.Scan(&i.ID, &i.AccountID, &i.Description); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -593,17 +601,22 @@ WHERE t.removed_at IS NULL
   AND ($4::uuid IS NULL OR t.account_id = $4::uuid)
   AND (
       $5::text IS NULL
-      OR ($5::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
-      OR ($5::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
-      OR ($5::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+      OR ($5::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+      OR t.category_id = $5::text
   )
   AND (
       $6::text IS NULL
+      OR ($6::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+      OR ($6::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+      OR ($6::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+  )
+  AND (
+      $7::text IS NULL
       OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
-         LIKE '%' || translate(lower($6::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+         LIKE '%' || translate(lower($7::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
   )
 ORDER BY t.date DESC, t.created_at DESC, t.id
-LIMIT $7
+LIMIT $8
 `
 
 type ListTransactionViewsParams struct {
@@ -611,6 +624,7 @@ type ListTransactionViewsParams struct {
 	DateFrom  *time.Time
 	DateTo    *time.Time
 	AccountID *string
+	Category  *string
 	Flow      *string
 	Search    *string
 	MaxRows   int32
@@ -644,13 +658,15 @@ type ListTransactionViewsRow struct {
 // one's account and, for pairs, the other side and its account. flow is 'in'
 // or 'out' (money that counts, by direction) or 'transfer' (transfers and
 // card bill payments). search matches the description ignoring case and
-// accents.
+// accents. category is a category id, or 'none' for the expenses and income
+// still without one.
 func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionViewsParams) ([]ListTransactionViewsRow, error) {
 	rows, err := q.db.Query(ctx, listTransactionViews,
 		arg.ID,
 		arg.DateFrom,
 		arg.DateTo,
 		arg.AccountID,
+		arg.Category,
 		arg.Flow,
 		arg.Search,
 		arg.MaxRows,
@@ -769,7 +785,7 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 }
 
 const listUncategorized = `-- name: ListUncategorized :many
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents FROM ledger.transactions
 WHERE category_id IS NULL
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -780,6 +796,8 @@ type ListUncategorizedRow struct {
 	ID          string
 	AccountID   string
 	Description string
+	Date        time.Time
+	AmountCents int64
 }
 
 func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow, error) {
@@ -791,7 +809,13 @@ func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow
 	var items []ListUncategorizedRow
 	for rows.Next() {
 		var i ListUncategorizedRow
-		if err := rows.Scan(&i.ID, &i.AccountID, &i.Description); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

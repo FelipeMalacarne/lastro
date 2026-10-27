@@ -170,3 +170,40 @@ export const typeName: Record<AccountType, string> = {
   savings: "Savings",
   credit_card: "Credit card",
 };
+
+/** Refetches every resource read so far: after a change, whatever shows it is fresh. */
+export function refreshAll() {
+  for (const url of cache.keys()) void load(url);
+}
+
+/** Sends a change and refreshes what the screens show. Throws the API's message. */
+export async function send<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELETE", url: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method,
+    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.message || `HTTP ${r.status}`);
+  refreshAll();
+  return out as T;
+}
+
+// categorize (see modules/categorize/http.go).
+
+export type NoteColor = "note-1" | "note-2" | "note-5" | "note-10" | "note-20" | "note-50" | "note-100" | "note-200";
+
+export type Category = { id: string; name: string; color: NoteColor; budgeted: boolean; archived: boolean };
+
+export type PatternKind = "contains" | "exact";
+export type Pattern = { kind: PatternKind; text: string };
+
+export type ReviewGroup = {
+  pattern: Pattern | null;
+  count: number;
+  totalCents: number;
+  latest: string;
+  transactions: { id: string; date: string; description: string; amountCents: number; accountId: string }[];
+};
+
+export type Review = { waiting: number; groups: ReviewGroup[] };

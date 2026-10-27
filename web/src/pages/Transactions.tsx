@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 
+import { CategoryTag } from "@/components/CategoryTag";
 import { DayBars } from "@/components/charts/DayBars";
+import { Kbd } from "@/components/Kbd";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
@@ -17,12 +19,13 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { typeLabel, useResource, type DaysView, type Transaction, type TransactionList } from "@/lib/api";
+import { typeLabel, useResource, type Category, type DaysView, type Transaction, type TransactionList } from "@/lib/api";
+import { useCategories, useWaiting } from "@/lib/categories";
 import { addMonths, dayLabel, formatBRL, formatDay, formatMonth, formatWeekday, todayISO } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { pickNotice } from "@/lib/notice";
-import { hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
+import { Link, hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
 import { AccountsPanel, useBanks } from "@/shell/Accounts";
 import { PageHeader } from "@/shell/AppShell";
 
@@ -46,6 +49,9 @@ export function Transactions() {
   const wide = useWide();
   const flow = (["in", "out", "transfer"].includes(query.get("flow") ?? "") ? query.get("flow") : "all") as Flow;
   const account = query.get("account") ?? "";
+  const category = query.get("category") ?? "";
+  const cats = useCategories();
+  const waiting = useWaiting();
   const q = query.get("q") ?? "";
   const asked = query.get("day");
   const day = asked && DAY_RE.test(asked) && asked.startsWith(month + "-") ? asked : null;
@@ -64,10 +70,11 @@ export function Transactions() {
     const p = new URLSearchParams({ month });
     if (day) p.set("day", day);
     if (account) p.set("account", account);
+    if (category) p.set("category", category);
     if (flow !== "all") p.set("flow", flow);
     if (q) p.set("q", q);
     return "/api/v1/transactions?" + p.toString();
-  }, [month, day, account, flow, q]);
+  }, [month, day, account, category, flow, q]);
   const res = useResource<TransactionList>(url);
   const days = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`);
 
@@ -101,7 +108,8 @@ export function Transactions() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tx, prev, next]);
 
-  const filtered = Boolean(account || flow !== "all" || q || day);
+  const filtered = Boolean(account || category || flow !== "all" || q || day);
+  const currentCategory = category === "none" ? null : cats.byId.get(category);
   const monthName = formatMonth(month).split(" ")[0];
   const caption = list
     ? `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
@@ -115,7 +123,31 @@ export function Transactions() {
 
   return (
     <>
-      <PageHeader title="Transactions" caption={caption} />
+      <PageHeader
+        title="Transactions"
+        caption={caption}
+        actions={
+          waiting ? (
+            <Button asChild variant="primary">
+              <Link to="/review">
+                Review {waiting} <Kbd>R</Kbd>
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {Boolean(waiting) && (
+        <Link
+          to="/review"
+          className="flex items-center justify-between gap-3 rounded-md bg-warning-soft px-3.5 py-2.5 text-[14px] leading-5 text-ink no-underline lg:hidden"
+        >
+          <span>
+            <strong className="font-semibold">{waiting} to review.</strong> One choice settles a whole merchant.
+          </span>
+          <span className="font-semibold text-tinta">Start</span>
+        </Link>
+      )}
 
       {notice && (
         <Notice
@@ -187,6 +219,25 @@ export function Transactions() {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="max-lg:h-7 max-lg:px-3 max-lg:text-[13px]">
+                {category === "none" ? "To review" : currentCategory ? currentCategory.name : "All categories"}
+                <ChevronDown aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup value={category} onValueChange={(v) => setQuery("category", v || null)}>
+                <DropdownMenuRadioItem value="">All categories</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="none">To review</DropdownMenuRadioItem>
+                {cats.live.map((c) => (
+                  <DropdownMenuRadioItem key={c.id} value={c.id}>
+                    <CategoryTag name={c.name} color={c.color} />
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -228,7 +279,7 @@ export function Transactions() {
                       : `Nothing in ${monthName} yet.`}
             </Empty>
           )}
-          {list && <Days transactions={list.transactions} selected={tx} />}
+          {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} />}
         </Panel>
 
         {tx && wide && (
@@ -321,7 +372,7 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 /** The list, grouped by day, each day with what it added up to. */
-function Days({ transactions, selected }: { transactions: Transaction[]; selected: string | null }) {
+function Days({ transactions, selected, categories }: { transactions: Transaction[]; selected: string | null; categories: Map<string, Category> }) {
   const today = todayISO();
   const days: { date: string; rows: Transaction[] }[] = [];
   for (const t of transactions) {
@@ -349,7 +400,7 @@ function Days({ transactions, selected }: { transactions: Transaction[]; selecte
                 amountCents={t.amountCents}
                 pending={t.status === "pending"}
                 installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
-                categorized={false}
+                category={categoryOf(t, categories)}
               />
             </div>
           ))}
@@ -382,4 +433,10 @@ function meta(t: Transaction): string {
     return t.amountCents < 0 ? `${here} → ${there}` : `${here} ← ${there}`;
   }
   return `${t.account.institution} · ${typeLabel[t.account.type]}`;
+}
+
+/** The row's category: its name and colour, or null while it waits for one. */
+function categoryOf(t: Transaction, categories: Map<string, Category>) {
+  const c = t.category ? categories.get(t.category.id) : undefined;
+  return c ? { name: c.name, color: c.color } : null;
 }

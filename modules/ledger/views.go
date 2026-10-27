@@ -64,6 +64,8 @@ type Categorizable struct {
 	ID          TransactionID
 	Account     AccountID
 	Description string
+	Date        time.Time // the calendar day
+	AmountCents int64     // negative when money left the account
 }
 
 // AccountRef names an account inside another view.
@@ -105,7 +107,13 @@ type TransactionFilter struct {
 	Search string
 	// Day narrows the month to one of its days; zero is the whole month.
 	Day time.Time
+	// Category is a category's id, or CategoryNone for the expenses and
+	// income still without one; empty is every transaction.
+	Category string
 }
+
+// CategoryNone filters the expenses and income still waiting for a category.
+const CategoryNone = "none"
 
 // MonthRange returns the first day of the filter's month and of the next.
 func (f TransactionFilter) MonthRange() (from, to time.Time) {

@@ -66,7 +66,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want transfers between my own accounts and card bill payments to be recognized automatically, so that they never inflate my spending.
 
 **P0**
-- [ ] One list with every account, filterable by period, account, category and type, and searchable by description. (Done except the category filter, which arrives with categories in M2.)
+- [x] One list with every account, filterable by period, account, category and type, and searchable by description.
 - [x] Transfers between my own accounts (Pix to a savings pot, to the brokerage...) are paired and marked as transfers.
 - [x] Card bill payments are marked as such; the card purchases are what counts as spending.
 - [x] Installment purchases show "n of m" and count in the month of each installment.
@@ -83,10 +83,10 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want every correction to teach the app, so that the same mistake does not happen twice.
 
 **P0**
-- [ ] Rules by merchant and description categorize known transactions instantly.
+- [x] Rules by merchant and description categorize known transactions instantly.
 - [ ] Transactions no rule matches go to the local LLM, which must answer with an existing category.
 - [ ] Anything the LLM cannot classify, or when the LLM is offline, goes to a "to review" queue; nothing gets a guessed category.
-- [ ] A manual correction creates a rule and is never overwritten by automation.
+- [x] A manual correction creates a rule and is never overwritten by automation.
 
 **P1**
 - [ ] The review queue suggests a category and accepts it with one click or key.

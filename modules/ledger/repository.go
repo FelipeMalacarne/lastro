@@ -410,6 +410,10 @@ func (r *PostgresRepository) TransactionViews(ctx context.Context, f Transaction
 	if q := likePattern(f.Search); q != "" {
 		p.Search = &q
 	}
+	if f.Category != "" {
+		c := f.Category
+		p.Category = &c
+	}
 	rows, err := r.q.ListTransactionViews(ctx, p)
 	if err != nil {
 		return nil, err
@@ -582,7 +586,7 @@ func (r *PostgresRepository) Categorizable(ctx context.Context, ids []Transactio
 	}
 	out := make([]Categorizable, len(rows))
 	for i, row := range rows {
-		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description}
+		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description, Date: row.Date, AmountCents: row.AmountCents}
 	}
 	return out, nil
 }
@@ -594,7 +598,7 @@ func (r *PostgresRepository) Uncategorized(ctx context.Context) ([]Categorizable
 	}
 	out := make([]Categorizable, len(rows))
 	for i, row := range rows {
-		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description}
+		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description, Date: row.Date, AmountCents: row.AmountCents}
 	}
 	return out, nil
 }

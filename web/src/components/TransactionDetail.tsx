@@ -1,13 +1,16 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ArrowLeftRight, ChevronLeft, ChevronRight, Clock, CreditCard, Search, X } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
+import { CategoryDecision } from "@/components/CategoryDecision";
+import { CategoryTag } from "@/components/CategoryTag";
 import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { Kbd } from "@/components/Kbd";
 import { Sparkline } from "@/components/Sparkline";
 import { Button } from "@/components/ui/button";
-import { typeLabel, useResource, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
+import { send, typeLabel, useResource, type Pattern, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
+import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDate, formatDay, formatMonth, formatWeekday } from "@/lib/format";
 import { Link, hrefWith } from "@/lib/router";
 
@@ -121,10 +124,7 @@ function Body({ d }: { d: Detail }) {
               : "Money moving between your accounts, or to and from your own investments, needs no category."}
           </p>
         ) : (
-          <>
-            <span className="text-[14px] leading-5 text-ink-muted">Uncategorized</span>
-            <p className="m-0 type-caption text-ink-muted">Choosing one will teach a rule for every “{t.description}”. It arrives with the review queue.</p>
-          </>
+          <CategorySection t={t} />
         )}
       </Section>
 
@@ -206,5 +206,53 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <span className="type-label text-ink-muted">{title}</span>
       {children}
     </div>
+  );
+}
+
+const sourceLabel: Record<string, string> = { rule: "by a rule", llm: "suggested by the local model", manual: "chosen by you" };
+
+/** The category, who chose it, and the choice that changes it (and teaches a rule). */
+function CategorySection({ t }: { t: Transaction }) {
+  const { live, byId } = useCategories();
+  const suggestion = useResource<{ pattern: Pattern | null }>(`/api/v1/patterns/suggest?description=${encodeURIComponent(t.description)}`);
+  const [open, setOpen] = useState(!t.category);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const current = t.category ? byId.get(t.category.id) : undefined;
+  useEffect(() => {
+    setOpen(!t.category);
+    setMsg(null);
+  }, [t.id, t.category]);
+
+  async function choose(category: string, teach: Pattern | null) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await send<{ categorized: number }>("PUT", `/api/v1/transactions/${t.id}/category`, { category, teach });
+      setOpen(false);
+      setMsg(r.categorized ? `And ${r.categorized} more like it.` : null);
+    } catch (e) {
+      setMsg(`Could not save: ${(e as Error).message}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex flex-col gap-0.5">
+          <CategoryTag name={current?.name} color={current?.color} />
+          {t.category && <span className="type-caption text-ink-muted">{sourceLabel[t.category.source] ?? ""}</span>}
+        </span>
+        {t.category && (
+          <Button size="sm" variant={open ? "ghost" : "secondary"} onClick={() => setOpen((o) => !o)}>
+            {open ? "Cancel" : "Change"}
+          </Button>
+        )}
+      </div>
+      {msg && <p className="m-0 type-caption text-ink-muted">{msg}</p>}
+      {open && <CategoryDecision categories={live} current={t.category?.id} suggested={suggestion.data?.pattern ?? null} onChoose={choose} busy={busy} />}
+    </>
   );
 }
