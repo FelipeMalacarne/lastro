@@ -543,3 +543,36 @@ func TestRepositoryManualAccounts(t *testing.T) {
 		t.Errorf("an asset takes no transactions: %v", err)
 	}
 }
+
+func TestRepositoryMarkedTransferSurvivesASync(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newService(t)
+	chk := details(t)
+	if _, err := svc.SyncAccount(ctx, chk); err != nil {
+		t.Fatal(err)
+	}
+	pix := imported(t, "pix", -200000)
+	pix.Description = "PIX ENVIADO MEU BANCO X"
+	batch := ImportBatch{Account: chk.ExternalID, Transactions: []ImportedTransaction{pix}}
+	if _, err := svc.ImportTransactions(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1)})
+	id := list.Transactions[0].ID
+	if n, err := svc.MarkTransfers(ctx, []TransactionID{id}, true); err != nil || n != 1 {
+		t.Fatalf("mark: %d %v", n, err)
+	}
+	if _, err := svc.ImportTransactions(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	list, _ = svc.Transactions(ctx, TransactionFilter{Month: oct(1)})
+	if v := list.Transactions[0]; v.Kind != "transfer" || !v.MarkedTransfer || list.Summary.OutCents != 0 {
+		t.Errorf("the mark survives a sync and the money no longer counts: %+v %+v", v, list.Summary)
+	}
+	if n, err := svc.MarkTransfers(ctx, []TransactionID{id}, false); err != nil || n != 1 {
+		t.Fatalf("unmark: %d %v", n, err)
+	}
+	if c, _ := svc.Uncategorized(ctx); len(c) != 1 {
+		t.Errorf("unmarked, it waits for a category again: %+v", c)
+	}
+}

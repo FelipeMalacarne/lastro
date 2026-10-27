@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
 import { formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
+import { SyncButton, nextSync, useSync } from "@/lib/sync";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
@@ -40,20 +41,6 @@ const themes: { value: ThemePreference; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-// The sync CronJob: minute 17 of every sixth hour, in Brasília time.
-const syncHours = [0, 6, 12, 18];
-
-/** The next "HH:17" the sync CronJob runs at, in Brasília time. */
-export function nextSync(now = new Date()): string {
-  const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    .format(now)
-    .split(":")
-    .map(Number);
-  const next = syncHours.find((x) => x > h || (x === h && m < 17)) ?? syncHours[0];
-  return `${String(next).padStart(2, "0")}:17`;
-}
-
-/** Settings (canvas: "Settings"). The Budget and Investments sections arrive with M3 and M4. */
 export function Settings() {
   const [at, setAt] = useState("connections");
   const { banks } = useBanks();
@@ -154,7 +141,13 @@ function Row({ label, hint, children }: { label: string; hint?: ReactNode; child
 function Connections() {
   const { banks, loading, error } = useBanks();
   return (
-    <Section id="connections" title="Connections" intro="Your banks and brokers, read through Meu Pluggy. lastro only reads; it never moves money.">
+    <Section
+      id="connections"
+      title="Connections"
+      intro="Your banks and brokers, read through Meu Pluggy. lastro only reads; it never moves money."
+      action={<SyncButton label="Sync all now" />}
+    >
+      <SyncOutcome />
       {error && <p className="m-0 type-body text-ink-muted">Could not load the connections: {error}.</p>}
       {loading && banks.length === 0 && <p className="m-0 type-body text-ink-muted">Loading…</p>}
       {!loading && banks.length === 0 && !error && <p className="m-0 type-body text-ink-muted">No connections yet. The first sync brings them in.</p>}
@@ -200,6 +193,14 @@ function Connections() {
       </div>
     </Section>
   );
+}
+
+/** How the last sync started from here went, while it is worth saying. */
+function SyncOutcome() {
+  const { running, outcome, failed } = useSync();
+  if (running) return <p className="m-0 type-caption text-ink-muted">Syncing every bank through Meu Pluggy, then prices and the day's valuation…</p>;
+  if (!outcome) return null;
+  return <p className={cn("m-0 type-caption", failed ? "text-danger" : "text-ink-muted")}>{outcome}</p>;
 }
 
 /** Accounts outside Open Finance (canvas: "Accounts outside Open Finance"). */
@@ -296,8 +297,45 @@ function BudgetSettings() {
         </>
       }
     >
-      {v ? <PayYourselfFirst key={`${v.payYourselfFirst.plannedCents}-${v.payday}`} v={v} /> : <p className="m-0 type-body text-ink-muted">Loading…</p>}
+      {v ? (
+        <>
+          <PayYourselfFirst key={`${v.payYourselfFirst.plannedCents}-${v.payday}`} v={v} />
+          <RolloverNew on={v.rolloverNew} />
+        </>
+      ) : (
+        <p className="m-0 type-body text-ink-muted">Loading…</p>
+      )}
     </Section>
+  );
+}
+
+/** Whether a category given its first limit rolls over; saved as soon as it is ticked. */
+function RolloverNew({ on }: { on: boolean }) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function toggle(next: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      await send("PUT", "/api/v1/budget/preferences", { rolloverNew: next });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-4">
+      <Row label="Roll over new categories" hint="What is left moves to next month. Each category can change it.">
+        <span className="flex flex-col gap-1">
+          <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[14px] leading-5 lg:min-h-0">
+            <input id="set-rollover" type="checkbox" checked={on} disabled={busy} onChange={(e) => void toggle(e.target.checked)} className="size-[18px] accent-[var(--tinta)]" />
+            {on ? "On for new categories" : "Off for new categories"}
+          </label>
+          {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
+        </span>
+      </Row>
+    </div>
   );
 }
 

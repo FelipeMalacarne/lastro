@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, Check, CircleAlert, Repeat, Sparkles, TriangleAlert } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, PiggyBank, Repeat, Sparkles, TriangleAlert, X } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -26,20 +26,35 @@ export function Budget() {
   const { byId, live } = useCategories();
   const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ text: string; undo?: LimitLine[] } | null>(null);
   const wide = useWide();
   const v = res.data;
-  // On a phone the detail sits under the table: choosing a row brings it into view.
+  // On a phone the detail opens under the lists only when a category is tapped.
   const select = (id: string) => {
     setSelected(id);
     if (!wide) requestAnimationFrame(() => document.getElementById("detail-title")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
+  const startEditing = () => {
+    setEditing(true);
+    setDone(null);
+    requestAnimationFrame(() => document.getElementById("limits-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
-  // The first category that needs attention starts selected, so the detail is never empty.
+  // On a wide screen the first category that needs attention starts selected, so the detail is never empty.
   useEffect(() => {
     if (!v) return;
     const known = [...v.categories.map((c) => c.category), ...v.unlimited.map((u) => u.category ?? "")];
-    if (!selected || !known.includes(selected)) setSelected(v.categories[0]?.category ?? v.unlimited.find((u) => u.category)?.category ?? null);
-  }, [v, selected]);
+    const first = v.categories[0]?.category ?? v.unlimited.find((u) => u.category)?.category ?? null;
+    if (selected && !known.includes(selected)) setSelected(wide ? first : null);
+    else if (!selected && wide) setSelected(first);
+  }, [v, selected, wide]);
+
+  useEffect(() => {
+    setEditing(false);
+    setDone(null);
+  }, [month]);
 
   if (res.error && !v) return <PageHeader title="Budget" caption={`Could not load the budget: ${res.error}.`} />;
   if (!v) return <PageHeader title="Budget" caption="Loading…" />;
@@ -67,13 +82,90 @@ export function Budget() {
 
   const sel = selected ? v.categories.find((c) => c.category === selected) : undefined;
   const selUnlimited = !sel && selected ? v.unlimited.find((u) => u.category === selected) : undefined;
+  const prev = addMonth(v.month, -1);
+  const prevName = formatMonth(prev).split(" ")[0];
+
+  async function copy() {
+    if (!v) return;
+    const before = v.categories.map((c) => ({ category: c.category, limitCents: c.limitCents, rollover: c.rollover }));
+    setBusy(true);
+    try {
+      const r = await send<{ copied: number }>("POST", `/api/v1/budget/${v.month}/copy`, { from: prev });
+      setDone({ text: `Copied ${prevName}'s ${r.copied} ${r.copied === 1 ? "limit" : "limits"} into ${formatMonth(v.month).split(" ")[0]}.`, undo: before });
+    } catch (e) {
+      setDone({ text: `Could not copy: ${(e as Error).message}.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function undo(lines: LimitLine[]) {
+    if (!v) return;
+    setBusy(true);
+    try {
+      await send("PUT", `/api/v1/budget/${v.month}/limits`, { limits: lines });
+      setDone(null);
+    } catch (e) {
+      setDone({ text: `Could not undo: ${(e as Error).message}.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const actions = editing ? undefined : (
+    <>
+      {v.prevDiffers && (
+        <Button variant="ghost" onClick={() => void copy()} disabled={busy}>
+          Copy {prevName}
+        </Button>
+      )}
+      <Button onClick={startEditing}>Edit all limits</Button>
+    </>
+  );
+
+  const detail = (
+    <>
+      {sel && <Detail key={sel.category} v={v} c={sel} cat={byId.get(sel.category)} onClose={wide ? undefined : () => setSelected(null)} />}
+      {selUnlimited && selUnlimited.category && (
+        <Detail key={selUnlimited.category} v={v} spend={selUnlimited} cat={byId.get(selUnlimited.category)} onClose={wide ? undefined : () => setSelected(null)} />
+      )}
+    </>
+  );
 
   return (
     <>
-      <PageHeader title="Budget" caption={caption} />
-      <Hero v={v} isCurrent={isCurrent} gone={gone} />
-      {!wide && attention.length > 0 && isCurrent && <Attention v={v} rows={attention} byId={byId} onSelect={select} />}
+      <PageHeader title="Budget" caption={caption} actions={actions} />
+      {done && (
+        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-paper-sunken py-2 pr-2 pl-3.5 text-[14px] leading-5">
+          <span className="min-w-0 flex-[1_1_240px]">{done.text}</span>
+          {done.undo && (
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void undo(done.undo!)}>
+              Undo
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" aria-label="Dismiss" onClick={() => setDone(null)}>
+            <X aria-hidden />
+          </Button>
+        </div>
+      )}
+      {wide ? <Hero v={v} isCurrent={isCurrent} gone={gone} onAssign={editing ? undefined : startEditing} /> : <PhoneHero v={v} isCurrent={isCurrent} byId={byId} />}
+      {!wide && <PayFirst v={v} />}
 
+      {editing ? (
+        <LimitsEditor v={v} categories={live} onDone={() => setEditing(false)} />
+      ) : !wide ? (
+        <>
+          {attention.length > 0 && <PhoneGroup title="Needs attention" v={v} rows={attention} byId={byId} onSelect={select} selected={selected} cover />}
+          {v.categories.length > attention.length && (
+            <PhoneGroup title={isCurrent ? "On pace" : "Within the limit"} v={v} rows={v.categories.filter((c) => c.pace === "on_pace")} byId={byId} onSelect={select} selected={selected} />
+          )}
+          {v.unlimited.length > 0 && (
+            <section className="overflow-hidden rounded-md border border-rule bg-paper-raised pt-4">
+              <Unlimited v={v} rows={v.unlimited} byId={byId} selected={selected} onSelect={select} className="-mb-px" />
+            </section>
+          )}
+          {detail}
+        </>
+      ) : (
       <div className="flex flex-wrap items-start gap-4 lg:gap-6">
         <Panel
           className="min-w-0 flex-[2_1_560px]"
@@ -111,19 +203,19 @@ export function Budget() {
         </Panel>
 
         <aside aria-label="Details" className="flex min-w-0 flex-[1_1_340px] flex-col gap-4 lg:sticky lg:top-6 lg:max-w-[420px]">
-          {wide && attention.length > 0 && isCurrent && <Attention v={v} rows={attention} byId={byId} onSelect={select} />}
-          {sel && <Detail key={sel.category} v={v} c={sel} cat={byId.get(sel.category)} />}
-          {selUnlimited && selUnlimited.category && (
-            <Detail key={selUnlimited.category} v={v} spend={selUnlimited} cat={byId.get(selUnlimited.category)} />
-          )}
+          {attention.length > 0 && isCurrent && <Attention v={v} rows={attention} byId={byId} onSelect={select} />}
+          {detail}
         </aside>
       </div>
+      )}
     </>
   );
 }
 
+type LimitLine = { category: string; limitCents: number; rollover: boolean };
+
 /** Left to spend, how the month is going, and where the month's money goes. */
-function Hero({ v, isCurrent, gone }: { v: BudgetMonth; isCurrent: boolean; gone: number }) {
+function Hero({ v, isCurrent, gone, onAssign }: { v: BudgetMonth; isCurrent: boolean; gone: number; onAssign?: () => void }) {
   const left = v.leftCents - v.upcomingCents;
   const used = v.availableCents > 0 ? Math.round((v.spentCents / v.availableCents) * 100) : 0;
   const fixed = v.categories.reduce((s, c) => s + c.fixedCents, 0);
@@ -208,12 +300,19 @@ function Hero({ v, isCurrent, gone }: { v: BudgetMonth; isCurrent: boolean; gone
             >
               <Amount cents={-v.limitsCents} />
             </MoneyRow>
-            <div role="row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t-2 border-ink pt-2.5">
+            <div role="row" className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-t-2 border-ink pt-2.5">
               <span role="cell" className="flex flex-col">
                 <span className="text-[14px] leading-5 font-semibold">Not assigned</span>
                 <span className={cn("type-caption", v.notAssignedCents < 0 ? "text-danger" : "text-ink-muted")}>
                   {v.notAssignedCents < 0 ? "The limits promise more than came in" : "No limit holds this money yet"}
                 </span>
+              </span>
+              <span role="cell">
+                {onAssign && (
+                  <Button variant="ghost" size="sm" onClick={onAssign}>
+                    {v.notAssignedCents < 0 ? "Adjust" : "Assign"}
+                  </Button>
+                )}
               </span>
               <span role="cell">
                 <Amount cents={v.notAssignedCents} size="lg" tone={v.notAssignedCents < 0 ? "danger" : "ink"} />
@@ -362,10 +461,24 @@ function PaceBar({ fill, over, color, gone, label, className }: { fill: number; 
 }
 
 /** Spending in categories without a limit, and what still waits for a category. */
-function Unlimited({ v, rows, byId, selected, onSelect }: { v: BudgetMonth; rows: BudgetSpend[]; byId: Map<string, Category>; selected: string | null; onSelect: (id: string) => void }) {
+function Unlimited({
+  v,
+  rows,
+  byId,
+  selected,
+  onSelect,
+  className = "mt-5",
+}: {
+  v: BudgetMonth;
+  rows: BudgetSpend[];
+  byId: Map<string, Category>;
+  selected: string | null;
+  onSelect: (id: string) => void;
+  className?: string;
+}) {
   const total = rows.reduce((s, r) => s + r.spentCents, 0);
   return (
-    <div role="table" aria-label="Spending without a limit" className="mt-5">
+    <div role="table" aria-label="Spending without a limit" className={className}>
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pb-2">
         <h3 className="m-0 text-[14px] leading-5 font-semibold">Without a limit</h3>
         <span className="type-caption text-ink-muted">{formatBRL(total)} this month, outside every limit</span>
@@ -475,7 +588,7 @@ function Attention({ v, rows, byId, onSelect }: { v: BudgetMonth; rows: BudgetCa
 }
 
 /** Raises an overspent limit by what it is over, this month on, taking it from Not assigned. */
-function CoverButton({ month, c }: { month: string; c: BudgetCategory }) {
+function CoverButton({ month, c, label = "Cover with Not assigned" }: { month: string; c: BudgetCategory; label?: string }) {
   const [busy, setBusy] = useState(false);
   return (
     <Button
@@ -491,13 +604,13 @@ function CoverButton({ month, c }: { month: string; c: BudgetCategory }) {
         }
       }}
     >
-      Cover with Not assigned
+      {label}
     </Button>
   );
 }
 
 /** One category: where its limit comes from, its last six months, where the money went, and its limit. */
-function Detail({ v, c, spend, cat }: { v: BudgetMonth; c?: BudgetCategory; spend?: BudgetSpend; cat?: Category }) {
+function Detail({ v, c, spend, cat, onClose }: { v: BudgetMonth; c?: BudgetCategory; spend?: BudgetSpend; cat?: Category; onClose?: () => void }) {
   const id = c?.category ?? spend?.category ?? "";
   const history = c?.history ?? spend?.history ?? [];
   const average = c?.averageCents ?? spend?.averageCents ?? 0;
@@ -524,6 +637,11 @@ function Detail({ v, c, spend, cat }: { v: BudgetMonth; c?: BudgetCategory; spen
           </Badge>
         )}
         {!c && <Badge>No limit</Badge>}
+        {onClose && (
+          <Button variant="ghost" size="sm" className="ml-auto" aria-label="Close the details" onClick={onClose}>
+            <X aria-hidden />
+          </Button>
+        )}
       </div>
 
       {c ? (
@@ -580,7 +698,7 @@ function Detail({ v, c, spend, cat }: { v: BudgetMonth; c?: BudgetCategory; spen
         </div>
       )}
 
-      <LimitEditor key={id + (c?.limitCents ?? 0)} month={v.month} category={id} name={cat?.name ?? ""} limit={c} suggested={average} />
+      <LimitEditor key={id + (c?.limitCents ?? 0)} month={v.month} category={id} name={cat?.name ?? ""} limit={c} suggested={average} rolloverNew={v.rolloverNew} />
 
       <Link to={`/transactions?month=${v.month}&category=${id}`} className="self-start text-[14px] font-semibold">
         See the {count} {count === 1 ? "transaction" : "transactions"}
@@ -668,10 +786,24 @@ function History({ history, now, average, limit, name, color }: { history: Month
   );
 }
 
-function LimitEditor({ month, category, name, limit, suggested }: { month: string; category: string; name: string; limit?: BudgetCategory; suggested: number }) {
+function LimitEditor({
+  month,
+  category,
+  name,
+  limit,
+  suggested,
+  rolloverNew,
+}: {
+  month: string;
+  category: string;
+  name: string;
+  limit?: BudgetCategory;
+  suggested: number;
+  rolloverNew: boolean;
+}) {
   const start = limit?.limitCents ?? Math.ceil(suggested / 5000) * 5000;
   const [text, setText] = useState(start ? inputBRL(start) : "");
-  const [rollover, setRollover] = useState(limit?.rollover ?? false);
+  const [rollover, setRollover] = useState(limit?.rollover ?? rolloverNew);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cents = parseBRL(text);
@@ -749,7 +881,7 @@ function StartBudget({ v, categories }: { v: BudgetMonth; categories: Category[]
     setBusy(true);
     setError(null);
     try {
-      for (const p of proposal) await send("PUT", `/api/v1/budget/${v.month}/limits/${p.id}`, { limitCents: p.cents, rollover: false });
+      await send("PUT", `/api/v1/budget/${v.month}/limits`, { limits: proposal.map((p) => ({ category: p.id, limitCents: p.cents, rollover: v.rolloverNew })) });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -796,3 +928,310 @@ function StartBudget({ v, categories }: { v: BudgetMonth; categories: Category[]
   );
 }
 
+
+/** Where the month's money goes, as one bar (canvas: "Budget, phone"). */
+function PhoneHero({ v, isCurrent, byId }: { v: BudgetMonth; isCurrent: boolean; byId: Map<string, Category> }) {
+  const left = v.leftCents - v.upcomingCents;
+  const perDay = isCurrent && v.daysLeft > 0 && left > 0 ? left / v.daysLeft : 0;
+  const pyf = v.payYourselfFirst.plannedCents;
+  const inLimits = Math.max(0, v.leftCents);
+  const spare = Math.max(0, v.notAssignedCents);
+  const spent = v.categories.filter((c) => c.spentCents > 0).sort((a, b) => b.spentCents - a.spentCents);
+  const total = pyf + v.spentCents + inLimits + spare;
+  const gone = v.days - v.daysLeft;
+  const legend: { label: string; cents: number; swatch: ReactNode }[] = [
+    { label: "Pay yourself first", cents: pyf, swatch: <span className="size-2.5 rounded-xs bg-ink" /> },
+    {
+      label: "Spent",
+      cents: v.spentCents,
+      swatch: (
+        <span className="inline-flex h-2.5 w-[15px] gap-px">
+          {spent.slice(0, 3).map((c) => (
+            <span key={c.category} className="flex-1" style={{ background: `var(--${byId.get(c.category)?.color ?? "note-200"})` }} />
+          ))}
+        </span>
+      ),
+    },
+    { label: "Left in limits", cents: v.leftCents, swatch: <span className="box-border size-2.5 rounded-xs border border-dashed border-rule-strong" /> },
+    { label: "Not assigned", cents: v.notAssignedCents, swatch: <span className="box-border size-2.5 rounded-xs border border-rule bg-paper-sunken" /> },
+  ];
+  return (
+    <Panel footer={isCurrent ? `${gone} of ${v.days} days gone (${Math.round(v.elapsedBp / 100)}%).` : `${formatMonth(v.month)} is over.`}>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="type-label text-ink-muted">{isCurrent ? "Left to spend" : "Left in the limits"}</span>
+          <Amount cents={isCurrent ? left : v.leftCents} size="hero" sign="negative" tone={left < 0 ? "danger" : "ink"} />
+          <span className="type-caption text-ink-muted">
+            {isCurrent
+              ? `${v.daysLeft} ${v.daysLeft === 1 ? "day" : "days"} left${perDay > 0 ? `, about ${formatBRL(perDay)} a day` : ""}${v.upcomingCents > 0 ? `, after ${formatBRL(v.upcomingCents)} in fixed charges to come` : ""}`
+              : `${formatBRL(v.spentCents)} spent of ${formatBRL(v.availableCents)}`}
+          </span>
+        </div>
+        {total > 0 && (
+          <div
+            role="img"
+            aria-label={`Of ${formatBRL(total)}: pay yourself first ${formatBRL(pyf)}, spent ${formatBRL(v.spentCents)}, left in limits ${formatBRL(inLimits)}, not assigned ${formatBRL(spare)}.`}
+            className="flex h-4 gap-0.5"
+          >
+            {pyf > 0 && <span className="min-w-0 rounded-xs bg-ink" style={{ flex: `${pyf} 1 0` }} />}
+            {v.spentCents > 0 && (
+              <span className="flex min-w-0 gap-px" style={{ flex: `${v.spentCents} 1 0` }}>
+                {spent.map((c) => (
+                  <span key={c.category} className="min-w-0" style={{ flex: `${c.spentCents} 1 0`, background: `var(--${byId.get(c.category)?.color ?? "note-200"})` }} />
+                ))}
+              </span>
+            )}
+            {inLimits > 0 && <span className="box-border min-w-0 rounded-xs border border-dashed border-rule-strong" style={{ flex: `${inLimits} 1 0` }} />}
+            {spare > 0 && <span className="min-w-0 rounded-xs bg-paper-sunken shadow-[inset_0_0_0_1px_var(--rule)]" style={{ flex: `${spare} 1 0` }} />}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 type-caption text-ink-muted">
+          {legend.map((l) => (
+            <span key={l.label} className="flex flex-col">
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="inline-flex">
+                  {l.swatch}
+                </span>
+                {l.label}
+              </span>
+              <strong className={cn("font-figure font-medium", l.cents < 0 ? "text-danger" : "text-ink")}>{formatBRL(l.cents)}</strong>
+            </span>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** Pay yourself first on its own: set aside before any limit, never spending. */
+function PayFirst({ v }: { v: BudgetMonth }) {
+  const p = v.payYourselfFirst;
+  return (
+    <Panel>
+      <div className="flex items-center gap-3">
+        <span className="inline-flex size-9 flex-none items-center justify-center rounded-sm bg-tinta-soft text-tinta" aria-hidden>
+          <PiggyBank className="size-5" />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[15px] leading-[22px] font-semibold">Pay yourself first</span>
+          <span className="type-caption text-ink-muted">
+            {p.plannedCents === 0 ? <Link to="/settings#budget">Set an amount in Settings</Link> : `Set aside on ${formatDay(p.due)} · never spending`}
+          </span>
+        </span>
+        {p.plannedCents > 0 && (
+          <span className="flex flex-col items-end gap-1">
+            <Amount cents={p.plannedCents} sign="none" />
+            {p.doneOn ? (
+              <Badge tone="inflow" icon={Check}>
+                Done
+              </Badge>
+            ) : p.movedCents > 0 ? (
+              <span className="type-caption text-ink-muted">{formatBRL(p.movedCents)} moved</span>
+            ) : (
+              <span className="type-caption text-ink-muted">Due {formatDay(p.due)}</span>
+            )}
+          </span>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+/** A group of categories on a phone, each a bar; tapping one opens its detail. */
+function PhoneGroup({
+  title,
+  v,
+  rows,
+  byId,
+  onSelect,
+  selected,
+  cover,
+}: {
+  title: string;
+  v: BudgetMonth;
+  rows: BudgetCategory[];
+  byId: Map<string, Category>;
+  onSelect: (id: string) => void;
+  selected: string | null;
+  cover?: boolean;
+}) {
+  const gone = v.elapsedBp / 100;
+  const coverable = cover ? rows.find((c) => c.pace === "over" && v.notAssignedCents >= -c.leftCents) : undefined;
+  return (
+    <Panel title={`${title} · ${rows.length}`}>
+      <div className="flex flex-col gap-5">
+        {rows.map((c) => {
+          const cat = byId.get(c.category);
+          const st = status(c);
+          const fill = Math.min(c.availableCents > 0 ? (c.spentCents / c.availableCents) * 100 : c.spentCents > 0 ? 100 : 0, 100);
+          return (
+            <button
+              key={c.category}
+              type="button"
+              aria-pressed={c.category === selected}
+              onClick={() => onSelect(c.category)}
+              className="-m-1.5 flex cursor-pointer flex-col gap-1.5 rounded-sm border-0 bg-transparent p-1.5 text-left text-ink focus-visible:focus-ring aria-pressed:bg-tinta-soft"
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <CategoryTag name={cat?.name ?? "Archived"} color={cat?.color} />
+                  {c.rollover && <Repeat className="size-3.5 text-ink-muted" aria-label="rolls over" />}
+                </span>
+                <span className="type-figure-sm whitespace-nowrap">
+                  {formatBRL(c.spentCents)} <span className="text-ink-muted">of {formatBRL(c.availableCents)}</span>
+                </span>
+              </span>
+              <PaceBar fill={fill} over={c.pace === "over"} color={cat?.color} gone={gone} label={`${cat?.name}: ${formatBRL(c.spentCents)} of ${formatBRL(c.availableCents)}`} />
+              <span className="flex items-center justify-between gap-3 type-caption">
+                <span className={cn("inline-flex items-center gap-1", st.tone)}>
+                  {st.icon && <st.icon className="size-3.5" aria-hidden />}
+                  {st.text}
+                </span>
+                <span className="text-ink-muted">{c.leftCents >= 0 ? `${formatBRL(c.leftCents)} left` : ""}</span>
+              </span>
+            </button>
+          );
+        })}
+        {coverable && <CoverButton month={v.month} c={coverable} label={`Cover ${byId.get(coverable.category)?.name ?? "it"} from Not assigned`} />}
+      </div>
+    </Panel>
+  );
+}
+
+/** Every limit at once: what each category gets, whether it rolls over, and what is left unassigned. */
+function LimitsEditor({ v, categories, onDone }: { v: BudgetMonth; categories: Category[]; onDone: () => void }) {
+  const current = new Map(v.categories.map((c) => [c.category, c]));
+  const average = new Map<string, number>([
+    ...v.unlimited.filter((u) => u.category).map((u) => [u.category!, u.averageCents] as const),
+    ...v.categories.map((c) => [c.category, c.averageCents] as const),
+  ]);
+  const [rows] = useState(() =>
+    categories
+      .filter((c) => c.budgeted)
+      .sort((a, b) => (current.get(b.id)?.limitCents ?? -1) - (current.get(a.id)?.limitCents ?? -1) || (average.get(b.id) ?? 0) - (average.get(a.id) ?? 0)),
+  );
+  const [vals, setVals] = useState<Record<string, { text: string; rollover: boolean }>>(() =>
+    Object.fromEntries(rows.map((c) => [c.id, { text: current.has(c.id) ? inputBRL(current.get(c.id)!.limitCents) : "", rollover: current.get(c.id)?.rollover ?? v.rolloverNew }])),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cents = (id: string) => (vals[id].text.trim() ? parseBRL(vals[id].text) : null);
+  const bad = rows.filter((c) => vals[c.id].text.trim() && cents(c.id) === null);
+  const total = rows.reduce((s, c) => s + (cents(c.id) ?? 0), 0);
+  const spare = v.notAssignedCents + v.limitsCents - total;
+  const monthName = formatMonth(v.month).split(" ")[0];
+  const set = (id: string, p: Partial<{ text: string; rollover: boolean }>) => setVals((x) => ({ ...x, [id]: { ...x[id], ...p } }));
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (bad.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const limits = rows.filter((c) => cents(c.id) !== null).map((c) => ({ category: c.id, limitCents: cents(c.id)!, rollover: vals[c.id].rollover }));
+      await send("PUT", `/api/v1/budget/${v.month}/limits`, { limits });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form id="limits-editor" onSubmit={save} className="scroll-mt-20">
+      <Panel
+        title="Edit all limits"
+        action={
+          <span className="flex flex-col items-end">
+            <span className="type-caption text-ink-muted">Not assigned after</span>
+            <Amount cents={spare} tone={spare < 0 ? "danger" : "ink"} />
+          </span>
+        }
+        bodyClassName="-mx-5"
+        footer={`From ${monthName} on; earlier months keep theirs. An empty limit removes it. ${v.incomeCents ? `${formatBRL(v.incomeCents)} came in, ${formatBRL(v.payYourselfFirst.plannedCents)} of it set aside first.` : ""}`}
+      >
+        <div role="table" aria-label="Limits">
+          <div role="row" className="grid h-8 grid-cols-[minmax(0,1fr)_128px_44px] items-center gap-x-3 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted sm:grid-cols-[minmax(0,1fr)_110px_150px_96px]">
+            <span role="columnheader">Category</span>
+            <span role="columnheader" className="hidden text-right sm:block">
+              6-mo avg
+            </span>
+            <span role="columnheader">Limit</span>
+            <span role="columnheader" className="text-center">
+              <span className="sm:hidden" aria-hidden>
+                <Repeat className="inline size-3.5" />
+              </span>
+              <span className="hidden sm:inline">Rolls over</span>
+            </span>
+          </div>
+          {rows.map((c) => {
+            const val = vals[c.id];
+            const avg = average.get(c.id) ?? 0;
+            const wrong = Boolean(val.text.trim()) && cents(c.id) === null;
+            return (
+              <div role="row" key={c.id} className="grid min-h-14 grid-cols-[minmax(0,1fr)_128px_44px] items-center gap-x-3 border-b border-rule px-5 py-1.5 sm:grid-cols-[minmax(0,1fr)_110px_150px_96px]">
+                <span role="cell" className="flex min-w-0 flex-col gap-0.5">
+                  <CategoryTag name={c.name} color={c.color} />
+                  <span className="type-caption text-ink-muted sm:hidden">avg {formatBRL(avg)}</span>
+                </span>
+                <span role="cell" className="hidden text-right sm:block">
+                  <Amount cents={avg} sign="none" tone="muted" />
+                </span>
+                <span role="cell">
+                  <label className={cn("flex h-11 items-center gap-1 rounded-sm border bg-paper-raised px-2.5 font-figure text-[14px] focus-within:focus-ring lg:h-9", wrong ? "border-danger" : "border-rule-strong")}>
+                    <span className="text-ink-muted">R$</span>
+                    <input
+                      aria-label={`Limit for ${c.name}`}
+                      aria-invalid={wrong}
+                      inputMode="decimal"
+                      placeholder="No limit"
+                      value={val.text}
+                      onChange={(e) => set(c.id, { text: e.target.value })}
+                      className="w-full min-w-0 border-0 bg-transparent text-right text-ink outline-none placeholder:text-ink-muted"
+                    />
+                  </label>
+                </span>
+                <span role="cell" className="flex justify-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`${c.name} rolls over`}
+                    checked={val.rollover}
+                    onChange={(e) => set(c.id, { rollover: e.target.checked })}
+                    className="size-5 cursor-pointer accent-[var(--tinta)] lg:size-4"
+                  />
+                </span>
+              </div>
+            );
+          })}
+          <div role="row" className="grid min-h-11 grid-cols-[minmax(0,1fr)_128px_44px] items-center gap-x-3 px-5 font-semibold sm:grid-cols-[minmax(0,1fr)_110px_150px_96px]">
+            <span role="cell" className="text-[14px]">
+              Limits, a month
+            </span>
+            <span role="cell" className="hidden sm:block" />
+            <span role="cell" className="pr-2.5 text-right">
+              <Amount cents={total} sign="none" />
+            </span>
+            <span role="cell" />
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 px-5 pt-3">
+          {bad.length > 0 && <p className="m-0 type-caption text-danger">Type an amount like 500,00 for {bad.map((c) => c.name).join(", ")}.</p>}
+          {error && (
+            <p role="alert" className="m-0 type-caption text-danger">
+              Could not save: {error}.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" variant="primary" disabled={busy || bad.length > 0}>
+              Save all limits
+            </Button>
+            <Button type="button" variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Panel>
+    </form>
+  );
+}

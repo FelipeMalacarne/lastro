@@ -72,7 +72,7 @@ func (q *Queries) GetCategory(ctx context.Context, id string) (CategorizeCategor
 }
 
 const getRule = `-- name: GetRule :one
-SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at FROM categorize.rules WHERE id = $1
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin FROM categorize.rules WHERE id = $1
 `
 
 func (q *Queries) GetRule(ctx context.Context, id string) (CategorizeRule, error) {
@@ -86,12 +86,13 @@ func (q *Queries) GetRule(ctx context.Context, id string) (CategorizeRule, error
 		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origin,
 	)
 	return i, err
 }
 
 const getRuleByPattern = `-- name: GetRuleByPattern :one
-SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at FROM categorize.rules
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin FROM categorize.rules
 WHERE pattern_kind = $1 AND pattern = $2 AND account_id IS NOT DISTINCT FROM $3::uuid
 `
 
@@ -112,6 +113,7 @@ func (q *Queries) GetRuleByPattern(ctx context.Context, arg GetRuleByPatternPara
 		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origin,
 	)
 	return i, err
 }
@@ -171,7 +173,7 @@ func (q *Queries) ListCategories(ctx context.Context) ([]CategorizeCategory, err
 }
 
 const listRules = `-- name: ListRules :many
-SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at FROM categorize.rules ORDER BY pattern_kind, pattern, account_id NULLS FIRST
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin FROM categorize.rules ORDER BY pattern_kind, pattern, account_id NULLS FIRST
 `
 
 func (q *Queries) ListRules(ctx context.Context) ([]CategorizeRule, error) {
@@ -191,6 +193,7 @@ func (q *Queries) ListRules(ctx context.Context) ([]CategorizeRule, error) {
 			&i.CategoryID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origin,
 		); err != nil {
 			return nil, err
 		}
@@ -238,8 +241,8 @@ func (q *Queries) ListSuggestions(ctx context.Context) ([]CategorizeSuggestion, 
 }
 
 const saveRule = `-- name: SaveRule :exec
-INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO UPDATE SET
     pattern_kind = EXCLUDED.pattern_kind,
     pattern = EXCLUDED.pattern,
@@ -256,6 +259,7 @@ type SaveRuleParams struct {
 	CategoryID  string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Origin      string
 }
 
 func (q *Queries) SaveRule(ctx context.Context, arg SaveRuleParams) error {
@@ -267,6 +271,7 @@ func (q *Queries) SaveRule(ctx context.Context, arg SaveRuleParams) error {
 		arg.CategoryID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Origin,
 	)
 	return err
 }

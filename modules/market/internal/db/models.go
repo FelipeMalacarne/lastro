@@ -28,6 +28,11 @@ type BudgetMonth struct {
 	UpdatedAt time.Time
 }
 
+type BudgetPreference struct {
+	ID          bool
+	RolloverNew bool
+}
+
 type CategorizeCategory struct {
 	ID         string
 	Name       string
@@ -46,6 +51,7 @@ type CategorizeRule struct {
 	CategoryID  string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Origin      string
 }
 
 type CategorizeSuggestion struct {
@@ -152,12 +158,13 @@ type LedgerTransaction struct {
 	CategorySource    *string
 	CounterpartID     *string
 	PairKind          *string
-	Kind              string
 	RemovedAt         *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	Note              string
 	Tags              []string
+	MarkedTransfer    bool
+	Kind              string
 }
 
 type MarketBond struct {

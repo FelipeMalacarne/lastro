@@ -121,3 +121,23 @@ func (b *MonthlyBudget) Limits() money.Money {
 	}
 	return money.BRLCents(cents)
 }
+
+// SetLimits replaces every category's limit at once: the limits typed in
+// together, or another month's copied over. A category left out has none.
+func (b *MonthlyBudget) SetLimits(lines []Line, now time.Time) error {
+	next := make(map[ledger.CategoryID]Line, len(lines))
+	for _, l := range lines {
+		if l.Category.IsZero() {
+			return fmt.Errorf("%w: limit without a category", ErrInvalid)
+		}
+		if _, dup := next[l.Category]; dup {
+			return fmt.Errorf("%w: two limits for one category", ErrInvalid)
+		}
+		if err := amount(l.Limit, "limit"); err != nil {
+			return err
+		}
+		next[l.Category] = l
+	}
+	b.lines, b.updatedAt = next, now
+	return nil
+}

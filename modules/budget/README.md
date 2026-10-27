@@ -20,7 +20,7 @@ Decision: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), c
 
 ## Invariants
 
-- At most one saved budget per month; limits and pay yourself first are never negative and always in reais.
+- At most one saved budget per month; limits and pay yourself first are never negative and always in reais. A month has at most one limit per category, also when they are all set at once.
 - Only a live category that counts toward the budget takes a limit.
 - Pay yourself first is never counted as spending.
 - An installment purchase counts by the month's installment, not by its total.
@@ -29,6 +29,9 @@ Decision: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), c
 
 - `GET /api/v1/budget?month=2026-10`: the month (this one by default): whether it has a budget and which saved month it follows, the share of the month gone, pay yourself first (planned, moved, done on), income, limits, rollover, spent, left, not assigned, what recurring charges should still take, each limited category (limit, carried, available, spent, left, pace, fixed and upcoming charges, the six months before and their average), the spending without a limit and a summary (income, spending, contribution, savings rate).
 - `PUT /api/v1/budget/{month}/limits/{category}` `{"limitCents", "rollover"}`: from that month on. 400 for a category that does not count toward the budget.
+- `PUT /api/v1/budget/{month}/limits` `{"limits": [{"category", "limitCents", "rollover"}]}`: every limit at once, from that month on (Edit all limits); a category left out has none.
+- `POST /api/v1/budget/{month}/copy` `{"from"}`: the limits another month had, from this month on, leaving out categories archived since; answers `{"copied"}`. The month's view says `prevDiffers` when the month before had other limits.
+- `PUT /api/v1/budget/preferences` `{"rolloverNew"}`: whether a category given its first limit rolls over by default; the month's view carries it as `rolloverNew`.
 - `DELETE /api/v1/budget/{month}/limits/{category}`: from that month on.
 - `PUT /api/v1/budget/{month}/pay-yourself-first` `{"amountCents", "payday"}`: from that month on.
 - `Alerts` is this month's alerts, each with a severity, a title, a detail and where to look. `app` serves them at `GET /api/v1/alerts`, together with the portfolio's price alerts.

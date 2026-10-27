@@ -168,10 +168,14 @@ function Split({ plan }: { plan: ContributionPlan }) {
 function PlanActions({ plan, payday }: { plan: ContributionPlan; payday: string }) {
   const [state, setState] = useState<"idle" | "busy" | "saved" | "copied" | string>("idle");
   const scheduled = useResource<{ purchases: PlannedPurchase[] }>("/api/v1/purchases").data?.purchases ?? [];
-  const already = state !== "saved" && scheduled.some((p) => p.status === "planned" && p.plannedOn === payday);
+  const existing = scheduled.filter((p) => p.status === "planned" && p.plannedOn === payday);
+  const already = state !== "saved" && existing.length > 0;
+  const monthName = formatMonth(payday.slice(0, 7)).split(" ")[0];
   async function save() {
     setState("busy");
     try {
+      // A new split replaces the one already on the schedule for that day; the old one stays in the history, cancelled.
+      for (const p of existing) await send("PATCH", `/api/v1/purchases/${p.id}`, { status: "cancelled", note: "Replaced by a new plan" });
       for (const s of plan.splits.filter((s) => s.amountCents > 0)) {
         await send("POST", "/api/v1/purchases", {
           plannedOn: payday,
@@ -196,14 +200,19 @@ function PlanActions({ plan, payday }: { plan: ContributionPlan; payday: string 
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Button variant="primary" onClick={() => void save()} disabled={state === "busy" || state === "saved" || already || plan.amountCents === 0}>
+      <Button variant="primary" onClick={() => void save()} disabled={state === "busy" || state === "saved" || plan.amountCents === 0}>
         {state === "saved" ? <Check className="size-4" aria-hidden /> : null}
-        {state === "saved" ? "On the schedule" : `Plan it for ${formatDay(payday)}`}
+        {state === "saved" ? "On the schedule" : already ? `Replace ${monthName}'s plan` : `Save as ${monthName}'s plan`}
       </Button>
       <Button variant="ghost" onClick={() => void copy()}>
         <Copy className="size-4" aria-hidden /> {state === "copied" ? "Copied" : "Copy the split"}
       </Button>
-      {already && <span className="type-caption text-ink-muted">{formatDay(payday)} already has purchases planned, below.</span>}
+      {already && (
+        <span className="type-caption text-ink-muted">
+          {formatDay(payday)} already has {existing.length} {existing.length === 1 ? "purchase" : "purchases"} planned, below; replacing cancels {existing.length === 1 ? "it" : "them"}.
+        </span>
+      )}
+      {state === "saved" && <span className="type-caption text-ink-muted">Planned for {formatDay(payday)}, below.</span>}
       {!["idle", "busy", "saved", "copied"].includes(state) && <span className="type-caption text-danger">{state}.</span>}
     </div>
   );

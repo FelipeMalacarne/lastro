@@ -55,6 +55,8 @@ type TransactionView struct {
 	// CountedCents is what counts in the list's totals: under a category
 	// filter, a split's part in that category; otherwise the amount.
 	CountedCents int64 `json:"countedCents"`
+	// MarkedTransfer is a transfer I marked: to an account lastro does not have.
+	MarkedTransfer bool `json:"markedTransfer"`
 }
 
 type InstallmentView struct {

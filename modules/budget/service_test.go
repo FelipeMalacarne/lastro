@@ -225,3 +225,53 @@ func category(t *testing.T, v MonthView, c ledger.CategoryID) CategoryView {
 	t.Fatalf("%s has no limit in %s", c, v.Month)
 	return CategoryView{}
 }
+
+func TestCopyAndReplaceLimits(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	sep, oct := month(t, "2026-09"), month(t, "2026-10")
+	food, fun := w.cats["Groceries"], w.cats["Leisure"]
+	if food.IsZero() || fun.IsZero() {
+		t.Fatalf("seed categories missing: %v", w.cats)
+	}
+	if err := w.budget.SetLimit(ctx, sep, food, money.BRLCents(120000), true); err != nil {
+		t.Fatal(err)
+	}
+	// October gets its own limits, then all of them at once.
+	if err := w.budget.SetLimits(ctx, oct, []Line{{Category: fun, Limit: money.BRLCents(30000)}}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Categories) != 1 || v.Categories[0].Category != fun.String() || !v.Saved || !v.PrevDiffers {
+		t.Fatalf("after SetLimits: %d categories, saved %v, prevDiffers %v", len(v.Categories), v.Saved, v.PrevDiffers)
+	}
+	if err := w.budget.SetLimits(ctx, oct, []Line{{Category: w.cats["Income"], Limit: money.BRLCents(1)}}); !errors.Is(err, ErrNotBudgeted) {
+		t.Errorf("a limit on Income: %v, want ErrNotBudgeted", err)
+	}
+
+	n, err := w.budget.CopyLimits(ctx, oct, sep)
+	if err != nil || n != 1 {
+		t.Fatalf("CopyLimits = %d, %v", n, err)
+	}
+	v, _ = w.budget.Month(ctx, oct)
+	if len(v.Categories) != 1 || v.Categories[0].Category != food.String() || v.Categories[0].LimitCents != 120000 || !v.Categories[0].Rollover || v.PrevDiffers {
+		t.Fatalf("after copying September: %+v, prevDiffers %v", v.Categories, v.PrevDiffers)
+	}
+	if _, err := w.budget.CopyLimits(ctx, oct, month(t, "2025-01")); !errors.Is(err, ErrInvalid) {
+		t.Errorf("copying a month without a budget: %v, want ErrInvalid", err)
+	}
+
+	// The default for a new limit is off until set.
+	if v.RolloverNew {
+		t.Error("rolloverNew should start off")
+	}
+	if err := w.budget.SetRolloverNew(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ = w.budget.Month(ctx, oct); !v.RolloverNew {
+		t.Error("rolloverNew should be on")
+	}
+}

@@ -241,6 +241,37 @@ func (s *Service) Uncategorize(ctx context.Context, id TransactionID) error {
 	return nil
 }
 
+// MarkTransfers marks transactions as transfers to accounts lastro does not
+// have (or takes the mark back), together. It returns how many changed.
+func (s *Service) MarkTransfers(ctx context.Context, ids []TransactionID, on bool) (int, error) {
+	n := 0
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, ids)
+		if err != nil {
+			return err
+		}
+		if len(txs) != len(ids) {
+			return fmt.Errorf("%w: %d of %d transactions", ErrNotFound, len(ids)-len(txs), len(ids))
+		}
+		var changed []*Transaction
+		for _, t := range txs {
+			if t.MarkedTransfer() == on {
+				continue
+			}
+			if err := t.MarkTransfer(on); err != nil {
+				return err
+			}
+			changed = append(changed, t)
+		}
+		n = len(changed)
+		return r.SaveTransactions(ctx, changed)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("ledger: mark transfers: %w", err)
+	}
+	return n, nil
+}
+
 // SetNote writes my note on a transaction; an empty one clears it.
 func (s *Service) SetNote(ctx context.Context, id TransactionID, note string) error {
 	n, err := NewNote(note)

@@ -34,26 +34,26 @@ func pattern(t *testing.T, kind PatternKind, text string) Pattern {
 
 func TestNewRule(t *testing.T) {
 	restaurants := category(t, "Restaurants")
-	r, err := NewRule(pattern(t, PatternContains, "ifood"), "", restaurants, t0)
+	r, err := NewRule(pattern(t, PatternContains, "ifood"), "", restaurants, OriginCorrection, t0)
 	if err != nil || r.category != restaurants.ID || r.id == "" || !r.createdAt.Equal(t0) {
 		t.Fatalf("got %+v, %v", r, err)
 	}
-	if _, err := NewRule(Pattern{}, "", restaurants, t0); !errors.Is(err, ErrInvalid) {
+	if _, err := NewRule(Pattern{}, "", restaurants, OriginCorrection, t0); !errors.Is(err, ErrInvalid) {
 		t.Errorf("no pattern: %v", err)
 	}
-	if _, err := NewRule(pattern(t, PatternContains, "ifood"), "", Category{}, t0); !errors.Is(err, ErrInvalid) {
+	if _, err := NewRule(pattern(t, PatternContains, "ifood"), "", Category{}, OriginCorrection, t0); !errors.Is(err, ErrInvalid) {
 		t.Errorf("no category: %v", err)
 	}
 	restaurants.Archived = true
-	if _, err := NewRule(pattern(t, PatternContains, "ifood"), "", restaurants, t0); !errors.Is(err, ErrArchived) {
+	if _, err := NewRule(pattern(t, PatternContains, "ifood"), "", restaurants, OriginCorrection, t0); !errors.Is(err, ErrArchived) {
 		t.Errorf("an archived category: %v", err)
 	}
 }
 
 func TestRuleMatches(t *testing.T) {
 	c := category(t, "Transport")
-	everywhere, _ := NewRule(pattern(t, PatternContains, "uber"), "", c, t0)
-	onCard, _ := NewRule(pattern(t, PatternExact, "Pix enviado"), card, c, t0)
+	everywhere, _ := NewRule(pattern(t, PatternContains, "uber"), "", c, OriginCorrection, t0)
+	onCard, _ := NewRule(pattern(t, PatternExact, "Pix enviado"), card, c, OriginCorrection, t0)
 	tests := []struct {
 		rule        *Rule
 		description string
@@ -76,7 +76,7 @@ func TestRuleMatches(t *testing.T) {
 
 func TestRuleRetarget(t *testing.T) {
 	shopping, groceries := category(t, "Shopping"), category(t, "Groceries")
-	r, _ := NewRule(pattern(t, PatternContains, "Pão de Açúcar"), "", shopping, t0)
+	r, _ := NewRule(pattern(t, PatternContains, "Pão de Açúcar"), "", shopping, OriginCorrection, t0)
 
 	later := t0.Add(time.Hour)
 	if changed, err := r.Retarget(groceries, later); err != nil || !changed || r.category != groceries.ID || !r.updatedAt.Equal(later) {
@@ -88,5 +88,16 @@ func TestRuleRetarget(t *testing.T) {
 	shopping.Archived = true
 	if _, err := r.Retarget(shopping, later); !errors.Is(err, ErrArchived) || r.category != groceries.ID {
 		t.Fatalf("never to an archived category: %v %+v", err, r)
+	}
+}
+
+func TestRuleOrigin(t *testing.T) {
+	restaurants := category(t, "Restaurants")
+	r, err := NewRule(pattern(t, PatternContains, "ifood"), "", restaurants, OriginHand, t0)
+	if err != nil || r.Origin() != OriginHand {
+		t.Fatalf("by hand: %v %v", r, err)
+	}
+	if _, err := NewRule(pattern(t, PatternContains, "ifood"), "", restaurants, Origin("model"), t0); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an unknown origin: %v", err)
 	}
 }

@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, Plus, Search } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
+import { Kbd } from "@/components/Kbd";
 import { CategoryTag } from "@/components/CategoryTag";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
@@ -25,6 +26,7 @@ import {
   type NoteColor,
   type PatternKind,
   type Rule,
+  type RuleOrigin,
   type TransactionList,
 } from "@/lib/api";
 import { useCategories, useWaiting } from "@/lib/categories";
@@ -45,6 +47,12 @@ const notes: { color: NoteColor; label: string; short: string }[] = [
   { color: "note-200", label: "R$ 200 note, sepia", short: "200" },
 ];
 
+const sources: { value: "all" | RuleOrigin; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "correction", label: "Corrections" },
+  { value: "hand", label: "By hand" },
+];
+
 const kinds: { value: PatternKind; label: string }[] = [
   { value: "contains", label: "Contains" },
   { value: "exact", label: "Is exactly" },
@@ -60,6 +68,25 @@ export function Categories() {
   const list = useResource<TransactionList>(`/api/v1/transactions?month=${month}`);
   const waiting = useWaiting();
   const [creating, setCreating] = useState(false);
+  const [newRule, setNewRule] = useState(false);
+
+  // N opens a new rule, as on the canvas.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement;
+      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        openNewRule();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  function openNewRule() {
+    setNewRule(true);
+    requestAnimationFrame(() => document.getElementById("rule-editor")?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+  }
 
   const ruleList = rules.data?.rules ?? [];
   const rulesByCategory = useMemo(() => {
@@ -93,17 +120,33 @@ export function Categories() {
           caption={caption}
          
           actions={
-            <Button onClick={() => setCreating(true)}>
-              <Plus aria-hidden />
-              New category
-            </Button>
+            <>
+              <Button onClick={() => setCreating(true)}>
+                <Plus aria-hidden />
+                New category
+              </Button>
+              <Button onClick={openNewRule}>
+                <Plus aria-hidden />
+                New rule
+                <Kbd className="hidden pointer-fine:inline-block">N</Kbd>
+              </Button>
+            </>
           }
         />
       </div>
 
       <FlowPanel flow={flow} month={month} waiting={waiting ?? 0} />
 
-      <RulesPanel rules={ruleList} loading={!rules.data} error={rules.error} categories={cats.live} byId={cats.byId} accounts={accounts.data?.accounts ?? []} />
+      <RulesPanel
+        rules={ruleList}
+        loading={!rules.data}
+        error={rules.error}
+        categories={cats.live}
+        byId={cats.byId}
+        accounts={accounts.data?.accounts ?? []}
+        newRule={newRule}
+        onNewRule={setNewRule}
+      />
 
       <CategoriesPanel
         categories={cats.live}
@@ -180,6 +223,8 @@ function RulesPanel({
   categories,
   byId,
   accounts,
+  newRule,
+  onNewRule,
 }: {
   rules: Rule[];
   loading: boolean;
@@ -187,15 +232,23 @@ function RulesPanel({
   categories: Category[];
   byId: Map<string, Category>;
   accounts: Account[];
+  newRule: boolean;
+  onNewRule: (open: boolean) => void;
 }) {
   const [q, setQ] = useState("");
+  const [source, setSource] = useState<"all" | RuleOrigin>("all");
   const [selected, setSelected] = useState<string | null>(null);
+  const select = (id: string | null) => {
+    setSelected(id);
+    if (id) onNewRule(false);
+  };
   const shown = rules.filter((r) => {
+    if (source !== "all" && r.origin !== source) return false;
     if (!q) return true;
     const s = q.toLowerCase();
     return r.pattern.text.toLowerCase().includes(s) || (byId.get(r.category)?.name.toLowerCase().includes(s) ?? false);
   });
-  const rule = rules.find((r) => r.id === selected) ?? null;
+  const rule = newRule ? null : (rules.find((r) => r.id === selected) ?? null);
   const accountName = (id: string | null) => {
     const a = accounts.find((x) => x.id === id);
     return a ? `${a.institution} ${typeLabel[a.type]}` : null;
@@ -204,7 +257,7 @@ function RulesPanel({
     <Panel title={`Rules · ${rules.length}`} bodyClassName="-mx-5 -mb-5 border-t border-rule">
       <div className="flex flex-wrap">
         <div className="flex min-w-0 flex-[1_1_520px] flex-col">
-          <div className="px-5 py-4">
+          <div className="flex flex-wrap items-end gap-3 px-5 py-4">
             <TextField
               aria-label="Search rules"
               placeholder="Text or category, e.g. UBER"
@@ -212,10 +265,16 @@ function RulesPanel({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               type="search"
+              className="min-w-0 flex-[1_1_220px]"
             />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[13px] leading-[18px] font-semibold">Source</span>
+              <SegmentedControl label="Source" options={sources} value={source} onChange={setSource} />
+            </div>
           </div>
           {error && <p className="m-0 px-5 pb-4 type-body text-ink-muted">Could not load the rules: {error}.</p>}
           {loading && !error && <p className="m-0 px-5 pb-4 type-body text-ink-muted">Loading the rules…</p>}
+          {!loading && rules.length > 0 && shown.length === 0 && <p className="m-0 px-5 pb-4 type-body text-ink-muted">No rule matches.</p>}
           {!loading && rules.length === 0 && (
             <p className="m-0 px-5 pb-5 type-body text-ink-muted">
               No rules yet. Each choice in{" "}
@@ -230,13 +289,16 @@ function RulesPanel({
               <div role="table" aria-label="Rules, in the order they are tried">
                 <div
                   role="row"
-                  className="grid h-8 grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px] items-center gap-x-3 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted"
+                  className="grid h-8 grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px_96px] items-center gap-x-3 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted"
                 >
                   <span role="columnheader" className="hidden sm:block">
                     #
                   </span>
                   <span role="columnheader">When the description</span>
                   <span role="columnheader">Then</span>
+                  <span role="columnheader" className="hidden sm:block">
+                    Source
+                  </span>
                   <span role="columnheader" className="text-right">
                     Decides
                   </span>
@@ -251,13 +313,13 @@ function RulesPanel({
                       role="row"
                       aria-selected={on}
                       onClick={() => {
-                        setSelected(on ? null : r.id);
+                        select(on ? null : r.id);
                         // On a phone the editor sits under the list: bring it into view.
                         if (!on && window.innerWidth < 1024)
                           requestAnimationFrame(() => document.getElementById("rule-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
                       }}
                       className={cn(
-                        "grid min-h-14 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px] items-center gap-x-3 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
+                        "grid min-h-14 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px_96px] items-center gap-x-3 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
                         on ? "bg-tinta-soft shadow-[inset_3px_0_0_var(--tinta)]" : "bg-paper-raised hover:bg-paper-sunken",
                       )}
                     >
@@ -273,6 +335,10 @@ function RulesPanel({
                       </span>
                       <span role="cell" className="flex min-w-0">
                         <CategoryTag name={c?.name ?? "Archived"} color={c?.color} />
+                      </span>
+                      <span role="cell" className="hidden flex-col gap-0.5 sm:flex">
+                        <span className="text-[14px] leading-5">{r.origin === "hand" ? "By hand" : "Correction"}</span>
+                        <span className="type-caption text-ink-muted">since {formatDay(r.createdAt.slice(0, 10))}</span>
                       </span>
                       <span role="cell" className="flex flex-col items-end gap-0.5">
                         <span className="type-figure">{r.decides}</span>
@@ -290,8 +356,18 @@ function RulesPanel({
           </p>
         </div>
 
-        {rule && (
-          <RuleEditor key={rule.id} rule={rule} rules={rules} categories={categories} accounts={accounts} onClose={() => setSelected(null)} />
+        {(rule || newRule) && (
+          <RuleEditor
+            key={rule?.id ?? "new"}
+            rule={rule}
+            rules={rules}
+            categories={categories}
+            accounts={accounts}
+            onClose={() => {
+              setSelected(null);
+              onNewRule(false);
+            }}
+          />
         )}
       </div>
     </Panel>
@@ -305,25 +381,33 @@ function RuleEditor({
   accounts,
   onClose,
 }: {
-  rule: Rule;
+  rule: Rule | null;
   rules: Rule[];
   categories: Category[];
   accounts: Account[];
   onClose: () => void;
 }) {
-  const [kind, setKind] = useState<PatternKind>(rule.pattern.kind);
-  const [text, setText] = useState(rule.pattern.text);
-  const [account, setAccount] = useState(rule.account ?? "");
-  const [category, setCategory] = useState(rule.category);
+  const [kind, setKind] = useState<PatternKind>(rule?.pattern.kind ?? "contains");
+  const [text, setText] = useState(rule?.pattern.text ?? "");
+  const [account, setAccount] = useState(rule?.account ?? "");
+  const [category, setCategory] = useState(rule?.category ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const before = rules.find((r) => r.order > rule.order && rule.pattern.text.includes(r.pattern.text) && r.id !== rule.id);
+  const before = rule && rules.find((r) => r.order > rule.order && rule.pattern.text.includes(r.pattern.text) && r.id !== rule.id);
+  const same = !rule && rules.find((r) => r.pattern.kind === kind && r.pattern.text.toLowerCase() === text.trim().toLowerCase() && (r.account ?? "") === account);
+  const valid = Boolean(text.trim()) && Boolean(category) && !same;
   const current = accounts.find((a) => a.id === account);
 
   async function save() {
     setBusy(true);
     setMsg(null);
     try {
+      if (!rule) {
+        const r = await send<{ categorized: number }>("POST", "/api/v1/rules", { pattern: { kind, text: text.trim() }, account, category });
+        setMsg(r.categorized ? `Rule created. It categorized ${r.categorized} ${r.categorized === 1 ? "transaction" : "transactions"}.` : "Rule created. Nothing waiting matched it yet.");
+        setText("");
+        return;
+      }
       const r = await send<{ categorized: number }>("PATCH", `/api/v1/rules/${rule.id}`, { pattern: { kind, text }, account, category });
       setMsg(r.categorized ? `Saved. ${r.categorized} transactions moved.` : "Saved.");
     } catch (e) {
@@ -333,6 +417,7 @@ function RuleEditor({
     }
   }
   async function remove() {
+    if (!rule) return;
     setBusy(true);
     try {
       await send("DELETE", `/api/v1/rules/${rule.id}`);
@@ -346,20 +431,30 @@ function RuleEditor({
   return (
     <section
       id="rule-editor"
-      aria-label={`Edit rule ${rule.order}`}
+      aria-label={rule ? `Edit rule ${rule.order}` : "New rule"}
       className="flex max-w-full min-w-0 flex-[1_1_360px] flex-col gap-5 border-rule bg-paper px-5 pt-5 pb-6 max-[880px]:border-t min-[881px]:border-l lg:px-6"
     >
       <div className="flex flex-col gap-1">
-        <span className="type-figure-sm text-ink-muted">
-          Rule {rule.order} · taught {formatDay(rule.createdAt.slice(0, 10))} · decides {rule.decides}, meets {rule.meets}
-        </span>
-        <h3 className="m-0 type-heading">Edit rule</h3>
+        {rule && (
+          <span className="type-figure-sm text-ink-muted">
+            Rule {rule.order} · {rule.origin === "hand" ? "written by hand" : "from your correction"} on {formatDay(rule.createdAt.slice(0, 10))} · decides {rule.decides}, meets{" "}
+            {rule.meets}
+          </span>
+        )}
+        <h3 className="m-0 type-heading">{rule ? "Edit rule" : "New rule"}</h3>
       </div>
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] leading-[18px] font-semibold">Match</span>
         <SegmentedControl label="Match" options={kinds} value={kind} onChange={setKind} className="self-start" />
       </div>
-      <TextField label="Description text" value={text} onChange={(e) => setText(e.target.value)} hint="Case, accents and symbols are ignored." />
+      <TextField
+        label="Description text"
+        value={text}
+        autoFocus={!rule}
+        placeholder={rule ? undefined : "e.g. UBER EATS"}
+        onChange={(e) => setText(e.target.value)}
+        hint={same ? "A rule with this text already exists." : "Case, accents and symbols are ignored."}
+      />
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] leading-[18px] font-semibold">Account</span>
         <DropdownMenu>
@@ -412,18 +507,22 @@ function RuleEditor({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2 border-t border-rule pt-4">
-        <Button variant="primary" onClick={save} disabled={busy}>
-          Save rule
+        <Button variant="primary" onClick={save} disabled={busy || !valid}>
+          {rule ? "Save rule" : "Create rule"}
         </Button>
         <Button variant="ghost" onClick={onClose}>
           Close
         </Button>
-        <Button variant="ghost" className="ml-auto" onClick={remove} disabled={busy}>
-          Delete rule
-        </Button>
+        {rule && (
+          <Button variant="ghost" className="ml-auto" onClick={remove} disabled={busy}>
+            Delete rule
+          </Button>
+        )}
       </div>
       <p className="m-0 type-caption text-ink-muted">
-        Saving runs the rules again over what automation categorized; your own choices never move. Deleting keeps the categories it gave.
+        {rule
+          ? "Saving runs the rules again over what automation categorized; your own choices never move. Deleting keeps the categories it gave."
+          : "A new rule runs over what is waiting and what automation categorized; your own choices never move."}
       </p>
     </section>
   );

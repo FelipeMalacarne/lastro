@@ -23,6 +23,8 @@ type Repository interface {
 	Save(ctx context.Context, b *MonthlyBudget) error
 	sent(ctx context.Context, keys []string) (map[string]bool, error)
 	markSent(ctx context.Context, keys []string, at time.Time) error
+	rolloverNew(ctx context.Context) (bool, error)
+	setRolloverNew(ctx context.Context, on bool) error
 }
 
 // historyMonths is how far back a category's average looks.
@@ -88,10 +90,17 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		}
 	}
 	t := Track(saved, spending, m, s.today(), fixed)
+	rollNew, err := s.repo.rolloverNew(ctx)
+	if err != nil {
+		return MonthView{}, fmt.Errorf("budget: month: %w", err)
+	}
+	prev, hasPrev := Effective(saved, m.Add(-1))
 	v := MonthView{
 		Month:          m.String(),
 		HasBudget:      t.Budget != nil,
 		Saved:          t.Saved,
+		PrevDiffers:    hasPrev && t.Budget != nil && !sameLines(prev.Lines(), t.Budget.Lines()),
+		RolloverNew:    rollNew,
 		Days:           m.Days(),
 		DaysLeft:       t.DaysLeft,
 		ElapsedBp:      t.Elapsed.Bps(),
@@ -367,6 +376,85 @@ func (s *Service) SetPayYourselfFirst(ctx context.Context, m Month, amt money.Mo
 	err := s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error { return b.SetPayYourselfFirst(amt, payday, now) })
 	if err != nil {
 		return fmt.Errorf("budget: pay yourself first: %w", err)
+	}
+	return nil
+}
+
+// limitable is the categories that can take a limit: live ones that count
+// toward the budget.
+func limitable(cats []categorize.Category) map[ledger.CategoryID]bool {
+	out := make(map[ledger.CategoryID]bool, len(cats))
+	for _, c := range cats {
+		out[c.ID] = c.Budgeted && !c.Archived
+	}
+	return out
+}
+
+func sameLines(a, b []Line) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Category != b[i].Category || a[i].Limit.Cents() != b[i].Limit.Cents() || a[i].Rollover != b[i].Rollover {
+			return false
+		}
+	}
+	return true
+}
+
+// SetLimits replaces every limit from a month on with the ones given.
+func (s *Service) SetLimits(ctx context.Context, m Month, lines []Line) error {
+	cats, err := s.categorize.Categories(ctx)
+	if err != nil {
+		return fmt.Errorf("budget: set limits: %w", err)
+	}
+	ok := limitable(cats)
+	for _, l := range lines {
+		if !ok[l.Category] {
+			return fmt.Errorf("budget: set limits: %w", ErrNotBudgeted)
+		}
+	}
+	err = s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error { return b.SetLimits(lines, now) })
+	if err != nil {
+		return fmt.Errorf("budget: set limits: %w", err)
+	}
+	return nil
+}
+
+// CopyLimits gives a month the limits another had, leaving out the
+// categories archived since. It returns how many were copied.
+func (s *Service) CopyLimits(ctx context.Context, to, from Month) (int, error) {
+	saved, err := s.repo.Saved(ctx, from)
+	if err != nil {
+		return 0, fmt.Errorf("budget: copy limits: %w", err)
+	}
+	src, ok := Effective(saved, from)
+	if !ok {
+		return 0, fmt.Errorf("budget: copy limits: %w: %s has no budget", ErrInvalid, from)
+	}
+	cats, err := s.categorize.Categories(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("budget: copy limits: %w", err)
+	}
+	live := limitable(cats)
+	var lines []Line
+	for _, l := range src.Lines() {
+		if live[l.Category] {
+			lines = append(lines, l)
+		}
+	}
+	err = s.edit(ctx, to, func(b *MonthlyBudget, now time.Time) error { return b.SetLimits(lines, now) })
+	if err != nil {
+		return 0, fmt.Errorf("budget: copy limits: %w", err)
+	}
+	return len(lines), nil
+}
+
+// SetRolloverNew is whether a category given a limit for the first time
+// rolls over unless I say otherwise.
+func (s *Service) SetRolloverNew(ctx context.Context, on bool) error {
+	if err := s.repo.setRolloverNew(ctx, on); err != nil {
+		return fmt.Errorf("budget: rollover for new limits: %w", err)
 	}
 	return nil
 }

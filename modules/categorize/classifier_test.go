@@ -42,7 +42,7 @@ func TestParseAnswer(t *testing.T) {
 
 func TestClassifyPrompt(t *testing.T) {
 	health, food := category(t, "Health"), category(t, "Restaurants")
-	r, _ := NewRule(pattern(t, PatternContains, "ifood"), "", food, t0)
+	r, _ := NewRule(pattern(t, PatternContains, "ifood"), "", food, OriginCorrection, t0)
 	p := classifyPrompt("DROGASIL", ledger.Categorizable{Description: "DROGASIL 2104 SAO PAULO", AmountCents: -8735}, []Category{health, food}, []*Rule{r})
 	for _, want := range []string{"Categories: Health, Restaurants.", "- IFOOD: Restaurants", `"DROGASIL 2104 SAO PAULO"`, "87,35 reais", "money out"} {
 		if !strings.Contains(p, want) {

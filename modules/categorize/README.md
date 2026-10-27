@@ -8,7 +8,7 @@
 
 - `Category` (simple CRUD, `category.go`): a name, one of the eight note colours (`Color`), and whether it counts toward the monthly budget. Its id is the `ledger.CategoryID` the ledger stores. The migration seeds the categories of the canvas: Transport (1), Health (2), Leisure (5), Restaurants (10), Shopping (20), Groceries (50), Housing (100), Other (200), and Income (2), which does not count toward the budget.
 - `Pattern` (value object, `values.go`): what a rule looks for in a description, `exact` or `contains`, normalized: accents dropped, upper case, anything that is not a letter or a digit read as a space. "Pág*iFood SP" and "PAG IFOOD SP" are the same. `contains` matches whole words in a row: "IFOOD" meets "PAG*IFOOD SP", "BAR" never meets "BARBEARIA".
-- `Rule` (aggregate, `rule.go`): a pattern, optionally limited to one ledger account, that leads to a category.
+- `Rule` (aggregate, `rule.go`): a pattern, optionally limited to one ledger account, that leads to a category. Its `Origin` says where it came from: a correction (in To review or on a transaction) or written by hand on the Categories and rules screen.
 - `Engine` (domain service, `engine.go`): of the rules a transaction meets, picks the most specific (see the invariants).
 - `SuggestPattern` (`values.go`): reads the merchant out of a description for a correction to teach: it skips what banks put before it ("PAG*", "Pix enviado", "ESTORNO") and stops at what they append (a number, a city or state, a site), up to three words. "PAG*IFOOD SP" suggests contains IFOOD.
 - `GroupForReview` (domain service, `review.go`): the review queue groups the transactions waiting for a category by the pattern each one suggests, the groups that settle the most first, so one correction settles a whole merchant.
@@ -55,8 +55,9 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - `PUT /api/v1/transactions/{id}/split` `{"parts": [{"category", "amountCents"}]}`: divides a transaction across live categories (ledger checks the parts add up); 204.
 - `POST /api/v1/undo`: takes back a choice; the body is the `undo` it answered with (`rule`, `wasRule`, `before`). Answers `{"restored": n}`.
 - `GET /api/v1/patterns/suggest?description=…`: the pattern a correction of that description would teach.
-- `GET /api/v1/rules`: every rule in the order the engine tries them, each with `order`, `meets` (transactions its pattern matches), `decides` (transactions it settles now) and `last` (the newest of those).
-- `POST /api/v1/rules` `{"pattern", "account", "category"}`: teaches a rule directly; `account` is optional.
+- `GET /api/v1/rules`: every rule in the order the engine tries them, each with `order`, `origin` ("correction" or "hand"), `meets` (transactions its pattern matches), `decides` (transactions it settles now) and `last` (the newest of those).
+- `POST /api/v1/rules` `{"pattern", "account", "category"}`: writes a rule by hand (`origin` "hand"); `account` is optional. It runs over what is waiting and what automation categorized, and answers `{"categorized"}`.
+- `POST /api/v1/review/transfer` `{"pattern"}` or `{"description"}`: marks the waiting transactions that match as transfers between my own accounts (through `ledger`), and answers `{"marked", "ids"}`; unmarking the ids takes it back.
 - `PATCH /api/v1/rules/{id}` `{"pattern", "account", "category"}`: reshapes it (an empty `account` means every account) and runs the rules again over what automation categorized: what a rule categorized and no rule meets any more goes back to the review queue. 409 when another rule has the same pattern and account.
 - `DELETE /api/v1/rules/{id}`: 204. The transactions it categorized keep their category.
 

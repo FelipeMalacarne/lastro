@@ -229,7 +229,7 @@ func (s *Service) ArchiveCategory(ctx context.Context, id ledger.CategoryID) (in
 // the category. A rule with the same pattern and account is retargeted
 // instead of duplicated.
 func (s *Service) Learn(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) error {
-	_, err := s.learn(ctx, p, account, category)
+	_, err := s.learn(ctx, p, account, category, OriginCorrection)
 	return err
 }
 
@@ -240,7 +240,7 @@ type learned struct {
 	was  ledger.CategoryID
 }
 
-func (s *Service) learn(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (learned, error) {
+func (s *Service) learn(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID, origin Origin) (learned, error) {
 	c, err := s.repo.category(ctx, category)
 	if err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)
@@ -252,7 +252,7 @@ func (s *Service) learn(ctx context.Context, p Pattern, account ledger.AccountID
 	}
 	var was ledger.CategoryID
 	if rule == nil {
-		if rule, err = NewRule(p, account, c, now); err != nil {
+		if rule, err = NewRule(p, account, c, origin, now); err != nil {
 			return learned{}, err
 		}
 	} else {
@@ -310,11 +310,21 @@ func (s *Service) Correct(ctx context.Context, p Pattern, account ledger.Account
 	if err != nil {
 		return Change{}, fmt.Errorf("categorize: correct: %w", err)
 	}
-	return s.correct(ctx, before, p, account, category)
+	return s.correct(ctx, before, p, account, category, OriginCorrection)
 }
 
-func (s *Service) correct(ctx context.Context, before snapshot, p Pattern, account ledger.AccountID, category ledger.CategoryID) (Change, error) {
-	l, err := s.learn(ctx, p, account, category)
+// CreateRule is a rule written by hand on the Categories and rules screen;
+// like a correction, the rules then run again.
+func (s *Service) CreateRule(ctx context.Context, p Pattern, account ledger.AccountID, category ledger.CategoryID) (Change, error) {
+	before, err := s.snapshot(ctx)
+	if err != nil {
+		return Change{}, fmt.Errorf("categorize: create rule: %w", err)
+	}
+	return s.correct(ctx, before, p, account, category, OriginHand)
+}
+
+func (s *Service) correct(ctx context.Context, before snapshot, p Pattern, account ledger.AccountID, category ledger.CategoryID, origin Origin) (Change, error) {
+	l, err := s.learn(ctx, p, account, category, origin)
 	if err != nil {
 		return Change{}, err
 	}
@@ -359,7 +369,31 @@ func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, cate
 	if teach == nil {
 		return Change{Undo: Undo{Before: []Before{before[tx]}}}, nil
 	}
-	return s.correct(ctx, before, *teach, "", category)
+	return s.correct(ctx, before, *teach, "", category, OriginCorrection)
+}
+
+// MarkTransfers settles a review group as transfers to accounts lastro does
+// not have: every transaction still waiting whose description meets the
+// pattern (or, with a zero pattern, equals description). It returns their
+// ids, which is what takes it back.
+func (s *Service) MarkTransfers(ctx context.Context, p Pattern, description string) ([]ledger.TransactionID, error) {
+	txs, err := s.ledger.Uncategorized(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("categorize: mark transfers: %w", err)
+	}
+	var ids []ledger.TransactionID
+	for _, t := range txs {
+		if (!p.IsZero() && p.Matches(t.Description)) || (p.IsZero() && t.Description == description) {
+			ids = append(ids, t.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if _, err := s.ledger.MarkTransfers(ctx, ids, true); err != nil {
+		return nil, fmt.Errorf("categorize: mark transfers: %w", err)
+	}
+	return ids, nil
 }
 
 // SplitPart is one category's share of a split, in the transaction's

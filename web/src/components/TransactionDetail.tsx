@@ -118,7 +118,9 @@ function Body({ d }: { d: Detail }) {
       </dl>
 
       <Section title="Category">
-        {neutral ? (
+        {t.markedTransfer ? (
+          <TransferMark t={t} />
+        ) : neutral ? (
           <p className="m-0 text-[14px] leading-5 text-ink-muted">
             {t.kind === "bill_payment"
               ? "Card bills need no category: the purchases on the card already have theirs."
@@ -127,7 +129,10 @@ function Body({ d }: { d: Detail }) {
         ) : d.split.length ? (
           <span className="type-caption text-ink-muted">Split, chosen by you. The budget counts each part in its category.</span>
         ) : (
-          <CategorySection t={t} />
+          <>
+            <CategorySection t={t} />
+            {!t.counterpartId && <TransferMark t={t} />}
+          </>
         )}
       </Section>
 
@@ -215,6 +220,35 @@ function Body({ d }: { d: Detail }) {
         {t.account.type === "cash" && <RemoveEntry id={t.id} />}
       </div>
     </>
+  );
+}
+
+/** "A transfer between my accounts", for money to or from one lastro does not have. */
+function TransferMark({ t }: { t: Transaction }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function set(on: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      await send("PUT", "/api/v1/transactions/transfer", { ids: [t.id], transfer: on });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      {t.markedTransfer && (
+        <p className="m-0 text-[14px] leading-5 text-ink-muted">Marked by you as a transfer to or from an account of yours that lastro does not have. It counts neither as spending nor as income.</p>
+      )}
+      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void set(!t.markedTransfer)}>
+        <ArrowLeftRight aria-hidden />
+        {t.markedTransfer ? "Not a transfer: count it again" : "A transfer between my accounts"}
+      </Button>
+      {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
+    </div>
   );
 }
 

@@ -316,6 +316,7 @@ func transactionFromRow(row db.LedgerTransaction, accountType string) (*Transact
 	if row.RemovedAt != nil {
 		t.removedAt = *row.RemovedAt
 	}
+	t.marked = row.MarkedTransfer
 	return t, nil
 }
 
@@ -348,6 +349,7 @@ func transactionParams(t *Transaction) db.SaveTransactionParams {
 		at := t.removedAt
 		p.RemovedAt = &at
 	}
+	p.MarkedTransfer = t.marked
 	return p
 }
 
@@ -459,6 +461,7 @@ func transactionView(row db.ListTransactionViewsRow) TransactionView {
 		Tags:            row.Tags,
 		SplitCategories: row.SplitCategories,
 		CountedCents:    row.CountedCents,
+		MarkedTransfer:  row.MarkedTransfer,
 	}
 	if v.Tags == nil {
 		v.Tags = []string{}

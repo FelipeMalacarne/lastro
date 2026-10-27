@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowLeftRight, Check, RotateCcw, Sparkles } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -23,7 +23,9 @@ export function Review() {
   const [at, setAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
-  const [undo, setUndo] = useState<{ token: Undo; what: string } | null>(null);
+  // What takes the last choice back: a category choice's undo, or the ids a
+  // "mark as transfer" changed.
+  const [undo, setUndo] = useState<{ token?: Undo; ids?: string[]; what: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const groups = res.data?.groups ?? [];
@@ -35,7 +37,8 @@ export function Review() {
     setBusy(true);
     setError(null);
     try {
-      await send("POST", "/api/v1/undo", undo.token);
+      if (undo.ids) await send("PUT", "/api/v1/transactions/transfer", { ids: undo.ids, transfer: false });
+      else await send("POST", "/api/v1/undo", undo.token);
       setDone(`Undone. ${undo.what}`);
       setUndo(null);
     } catch (e) {
@@ -53,6 +56,9 @@ export function Review() {
       if (e.key === "u") {
         e.preventDefault();
         void takeBack();
+      } else if (e.key === "t" && group && !busy) {
+        e.preventDefault();
+        void markTransfer(group);
       } else if (e.key === "j" || e.key === "ArrowDown" || e.key === "s") {
         e.preventDefault();
         setAt((i) => Math.min(i + 1, groups.length - 1));
@@ -64,6 +70,24 @@ export function Review() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  // Money to or from an account of mine lastro does not have: neither
+  // spending nor income, and nothing to categorize.
+  async function markTransfer(g: ReviewGroup) {
+    setBusy(true);
+    setError(null);
+    setUndo(null);
+    try {
+      const r = await send<{ marked: number; ids: string[] }>("POST", "/api/v1/review/transfer", g.pattern ? { pattern: g.pattern } : { description: g.transactions[0]?.description });
+      const many = `${r.marked} ${r.marked === 1 ? "transaction" : "transactions"}`;
+      setDone(`Marked as transfers: ${many}. They no longer count as spending or income.`);
+      if (r.ids.length) setUndo({ ids: r.ids, what: `The ${many} wait for a category again.` });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function choose(g: ReviewGroup, category: string, teach: Pattern | null) {
     setBusy(true);
@@ -162,6 +186,9 @@ export function Review() {
                     <Kbd>S</Kbd> skip
                   </span>
                   <span className="inline-flex items-center gap-1.5">
+                    <Kbd>T</Kbd> transfer
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
                     <Kbd>U</Kbd> undo
                   </span>
                 </span>
@@ -253,6 +280,9 @@ export function Review() {
             <div className="flex flex-wrap gap-2 border-t border-rule pt-4">
               <Button variant="ghost" size="sm" onClick={() => setAt(Math.min(index + 1, groups.length - 1))} disabled={index >= groups.length - 1}>
                 Skip for now {wide && <Kbd>S</Kbd>}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void markTransfer(group)} disabled={busy}>
+                <ArrowLeftRight aria-hidden /> A transfer between my accounts {wide && <Kbd>T</Kbd>}
               </Button>
             </div>
           </section>

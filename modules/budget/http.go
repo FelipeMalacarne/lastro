@@ -69,6 +69,95 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// PUT /api/v1/budget/{month}/limits {"limits": [{"category", "limitCents",
+	// "rollover"}]}: every limit at once, from that month on. A category left
+	// out has none.
+	mux.HandleFunc("PUT /api/v1/budget/{month}/limits", func(w http.ResponseWriter, r *http.Request) {
+		m, err := ParseMonth(r.PathValue("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("month must be YYYY-MM"))
+			return
+		}
+		var in struct {
+			Limits []struct {
+				Category   string `json:"category"`
+				LimitCents *int64 `json:"limitCents"`
+				Rollover   bool   `json:"rollover"`
+			} `json:"limits"`
+		}
+		if err := decodeUpTo(w, r, &in, "limits", 64<<10); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if len(in.Limits) > 200 {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("at most 200 limits"))
+			return
+		}
+		lines := make([]Line, 0, len(in.Limits))
+		for _, l := range in.Limits {
+			c, err := ledger.NewCategoryID(l.Category)
+			if err != nil || l.LimitCents == nil {
+				httpx.WriteError(w, r, logger, httpx.BadRequest("each limit needs a category and limitCents"))
+				return
+			}
+			lines = append(lines, Line{Category: c, Limit: money.BRLCents(*l.LimitCents), Rollover: l.Rollover})
+		}
+		if err := s.SetLimits(r.Context(), m, lines); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// POST /api/v1/budget/{month}/copy {"from": "2026-09"}: that month's
+	// limits, from this month on.
+	mux.HandleFunc("POST /api/v1/budget/{month}/copy", func(w http.ResponseWriter, r *http.Request) {
+		m, err := ParseMonth(r.PathValue("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("month must be YYYY-MM"))
+			return
+		}
+		var in struct {
+			From string `json:"from"`
+		}
+		if err := decode(w, r, &in, "from"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		from, err := ParseMonth(in.From)
+		if err != nil || from == m {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("from must be another month, YYYY-MM"))
+			return
+		}
+		n, err := s.CopyLimits(r.Context(), m, from)
+		if err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]int{"copied": n})
+	})
+
+	// PUT /api/v1/budget/preferences {"rolloverNew"}: whether a category
+	// given a limit for the first time rolls over.
+	mux.HandleFunc("PUT /api/v1/budget/preferences", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			RolloverNew *bool `json:"rolloverNew"`
+		}
+		if err := decode(w, r, &in, "rolloverNew"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if in.RolloverNew == nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("rolloverNew is required"))
+			return
+		}
+		if err := s.SetRolloverNew(r.Context(), *in.RolloverNew); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("DELETE /api/v1/budget/{month}/limits/{category}", func(w http.ResponseWriter, r *http.Request) {
 		m, c, err := monthAndCategory(r)
 		if err != nil {
@@ -127,7 +216,11 @@ func monthAndCategory(r *http.Request) (Month, ledger.CategoryID, error) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any, shape string) error {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	return decodeUpTo(w, r, v, shape, 4<<10)
+}
+
+func decodeUpTo(w http.ResponseWriter, r *http.Request, v any, shape string, limit int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return httpx.BadRequest("the body must be a JSON object with " + shape)

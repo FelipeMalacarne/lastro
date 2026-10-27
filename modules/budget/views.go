@@ -7,9 +7,15 @@ type MonthView struct {
 	HasBudget bool    `json:"hasBudget"`
 	Saved     bool    `json:"saved"` // its own budget, not inherited
 	From      *string `json:"from"`  // the saved month it follows
-	Days      int     `json:"days"`
-	DaysLeft  int     `json:"daysLeft"`  // today included
-	ElapsedBp int64   `json:"elapsedBp"` // share of the month gone
+	// PrevDiffers is whether the month before had other limits, so copying
+	// them would change something.
+	PrevDiffers bool `json:"prevDiffers"`
+	// RolloverNew is whether a limit set for the first time rolls over by
+	// default (Settings).
+	RolloverNew bool  `json:"rolloverNew"`
+	Days        int   `json:"days"`
+	DaysLeft    int   `json:"daysLeft"`  // today included
+	ElapsedBp   int64 `json:"elapsedBp"` // share of the month gone
 
 	Payday           int     `json:"payday"`
 	PayYourselfFirst PYFView `json:"payYourselfFirst"`

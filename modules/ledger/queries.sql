@@ -46,8 +46,8 @@ WHERE t.id = ANY (sqlc.arg(ids)::uuid[]);
 -- name: SaveTransaction :batchexec
 INSERT INTO ledger.transactions (
     id, account_id, external_id, bank_ref, date, description, amount_cents, currency, source_kind, status,
-    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (id) DO UPDATE SET
     external_id = EXCLUDED.external_id,
     bank_ref = EXCLUDED.bank_ref,
@@ -63,6 +63,7 @@ ON CONFLICT (id) DO UPDATE SET
     counterpart_id = EXCLUDED.counterpart_id,
     pair_kind = EXCLUDED.pair_kind,
     removed_at = EXCLUDED.removed_at,
+    marked_transfer = EXCLUDED.marked_transfer,
     updated_at = now();
 
 -- name: SaveBalanceSnapshot :exec
@@ -102,7 +103,7 @@ ORDER BY t.date, t.id;
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
-    t.note, t.tags,
+    t.note, t.tags, t.marked_transfer,
     COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
     -- What counts under a category filter: a split's part in it, or the whole.
     COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text), t.amount_cents)::bigint AS counted_cents,
@@ -344,3 +345,4 @@ VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (account_id, date) DO UPDATE SET
     balance_cents = EXCLUDED.balance_cents,
     taken_at = EXCLUDED.taken_at;
+

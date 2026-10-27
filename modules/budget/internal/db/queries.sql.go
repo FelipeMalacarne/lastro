@@ -19,6 +19,17 @@ func (q *Queries) DeleteLines(ctx context.Context, month time.Time) error {
 	return err
 }
 
+const getPreferences = `-- name: GetPreferences :one
+SELECT rollover_new FROM budget.preferences WHERE id
+`
+
+func (q *Queries) GetPreferences(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, getPreferences)
+	var rollover_new bool
+	err := row.Scan(&rollover_new)
+	return rollover_new, err
+}
+
 const insertLine = `-- name: InsertLine :exec
 INSERT INTO budget.lines (month, category_id, limit_cents, rollover)
 VALUES ($1, $2, $3, $4)
@@ -173,5 +184,15 @@ func (q *Queries) SaveMonth(ctx context.Context, arg SaveMonthParams) error {
 		arg.PyfCents,
 		arg.UpdatedAt,
 	)
+	return err
+}
+
+const savePreferences = `-- name: SavePreferences :exec
+INSERT INTO budget.preferences (id, rollover_new) VALUES (true, $1)
+ON CONFLICT (id) DO UPDATE SET rollover_new = excluded.rollover_new
+`
+
+func (q *Queries) SavePreferences(ctx context.Context, rolloverNew bool) error {
+	_, err := q.db.Exec(ctx, savePreferences, rolloverNew)
 	return err
 }

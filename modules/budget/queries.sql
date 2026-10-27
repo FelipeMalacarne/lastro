@@ -30,3 +30,10 @@ SELECT key FROM budget.alerts_sent WHERE key = ANY(sqlc.arg(keys)::text[]);
 
 -- name: MarkAlertSent :exec
 INSERT INTO budget.alerts_sent (key, sent_at) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;
+
+-- name: GetPreferences :one
+SELECT rollover_new FROM budget.preferences WHERE id;
+
+-- name: SavePreferences :exec
+INSERT INTO budget.preferences (id, rollover_new) VALUES (true, $1)
+ON CONFLICT (id) DO UPDATE SET rollover_new = excluded.rollover_new;

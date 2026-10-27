@@ -137,6 +137,7 @@ export function Planning() {
                 high={high.yearlyCents}
                 bands={view === "simulation" ? p.monteCarlo.bands.filter((b) => b.month % 12 === 0).map((b) => ({ p10: b.p10Cents, p90: b.p90Cents })) : undefined}
                 startYear={new Date().getFullYear()}
+                target={targetCents ? { cents: targetCents, months: baseWhen?.months ?? null, when: baseWhen?.months != null ? monthsFromNow(baseWhen.months) : null } : undefined}
                 width={wide ? 1000 : 340}
               />
             ) : (
@@ -161,6 +162,12 @@ export function Planning() {
                   Simulated, 10th to 90th percentile
                 </span>
               )}
+              {targetCents ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-4 border-t border-dotted border-ink-muted" aria-hidden />
+                  Target, from How long until
+                </span>
+              ) : null}
             </div>
           </div>
 

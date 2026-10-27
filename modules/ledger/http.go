@@ -236,6 +236,45 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeNoContent(w, r, logger, s.SetTags(r.Context(), id, in.Tags))
 	})
 
+	// PUT /api/v1/transactions/transfer {"ids": [...], "transfer": true}: marks
+	// them as transfers to accounts lastro does not have, or takes it back.
+	mux.HandleFunc("PUT /api/v1/transactions/transfer", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			IDs      []string `json:"ids"`
+			Transfer bool     `json:"transfer"`
+		}
+		if err := decodeUpTo(w, r, &in, "ids and transfer", 1<<20); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if len(in.IDs) == 0 || len(in.IDs) > 5000 {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("ids must list 1 to 5000 transactions"))
+			return
+		}
+		ids := make([]TransactionID, len(in.IDs))
+		for i, id := range in.IDs {
+			if !uuidRe.MatchString(id) {
+				httpx.WriteError(w, r, logger, httpx.BadRequest("ids must be transaction ids"))
+				return
+			}
+			ids[i] = TransactionID(id)
+		}
+		n, err := s.MarkTransfers(r.Context(), ids, in.Transfer)
+		switch {
+		case errors.Is(err, ErrInvalid), errors.Is(err, ErrPaired):
+			err = httpx.BadRequest(err.Error())
+		case errors.Is(err, ErrNotFound):
+			err = httpx.NotFound("no such transaction")
+		case errors.Is(err, ErrRemoved):
+			err = httpx.Conflict("the transaction no longer exists at the bank")
+		}
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"changed": n})
+	})
+
 	// DELETE /api/v1/transactions/{id}/split: the largest part's category stays.
 	mux.HandleFunc("DELETE /api/v1/transactions/{id}/split", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := transactionID(w, r, logger)
@@ -381,7 +420,11 @@ func writeNoContent(w http.ResponseWriter, r *http.Request, logger *slog.Logger,
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any, shape string) error {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	return decodeUpTo(w, r, v, shape, 4<<10)
+}
+
+func decodeUpTo(w http.ResponseWriter, r *http.Request, v any, shape string, limit int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return httpx.BadRequest("the body must be a JSON object with " + shape)

@@ -2,6 +2,7 @@ package budget
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -101,4 +102,17 @@ func (r *PostgresRepository) markSent(ctx context.Context, keys []string, at tim
 		}
 		return nil
 	})
+}
+
+// rolloverNew is whether a new limit rolls over; false until it is set.
+func (r *PostgresRepository) rolloverNew(ctx context.Context) (bool, error) {
+	on, err := r.q.GetPreferences(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return on, err
+}
+
+func (r *PostgresRepository) setRolloverNew(ctx context.Context, on bool) error {
+	return r.q.SavePreferences(ctx, on)
 }

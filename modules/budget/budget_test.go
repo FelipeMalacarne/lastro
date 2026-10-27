@@ -110,6 +110,42 @@ func TestMonthlyBudgetRules(t *testing.T) {
 	}
 }
 
+func TestSetLimitsReplacesEveryLimit(t *testing.T) {
+	b, _ := NewMonthlyBudget(month(t, "2026-10"), now)
+	food, fun, home := cat(t, "food"), cat(t, "fun"), cat(t, "home")
+	_ = b.SetLimit(home, money.BRLCents(300000), false, now)
+
+	bad := []struct {
+		name  string
+		lines []Line
+	}{
+		{"twice", []Line{{Category: food, Limit: money.BRLCents(1)}, {Category: food, Limit: money.BRLCents(2)}}},
+		{"negative", []Line{{Category: food, Limit: money.BRLCents(-1)}}},
+		{"no category", []Line{{Limit: money.BRLCents(1)}}},
+	}
+	for _, tt := range bad {
+		if err := b.SetLimits(tt.lines, now); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", tt.name, err)
+		}
+	}
+	if _, ok := b.Line(home); !ok {
+		t.Fatal("a refused change must keep the limits there were")
+	}
+
+	if err := b.SetLimits([]Line{{Category: food, Limit: money.BRLCents(80000)}, {Category: fun, Limit: money.BRLCents(20000), Rollover: true}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.Line(home); ok {
+		t.Error("a category left out should lose its limit")
+	}
+	if l, _ := b.Line(fun); !l.Rollover || l.Limit.Cents() != 20000 {
+		t.Errorf("fun = %+v", l)
+	}
+	if got := b.Limits().Cents(); got != 100000 {
+		t.Errorf("Limits = %d, want 100000", got)
+	}
+}
+
 // saved saves a budget per month given, each a map of category to limit
 // in cents; a category in rolls rolls over.
 func saved(t *testing.T, rolls map[string]bool, months map[string]map[string]int64) []*MonthlyBudget {

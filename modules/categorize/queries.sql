@@ -27,8 +27,8 @@ SELECT * FROM categorize.rules
 WHERE pattern_kind = $1 AND pattern = $2 AND account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::uuid;
 
 -- name: SaveRule :exec
-INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO UPDATE SET
     pattern_kind = EXCLUDED.pattern_kind,
     pattern = EXCLUDED.pattern,

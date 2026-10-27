@@ -44,6 +44,7 @@ type Transaction struct {
 	categorySrc Source
 	counterpart TransactionID
 	pairKind    Kind
+	marked      bool // marked by me as a transfer to an account lastro does not have
 	removedAt   time.Time
 
 	events []events.Event
@@ -242,13 +243,36 @@ func (t *Transaction) PullEvents() []events.Event {
 	return evs
 }
 
-// Kind is the effective kind: the pair's while paired, the source's otherwise.
+// Kind is the effective kind: the pair's while paired, a transfer when I
+// marked it so, the source's otherwise.
 func (t *Transaction) Kind() Kind {
 	if t.IsPaired() {
 		return t.pairKind
 	}
+	if t.marked {
+		return KindTransfer
+	}
 	return t.sourceKind
 }
+
+// MarkTransfer says the money went to (or came from) an account of mine
+// lastro does not have, so it is neither spending nor income. Only an
+// expense or income that is not paired can be marked; false takes it back.
+func (t *Transaction) MarkTransfer(on bool) error {
+	switch {
+	case t.IsRemoved():
+		return fmt.Errorf("%w: %s", ErrRemoved, t.id)
+	case on && t.IsPaired():
+		return fmt.Errorf("%w: %s is already paired", ErrPaired, t.id)
+	case t.sourceKind != KindExpense && t.sourceKind != KindIncome:
+		return fmt.Errorf("%w: only an expense or income is marked as a transfer", ErrInvalid)
+	}
+	t.marked = on
+	return nil
+}
+
+// MarkedTransfer reports whether I marked it as a transfer.
+func (t *Transaction) MarkedTransfer() bool { return t.marked }
 
 func (t *Transaction) ID() TransactionID              { return t.id }
 func (t *Transaction) AccountID() AccountID           { return t.accountID }

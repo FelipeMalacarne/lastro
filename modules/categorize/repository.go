@@ -129,6 +129,7 @@ func (r *Repository) saveRule(ctx context.Context, rule *Rule) error {
 		CategoryID:  rule.category.String(),
 		CreatedAt:   rule.createdAt,
 		UpdatedAt:   rule.updatedAt,
+		Origin:      string(rule.origin),
 	}))
 }
 
@@ -189,6 +190,7 @@ func ruleFromRow(row db.CategorizeRule) (*Rule, error) {
 		id:        RuleID(row.ID),
 		pattern:   Pattern{kind: kind, text: row.Pattern}, // stored normalized
 		category:  category,
+		origin:    Origin(row.Origin),
 		createdAt: row.CreatedAt,
 		updatedAt: row.UpdatedAt,
 	}

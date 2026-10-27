@@ -5,6 +5,7 @@ import { SyncStatus } from "@/components/SyncStatus";
 import { typeName, useResource, type Account, type Connection } from "@/lib/api";
 import { formatBRL } from "@/lib/format";
 import { Link, useLocation } from "@/lib/router";
+import { SyncButton, nextSync } from "@/lib/sync";
 import { cn } from "@/lib/utils";
 
 /** A connection and its accounts; `manual` is the group of accounts I type in. */
@@ -38,7 +39,10 @@ export function SidebarAccounts() {
   if (banks.length === 0) return null;
   return (
     <section aria-label="Accounts" className="flex flex-col gap-3 px-2">
-      <span className="type-label text-ink-muted">Accounts</span>
+      <span className="flex items-center justify-between gap-2">
+        <span className="type-label text-ink-muted">Accounts</span>
+        <SyncButton iconOnly className="-my-1" />
+      </span>
       {banks.map((b) => (
         <div key={b.connection?.itemId ?? b.institution} className="flex flex-col gap-0.5">
           {b.manual ? (
@@ -68,6 +72,9 @@ export function SidebarAccounts() {
           })}
         </div>
       ))}
+      <span className="type-caption text-ink-muted">
+        Next sync at <span className="font-figure">{nextSync()}</span>
+      </span>
     </section>
   );
 }

@@ -53,6 +53,8 @@ export type Transaction = {
   tags: string[];
   /** A split's categories, largest part first; empty when not split. */
   splitCategories: string[];
+  /** A transfer I marked: to an account lastro does not have. */
+  markedTransfer: boolean;
 };
 
 export type TagView = { tag: string; count: number; outCents: number; inCents: number; last: string };
@@ -232,9 +234,12 @@ export type ReviewGroup = {
 
 export type Review = { waiting: number; groups: ReviewGroup[] };
 
+export type RuleOrigin = "correction" | "hand";
+
 export type Rule = {
   id: string;
   order: number;
+  origin: RuleOrigin;
   pattern: Pattern;
   account: string | null;
   category: string;
@@ -277,6 +282,8 @@ export type BudgetMonth = {
   hasBudget: boolean;
   saved: boolean;
   from: string | null;
+  prevDiffers: boolean;
+  rolloverNew: boolean;
   days: number;
   daysLeft: number;
   elapsedBp: number;

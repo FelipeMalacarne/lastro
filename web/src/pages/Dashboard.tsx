@@ -11,6 +11,7 @@ import { Stat } from "@/components/Stat";
 import { SyncNotice } from "@/components/SyncNotice";
 import { TransactionRow } from "@/components/TransactionRow";
 import { Button } from "@/components/ui/button";
+import { SyncButton } from "@/lib/sync";
 import {
   typeLabel,
   useResource,
@@ -62,11 +63,14 @@ export function Dashboard() {
         title="Dashboard"
         caption={caption || undefined}
         actions={
-          !isCurrent || new Date().getDate() <= 7 ? (
-            <Button asChild variant="secondary">
-              <Link to={`/report?month=${isCurrent ? prevOf(month) : month}`}>{formatMonth(isCurrent ? prevOf(month) : month).split(" ")[0]} in review</Link>
-            </Button>
-          ) : undefined
+          <>
+            {(!isCurrent || new Date().getDate() <= 7) && (
+              <Button asChild variant="secondary">
+                <Link to={`/report?month=${isCurrent ? prevOf(month) : month}`}>{formatMonth(isCurrent ? prevOf(month) : month).split(" ")[0]} in review</Link>
+              </Button>
+            )}
+            <SyncButton />
+          </>
         }
       />
       <SyncNotice banks={banks} />

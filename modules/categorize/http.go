@@ -341,6 +341,40 @@ func (s *Service) registerReviewRoutes(mux *http.ServeMux, logger *slog.Logger) 
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// POST /api/v1/review/transfer {"pattern": {...}} or {"description": "..."}
+	// marks a review group as transfers; answers {"marked", "ids"}.
+	mux.HandleFunc("POST /api/v1/review/transfer", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Pattern     *patternJSON `json:"pattern"`
+			Description string       `json:"description"`
+		}
+		if err := decode(w, r, &in, "pattern or description"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		var p Pattern
+		if in.Pattern != nil {
+			var err error
+			if p, err = in.Pattern.parse(); err != nil {
+				httpx.WriteError(w, r, logger, apiError(err))
+				return
+			}
+		} else if in.Description == "" {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("pattern or description is required"))
+			return
+		}
+		ids, err := s.MarkTransfers(r.Context(), p, in.Description)
+		if err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = string(id)
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"marked": len(ids), "ids": out})
+	})
+
 	// POST /api/v1/undo {"rule": "<id>", "wasRule": "<category id>", "before": [...]}
 	// takes back a choice: the body is the "undo" a choice answered with.
 	mux.HandleFunc("POST /api/v1/undo", func(w http.ResponseWriter, r *http.Request) {
@@ -440,6 +474,7 @@ type ruleJSON struct {
 	Meets     int         `json:"meets"`
 	Decides   int         `json:"decides"`
 	Last      *string     `json:"last"` // the latest transaction it meets
+	Origin    Origin      `json:"origin"`
 	CreatedAt time.Time   `json:"createdAt"`
 	UpdatedAt time.Time   `json:"updatedAt"`
 }
@@ -491,7 +526,7 @@ func (s *Service) registerRuleRoutes(mux *http.ServeMux, logger *slog.Logger) {
 			j := ruleJSON{
 				ID: string(v.Rule.ID()), Order: v.Order, Category: v.Rule.Category().String(),
 				Pattern: patternJSON{Kind: v.Rule.Pattern().Kind(), Text: v.Rule.Pattern().Text()},
-				Meets:   v.Meets, Decides: v.Decides, CreatedAt: v.Rule.CreatedAt(), UpdatedAt: v.Rule.UpdatedAt(),
+				Meets:   v.Meets, Decides: v.Decides, CreatedAt: v.Rule.CreatedAt(), UpdatedAt: v.Rule.UpdatedAt(), Origin: v.Rule.Origin(),
 			}
 			if a := v.Rule.Account(); a != "" {
 				s := string(a)
@@ -526,7 +561,7 @@ func (s *Service) registerRuleRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		if ch.Account != nil {
 			account = *ch.Account
 		}
-		done, err := s.Correct(r.Context(), *ch.Pattern, account, *ch.Category)
+		done, err := s.CreateRule(r.Context(), *ch.Pattern, account, *ch.Category)
 		if err != nil {
 			httpx.WriteError(w, r, logger, apiError(err))
 			return

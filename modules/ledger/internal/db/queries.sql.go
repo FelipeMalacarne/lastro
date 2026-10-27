@@ -93,7 +93,7 @@ func (q *Queries) GetAccountView(ctx context.Context, id string) (LedgerAccount,
 }
 
 const getTransactions = `-- name: GetTransactions :many
-SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, a.type AS account_type
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, t.marked_transfer, t.kind, a.type AS account_type
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.id = ANY ($1::uuid[])
@@ -130,12 +130,13 @@ func (q *Queries) GetTransactions(ctx context.Context, ids []string) ([]GetTrans
 			&i.LedgerTransaction.CategorySource,
 			&i.LedgerTransaction.CounterpartID,
 			&i.LedgerTransaction.PairKind,
-			&i.LedgerTransaction.Kind,
 			&i.LedgerTransaction.RemovedAt,
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
 			&i.LedgerTransaction.Note,
 			&i.LedgerTransaction.Tags,
+			&i.LedgerTransaction.MarkedTransfer,
+			&i.LedgerTransaction.Kind,
 			&i.AccountType,
 		); err != nil {
 			return nil, err
@@ -882,7 +883,7 @@ func (q *Queries) ListMonthKinds(ctx context.Context, arg ListMonthKindsParams) 
 }
 
 const listPairCandidates = `-- name: ListPairCandidates :many
-SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, a.type AS account_type
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, t.marked_transfer, t.kind, a.type AS account_type
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.removed_at IS NULL
@@ -926,12 +927,13 @@ func (q *Queries) ListPairCandidates(ctx context.Context, windowFrom *time.Time)
 			&i.LedgerTransaction.CategorySource,
 			&i.LedgerTransaction.CounterpartID,
 			&i.LedgerTransaction.PairKind,
-			&i.LedgerTransaction.Kind,
 			&i.LedgerTransaction.RemovedAt,
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
 			&i.LedgerTransaction.Note,
 			&i.LedgerTransaction.Tags,
+			&i.LedgerTransaction.MarkedTransfer,
+			&i.LedgerTransaction.Kind,
 			&i.AccountType,
 		); err != nil {
 			return nil, err
@@ -1071,7 +1073,7 @@ const listTransactionViews = `-- name: ListTransactionViews :many
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
-    t.note, t.tags,
+    t.note, t.tags, t.marked_transfer,
     COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
     -- What counts under a category filter: a split's part in it, or the whole.
     COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text), t.amount_cents)::bigint AS counted_cents,
@@ -1136,6 +1138,7 @@ type ListTransactionViewsRow struct {
 	CounterpartID          *string
 	Note                   string
 	Tags                   []string
+	MarkedTransfer         bool
 	SplitCategories        []string
 	CountedCents           int64
 	AccountID              string
@@ -1189,6 +1192,7 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 			&i.CounterpartID,
 			&i.Note,
 			&i.Tags,
+			&i.MarkedTransfer,
 			&i.SplitCategories,
 			&i.CountedCents,
 			&i.AccountID,
@@ -1211,7 +1215,7 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 }
 
 const listTransactionsForImport = `-- name: ListTransactionsForImport :many
-SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, a.type AS account_type
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, t.marked_transfer, t.kind, a.type AS account_type
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.account_id = $1
@@ -1268,12 +1272,13 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 			&i.LedgerTransaction.CategorySource,
 			&i.LedgerTransaction.CounterpartID,
 			&i.LedgerTransaction.PairKind,
-			&i.LedgerTransaction.Kind,
 			&i.LedgerTransaction.RemovedAt,
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
 			&i.LedgerTransaction.Note,
 			&i.LedgerTransaction.Tags,
+			&i.LedgerTransaction.MarkedTransfer,
+			&i.LedgerTransaction.Kind,
 			&i.AccountType,
 		); err != nil {
 			return nil, err
