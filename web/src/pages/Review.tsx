@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -145,6 +145,13 @@ export function Review() {
                         {g.count > 1 && <Badge figure>{g.count}×</Badge>}
                       </span>
                       <span className="truncate type-caption text-ink-muted">
+                        {g.suggestion && byId.get(g.suggestion.category) ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Sparkles className="size-3.5" aria-hidden />
+                            Suggested: {byId.get(g.suggestion.category)?.name}
+                          </span>
+                        ) : null}
+                        {g.suggestion && byId.get(g.suggestion.category) ? " · " : null}
                         {examples(g)} · latest {formatDay(g.latest)}
                       </span>
                     </span>
@@ -192,6 +199,7 @@ export function Review() {
             <CategoryDecision
               categories={live}
               suggested={group.pattern}
+              suggestion={group.suggestion}
               onChoose={(c, teach) => choose(group, c, teach)}
               keyboard={wide}
               busy={busy}

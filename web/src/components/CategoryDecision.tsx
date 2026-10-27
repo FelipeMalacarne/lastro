@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { Sparkles } from "lucide-react";
 
 import { CategoryTag } from "@/components/CategoryTag";
 import { Kbd } from "@/components/Kbd";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
+import { Button } from "@/components/ui/button";
 import type { Category, Pattern, PatternKind } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +22,8 @@ type Props = {
   /** "Applies to 41 transactions". */
   reach?: string;
   busy?: boolean;
+  /** The local model's answer, offered first. */
+  suggestion?: { category: string; confidence: number } | null;
 };
 
 const kinds: { value: PatternKind; label: string }[] = [
@@ -32,7 +36,7 @@ const kinds: { value: PatternKind; label: string }[] = [
  * shown and editable before that. A correction always becomes a rule, so the
  * same merchant is never asked again.
  */
-export function CategoryDecision({ categories, current, suggested, onChoose, keyboard, reach, busy }: Props) {
+export function CategoryDecision({ categories, current, suggested, onChoose, keyboard, reach, busy, suggestion }: Props) {
   const [kind, setKind] = useState<PatternKind>(suggested?.kind ?? "contains");
   const [text, setText] = useState(suggested?.text ?? "");
   useEffect(() => {
@@ -44,12 +48,18 @@ export function CategoryDecision({ categories, current, suggested, onChoose, key
   const valid = letters >= 3 && text.length <= 100;
   const teach: Pattern | null = suggested || text ? (valid ? { kind, text } : null) : null;
   const shown = categories.slice(0, 9);
+  const offered = suggestion ? categories.find((c) => c.id === suggestion.category) : undefined;
 
   useEffect(() => {
     if (!keyboard) return;
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
       if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      if (e.key === "Enter" && offered && !busy) {
+        e.preventDefault();
+        void onChoose(offered.id, teach);
+        return;
+      }
       const n = Number(e.key);
       if (n >= 1 && n <= shown.length && !busy) {
         e.preventDefault();
@@ -58,12 +68,24 @@ export function CategoryDecision({ categories, current, suggested, onChoose, key
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keyboard, shown, teach, onChoose, busy]);
+  }, [keyboard, shown, teach, onChoose, busy, offered]);
 
   return (
     <div className="flex flex-col gap-4">
+      {offered && suggestion && (
+        <div className="flex flex-col gap-3 rounded-md border border-rule bg-paper p-3">
+          <span className="flex flex-wrap items-center gap-2 text-[14px] leading-5 text-ink-muted">
+            <Sparkles className="size-4" aria-hidden />
+            The local model suggests <CategoryTag name={offered.name} color={offered.color} />
+            <span className="type-figure-sm">{suggestion.confidence}% sure</span>
+          </span>
+          <Button variant="primary" size="sm" className="self-start" disabled={busy} onClick={() => void onChoose(offered.id, teach)}>
+            Accept {offered.name} {keyboard && <Kbd>Enter</Kbd>}
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col gap-2">
-        <span className="type-label text-ink-muted">Choose a category</span>
+        <span className="type-label text-ink-muted">{offered ? "Or choose another" : "Choose a category"}</span>
         <div role="group" aria-label="Category" className="grid grid-cols-2 gap-1.5">
           {categories.map((c, i) => {
             const on = c.id === current;

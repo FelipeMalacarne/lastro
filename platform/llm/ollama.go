@@ -34,6 +34,9 @@ func NewOllama(baseURL, model string) *Client {
 	}
 }
 
+// Model is the model's name, as configured.
+func (c *Client) Model() string { return c.model }
+
 // Enabled reports whether a URL and a model are configured.
 func (c *Client) Enabled() bool { return c.baseURL != "" && c.model != "" }
 

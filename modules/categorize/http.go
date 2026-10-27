@@ -180,6 +180,13 @@ type reviewGroupJSON struct {
 	TotalCents   int64          `json:"totalCents"`
 	Latest       string         `json:"latest"`
 	Transactions []reviewTxJSON `json:"transactions"` // the newest few
+	// Suggestion is the local model's answer for the merchant, when it named one.
+	Suggestion *suggestionJSON `json:"suggestion"`
+}
+
+type suggestionJSON struct {
+	Category   string `json:"category"`
+	Confidence int    `json:"confidence"` // percent
 }
 
 // maxGroupSample is how many of a group's transactions the queue lists.
@@ -199,6 +206,9 @@ func (s *Service) registerReviewRoutes(mux *http.ServeMux, logger *slog.Logger) 
 			out := reviewGroupJSON{Count: g.Count, TotalCents: g.TotalCents, Latest: g.Latest.Format(time.DateOnly)}
 			if !g.Pattern.IsZero() {
 				out.Pattern = &patternJSON{Kind: g.Pattern.Kind(), Text: g.Pattern.Text()}
+				if sug, ok := rv.Suggestions[g.Pattern.Text()]; ok && !sug.Category.IsZero() {
+					out.Suggestion = &suggestionJSON{Category: sug.Category.String(), Confidence: sug.Confidence}
+				}
 			}
 			for _, t := range g.Transactions[:min(len(g.Transactions), maxGroupSample)] {
 				out.Transactions = append(out.Transactions, reviewTxJSON{

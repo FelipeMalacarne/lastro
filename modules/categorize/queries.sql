@@ -30,3 +30,20 @@ WHERE pattern_kind = $1 AND pattern = $2 AND account_id IS NOT DISTINCT FROM sql
 INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (id) DO UPDATE SET category_id = EXCLUDED.category_id, updated_at = EXCLUDED.updated_at;
+
+-- name: ListSuggestions :many
+-- What the model said about each merchant, leaving out answers that name a
+-- category since archived.
+SELECT s.pattern, s.category_id, s.confidence, s.model, s.asked_at
+FROM categorize.suggestions s
+LEFT JOIN categorize.categories c ON c.id = s.category_id
+WHERE s.category_id IS NULL OR c.archived_at IS NULL;
+
+-- name: SaveSuggestion :exec
+INSERT INTO categorize.suggestions (pattern, category_id, confidence, model, asked_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (pattern) DO UPDATE SET
+    category_id = EXCLUDED.category_id,
+    confidence = EXCLUDED.confidence,
+    model = EXCLUDED.model,
+    asked_at = EXCLUDED.asked_at;

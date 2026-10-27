@@ -19,7 +19,7 @@ func newService(t *testing.T) *Service {
 	t.Helper()
 	pool := dbtest.New(t)
 	bus := events.NewBus(nil)
-	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), bus), nil)
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), bus), nil, nil)
 	events.Subscribe(bus, s.OnTransactionsImported)
 	s.now = func() time.Time { return t0 }
 	return s

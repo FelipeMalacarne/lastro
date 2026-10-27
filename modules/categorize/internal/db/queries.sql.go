@@ -171,6 +171,41 @@ func (q *Queries) ListRules(ctx context.Context) ([]CategorizeRule, error) {
 	return items, nil
 }
 
+const listSuggestions = `-- name: ListSuggestions :many
+SELECT s.pattern, s.category_id, s.confidence, s.model, s.asked_at
+FROM categorize.suggestions s
+LEFT JOIN categorize.categories c ON c.id = s.category_id
+WHERE s.category_id IS NULL OR c.archived_at IS NULL
+`
+
+// What the model said about each merchant, leaving out answers that name a
+// category since archived.
+func (q *Queries) ListSuggestions(ctx context.Context) ([]CategorizeSuggestion, error) {
+	rows, err := q.db.Query(ctx, listSuggestions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CategorizeSuggestion
+	for rows.Next() {
+		var i CategorizeSuggestion
+		if err := rows.Scan(
+			&i.Pattern,
+			&i.CategoryID,
+			&i.Confidence,
+			&i.Model,
+			&i.AskedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const saveRule = `-- name: SaveRule :exec
 INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -196,6 +231,35 @@ func (q *Queries) SaveRule(ctx context.Context, arg SaveRuleParams) error {
 		arg.CategoryID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+	)
+	return err
+}
+
+const saveSuggestion = `-- name: SaveSuggestion :exec
+INSERT INTO categorize.suggestions (pattern, category_id, confidence, model, asked_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (pattern) DO UPDATE SET
+    category_id = EXCLUDED.category_id,
+    confidence = EXCLUDED.confidence,
+    model = EXCLUDED.model,
+    asked_at = EXCLUDED.asked_at
+`
+
+type SaveSuggestionParams struct {
+	Pattern    string
+	CategoryID *string
+	Confidence int16
+	Model      string
+	AskedAt    time.Time
+}
+
+func (q *Queries) SaveSuggestion(ctx context.Context, arg SaveSuggestionParams) error {
+	_, err := q.db.Exec(ctx, saveSuggestion,
+		arg.Pattern,
+		arg.CategoryID,
+		arg.Confidence,
+		arg.Model,
+		arg.AskedAt,
 	)
 	return err
 }

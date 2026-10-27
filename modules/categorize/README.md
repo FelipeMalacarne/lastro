@@ -12,7 +12,8 @@
 - `Engine` (domain service, `engine.go`): of the rules a transaction meets, picks the most specific (see the invariants).
 - `SuggestPattern` (`values.go`): reads the merchant out of a description for a correction to teach: it skips what banks put before it ("PAG*", "Pix enviado", "ESTORNO") and stops at what they append (a number, a city or state, a site), up to three words. "PAG*IFOOD SP" suggests contains IFOOD.
 - `GroupForReview` (domain service, `review.go`): the review queue groups the transactions waiting for a category by the pattern each one suggests, the groups that settle the most first, so one correction settles a whole merchant.
-- `Classifier` (port, from M2's LLM task): minimal interface implemented by the Ollama client and injected by `app`.
+- `LLM` (port, `classifier.go`): the little of the local model categorize needs (`Enabled`, `Model`, `GenerateJSON`); `app` injects the Ollama client. The prompt lists the live categories and the rules I taught as examples; `parseAnswer` accepts only a live category, by name.
+- `Suggestion` (`classifier.go`, table `suggestions`): what the model said about a merchant (a suggested pattern), asked once per merchant. From 80% sure it categorizes on its own, as the model's choice; below, it waits in the queue as a suggestion.
 
 ## Flow
 
@@ -23,7 +24,7 @@
 
 After every sync, `app` calls `CategorizeUncategorized` (on `ingest.SyncCompleted`), which runs steps 2 and 3 over every transaction still without a category: what was imported before a rule existed, or while the rules could not run.
 
-Today the module has steps 1, 2 and 4; the LLM (step 3) arrives with the `Classifier` task. Until then, what no rule meets waits in To review.
+The model runs only in that pass after the sync, never during an import, so a slow or sleeping Ollama never holds a sync up. At most 40 new merchants are asked per pass.
 
 ## Invariants
 
@@ -47,7 +48,7 @@ Today the module has steps 1, 2 and 4; the LLM (step 3) arrives with the `Classi
 - `POST /api/v1/categories` `{"name", "color", "budgeted"}`: `budgeted` defaults to true. 409 when the name is taken.
 - `PATCH /api/v1/categories/{id}`: any of `name`, `color` and `budgeted`. 409 for an archived category or a taken name.
 - `DELETE /api/v1/categories/{id}`: archives it and answers `{"rulesRemoved": n}`.
-- `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest` and its newest five transactions.
+- `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest`, its newest five transactions and the model's `suggestion` (`category`, `confidence` in percent) when it named one.
 - `POST /api/v1/review` `{"pattern": {"kind", "text"}, "category"}`: teaches the rule and answers how many transactions it categorized.
 - `PUT /api/v1/transactions/{id}/category` `{"category", "teach"}`: my choice for one transaction (manual, never overwritten); with `teach`, it also becomes a rule.
 - `GET /api/v1/patterns/suggest?description=…`: the pattern a correction of that description would teach.

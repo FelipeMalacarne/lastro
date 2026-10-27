@@ -65,7 +65,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
-	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, logger)
+	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
 
 	// The rules categorize each import as it commits. After every sync they
 	// also reach whatever is still without a category: transactions imported

@@ -28,6 +28,14 @@ type CategorizeRule struct {
 	UpdatedAt   time.Time
 }
 
+type CategorizeSuggestion struct {
+	Pattern    string
+	CategoryID *string
+	Confidence int16
+	Model      string
+	AskedAt    time.Time
+}
+
 type IngestItem struct {
 	ID               string
 	Institution      string

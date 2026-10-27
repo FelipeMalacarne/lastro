@@ -5,6 +5,7 @@ package categorize
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,4 +198,71 @@ func mustReview(t *testing.T, s *Service) Review {
 		t.Fatal(err)
 	}
 	return rv
+}
+
+// fakeLLM answers by the merchant named in the prompt.
+type fakeLLM struct {
+	answers map[string]answer
+	calls   int
+	fail    bool
+}
+
+func (f *fakeLLM) Enabled() bool { return true }
+func (f *fakeLLM) Model() string { return "fake" }
+func (f *fakeLLM) GenerateJSON(_ context.Context, _, prompt string, out any) error {
+	f.calls++
+	if f.fail {
+		return errors.New("zaros is off")
+	}
+	i := strings.Index(prompt, "(merchant ")
+	merchant := prompt[i+len("(merchant ") : i+strings.Index(prompt[i:], ")")]
+	a, ok := f.answers[merchant]
+	if !ok {
+		a = answer{Category: "unknown"}
+	}
+	*(out.(*answer)) = a
+	return nil
+}
+
+func TestTheModelCategorizesWhatNoRuleMeets(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	llm := &fakeLLM{answers: map[string]answer{"DROGASIL": {"Health", 0.95}, "NETFLIX": {"leisure", 0.6}}}
+	s.llm = llm
+	cats := byName(t, s)
+	learn(t, s, PatternContains, "ifood", cats["Restaurants"])
+	importOctober(t, s, []string{"PAG*IFOOD SP", "DROGASIL 2104 SAO PAULO", "Netflix.com", "MYSTERY 99"}, nil)
+
+	n, err := s.CategorizeUncategorized(ctx)
+	if err != nil || n != 1 || llm.calls != 3 {
+		t.Fatalf("only the confident answer categorizes, and iFood never reaches the model: %d %v, %d calls", n, err, llm.calls)
+	}
+	got := categories(t, s)
+	if c := got["DROGASIL 2104 SAO PAULO"]; c.ID != cats["Health"].ID.String() || c.Source != string(ledger.SourceLLM) {
+		t.Errorf("a confident answer categorizes as the model's: %+v", c)
+	}
+	rv := mustReview(t, s)
+	if rv.Waiting != 2 {
+		t.Fatalf("Netflix and the unknown one wait: %+v", rv)
+	}
+	if sug := rv.Suggestions["NETFLIX"]; sug.Category != cats["Leisure"].ID || sug.Confidence != 60 {
+		t.Errorf("the unsure answer is kept as a suggestion: %+v", sug)
+	}
+	if sug := rv.Suggestions["MYSTERY"]; !sug.Category.IsZero() {
+		t.Errorf("an unknown answer suggests nothing: %+v", sug)
+	}
+
+	if n, err := s.CategorizeUncategorized(ctx); err != nil || n != 0 || llm.calls != 3 {
+		t.Errorf("each merchant is asked once: %d %v, %d calls", n, err, llm.calls)
+	}
+
+	down := newService(t)
+	down.llm = &fakeLLM{fail: true}
+	importOctober(t, down, []string{"DROGASIL 2104 SAO PAULO"}, nil)
+	if n, err := down.CategorizeUncategorized(ctx); err != nil || n != 0 {
+		t.Errorf("a model that is down never fails the pass: %d %v", n, err)
+	}
+	if rv := mustReview(t, down); rv.Waiting != 1 {
+		t.Errorf("and the transaction waits: %+v", rv)
+	}
 }

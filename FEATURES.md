@@ -84,12 +84,12 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P0**
 - [x] Rules by merchant and description categorize known transactions instantly.
-- [ ] Transactions no rule matches go to the local LLM, which must answer with an existing category.
-- [ ] Anything the LLM cannot classify, or when the LLM is offline, goes to a "to review" queue; nothing gets a guessed category.
+- [x] Transactions no rule matches go to the local LLM, which must answer with an existing category.
+- [x] Anything the LLM cannot classify, or when the LLM is offline, goes to a "to review" queue; nothing gets a guessed category.
 - [x] A manual correction creates a rule and is never overwritten by automation.
 
 **P1**
-- [ ] The review queue suggests a category and accepts it with one click or key.
+- [x] The review queue suggests a category and accepts it with one click or key.
 - [ ] Rules can be listed, edited and deleted.
 
 ### F4. Monthly budget

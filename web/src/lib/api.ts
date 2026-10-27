@@ -204,6 +204,8 @@ export type ReviewGroup = {
   totalCents: number;
   latest: string;
   transactions: { id: string; date: string; description: string; amountCents: number; accountId: string }[];
+  /** The local model's answer for the merchant, when it named a category. */
+  suggestion: { category: string; confidence: number } | null;
 };
 
 export type Review = { waiting: number; groups: ReviewGroup[] };

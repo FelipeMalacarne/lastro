@@ -182,3 +182,33 @@ func nameTaken(err error, name string) error {
 	}
 	return err
 }
+
+// suggestions returns what the model said about each merchant, by pattern.
+func (r *Repository) suggestions(ctx context.Context) (map[string]Suggestion, error) {
+	rows, err := r.q.ListSuggestions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Suggestion, len(rows))
+	for _, row := range rows {
+		s := Suggestion{Pattern: row.Pattern, Confidence: int(row.Confidence), Model: row.Model, AskedAt: row.AskedAt}
+		if row.CategoryID != nil {
+			if s.Category, err = ledger.NewCategoryID(*row.CategoryID); err != nil {
+				return nil, err
+			}
+		}
+		out[row.Pattern] = s
+	}
+	return out, nil
+}
+
+func (r *Repository) saveSuggestion(ctx context.Context, s Suggestion) error {
+	var c *string
+	if !s.Category.IsZero() {
+		id := s.Category.String()
+		c = &id
+	}
+	return r.q.SaveSuggestion(ctx, db.SaveSuggestionParams{
+		Pattern: s.Pattern, CategoryID: c, Confidence: int16(s.Confidence), Model: s.Model, AskedAt: s.AskedAt,
+	})
+}
