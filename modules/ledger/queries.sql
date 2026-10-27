@@ -331,3 +331,6 @@ FROM ledger.category_lines
 WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND sqlc.arg(tag)::text = ANY (tags)
 GROUP BY 1
 ORDER BY 2 DESC;
+
+-- name: DeleteBalanceSnapshot :execrows
+DELETE FROM ledger.balance_snapshots WHERE account_id = $1 AND date = $2;

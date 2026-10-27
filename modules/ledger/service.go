@@ -26,6 +26,7 @@ type Repository interface {
 	// SaveSnapshot stores the balance of a day, unless a later one is stored.
 	SaveSnapshot(ctx context.Context, s BalanceSnapshot) error
 	Snapshots(ctx context.Context, account AccountID) ([]BalanceSnapshot, error)
+	DeleteSnapshot(ctx context.Context, account AccountID, day time.Time) error
 
 	// TransactionsForImport returns the account's transactions dated on or
 	// after from (none for a zero from) plus any with one of the external
@@ -470,6 +471,18 @@ func (s *Service) BalanceHistory(ctx context.Context, id AccountID) (BalanceHist
 	acc, err := s.repo.AccountView(ctx, id)
 	if err != nil {
 		return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+	}
+	if AccountType(acc.Type) == AccountAsset {
+		// An asset has no transactions: its history is the balances I typed.
+		snaps, err := s.repo.Snapshots(ctx, id)
+		if err != nil {
+			return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+		}
+		v := BalanceHistoryView{Currency: acc.Currency, AsOf: acc.BalanceAt, Points: make([]BalancePointView, len(snaps))}
+		for i, sn := range snaps {
+			v.Points[i] = BalancePointView{Date: sn.Date.Format(time.DateOnly), BalanceCents: sn.Balance.Cents()}
+		}
+		return v, nil
 	}
 	current, err := money.New(acc.BalanceCents, money.Currency(acc.Currency))
 	if err != nil {

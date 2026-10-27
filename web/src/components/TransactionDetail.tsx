@@ -212,8 +212,37 @@ function Body({ d }: { d: Detail }) {
         <Button asChild variant="ghost" size="sm">
           <Link to={`/accounts/${t.account.id}`}>Open {accountName(t)}</Link>
         </Button>
+        {t.account.type === "cash" && <RemoveEntry id={t.id} />}
       </div>
     </>
+  );
+}
+
+/** A wallet entry I added can be taken back; a synced transaction never. */
+function RemoveEntry({ id }: { id: string }) {
+  const [sure, setSure] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!sure)
+    return (
+      <Button variant="ghost" size="sm" onClick={() => setSure(true)}>
+        Remove this entry
+      </Button>
+    );
+  return (
+    <span className="flex flex-wrap items-center gap-2 type-caption text-ink-muted">
+      Its amount goes back to the wallet.
+      <Button
+        size="sm"
+        onClick={() =>
+          void send("DELETE", `/api/v1/transactions/${id}`).catch((e: Error) => {
+            setError(e.message);
+          })
+        }
+      >
+        Remove
+      </Button>
+      {error && <span className="text-danger">Could not remove: {error}.</span>}
+    </span>
   );
 }
 

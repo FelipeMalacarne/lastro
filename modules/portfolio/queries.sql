@@ -33,14 +33,14 @@ SELECT date, class, value_cents, basis_cents FROM portfolio.valuations
 WHERE date >= sqlc.arg(date_from)::date ORDER BY date, class;
 
 -- name: SaveNetWorth :exec
-INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, emergency_cents, basis_cents, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, emergency_cents, other_cents, basis_cents, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (date) DO UPDATE SET cash_cents = excluded.cash_cents, cards_cents = excluded.cards_cents,
     invested_cents = excluded.invested_cents, emergency_cents = excluded.emergency_cents,
-    basis_cents = excluded.basis_cents, updated_at = excluded.updated_at;
+    other_cents = excluded.other_cents, basis_cents = excluded.basis_cents, updated_at = excluded.updated_at;
 
 -- name: ListNetWorth :many
-SELECT date, cash_cents, cards_cents, invested_cents, emergency_cents, basis_cents FROM portfolio.net_worth
+SELECT date, cash_cents, cards_cents, invested_cents, emergency_cents, other_cents, basis_cents FROM portfolio.net_worth
 WHERE date >= sqlc.arg(date_from)::date ORDER BY date;
 
 -- name: ListTheses :many

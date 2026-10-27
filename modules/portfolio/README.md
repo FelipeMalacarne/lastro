@@ -22,7 +22,7 @@
 
 - The weights of an `Allocation` add up to exactly 100%.
 - The planner never suggests selling, and what it distributes adds up to exactly the contribution amount (`Money.Allocate`, so no cents are lost).
-- The emergency fund is not part of the allocation, and is shown apart.
+- The emergency fund is not part of the allocation, and is shown apart. So are the assets outside Open Finance (`Other` in net worth); a wallet counts as cash.
 - A purchase is decided once: done or cancelled.
 - A dividend whose com date is before lastro knew the holdings is not counted: dividends are never guessed with today's quantity, except in the forward estimate, which says so.
 - A price alert is between 0,5% and 50% in a day, and fires only on a close from the last few days of a ticker still held.

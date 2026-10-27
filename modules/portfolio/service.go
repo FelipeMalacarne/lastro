@@ -126,18 +126,21 @@ func (s *Service) netWorth(ctx context.Context, v Valuation) (NetWorth, error) {
 		return NetWorth{}, err
 	}
 	nw := NetWorth{Date: v.Date, Invested: v.Invested().Value, Emergency: v.Emergency.Value}
-	var cash, cards int64
+	var cash, cards, other int64
 	for _, a := range accs {
 		if a.Currency != "BRL" {
 			continue // net worth is in reais; an account abroad is not converted
 		}
-		if a.Type == string(ledger.AccountCreditCard) {
+		switch a.Type {
+		case string(ledger.AccountCreditCard):
 			cards += min(a.BalanceCents, 0)
-		} else {
+		case string(ledger.AccountAsset):
+			other += a.BalanceCents
+		default: // checking, savings and the wallet
 			cash += a.BalanceCents
 		}
 	}
-	nw.Cash, nw.Cards = money.BRLCents(cash), money.BRLCents(cards)
+	nw.Cash, nw.Cards, nw.Other = money.BRLCents(cash), money.BRLCents(cards), money.BRLCents(other)
 	nw.Basis = money.BRLCents(v.Invested().Basis.Cents() + v.Emergency.Basis.Cents())
 	return nw, nil
 }

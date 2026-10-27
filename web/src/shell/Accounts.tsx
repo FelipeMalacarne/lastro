@@ -8,7 +8,8 @@ import { formatBRL } from "@/lib/format";
 import { Link, useLocation } from "@/lib/router";
 import { cn } from "@/lib/utils";
 
-export type Bank = { connection: Connection | null; institution: string; accounts: Account[] };
+/** A connection and its accounts; `manual` is the group of accounts I type in. */
+export type Bank = { connection: Connection | null; institution: string; accounts: Account[]; manual?: boolean };
 
 /** Accounts grouped by the connection that feeds them, in the API's order. */
 export function useBanks(): { banks: Bank[]; loading: boolean; error?: string } {
@@ -21,11 +22,13 @@ export function useBanks(): { banks: Bank[]; loading: boolean; error?: string } 
     accounts: all.filter((a) => c.accountIds.includes(a.id)),
   }));
   const linked = new Set(banks.flatMap((b) => b.accounts.map((a) => a.id)));
-  for (const a of all.filter((a) => !linked.has(a.id))) {
+  for (const a of all.filter((a) => !linked.has(a.id) && !a.manual)) {
     let b = banks.find((x) => !x.connection && x.institution === a.institution);
     if (!b) banks.push((b = { connection: null, institution: a.institution, accounts: [] }));
     b.accounts.push(a);
   }
+  const manual = all.filter((a) => a.manual);
+  if (manual.length) banks.push({ connection: null, institution: "Outside Open Finance", accounts: manual, manual: true });
   return { banks, loading: accounts.loading || connections.loading, error: accounts.error || connections.error };
 }
 
@@ -39,7 +42,13 @@ export function SidebarAccounts() {
       <span className="type-label text-ink-muted">Accounts</span>
       {banks.map((b) => (
         <div key={b.connection?.itemId ?? b.institution} className="flex flex-col gap-0.5">
-          <SyncStatus compact institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.short ?? "never"} />
+          {b.manual ? (
+            <span className="flex min-h-8 items-center text-[14px] leading-5 font-semibold" title="Typed in by you">
+              {b.institution}
+            </span>
+          ) : (
+            <SyncStatus compact institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.short ?? "never"} />
+          )}
           {b.accounts.map((a) => {
             const here = path === `/accounts/${a.id}`;
             return (
@@ -47,13 +56,13 @@ export function SidebarAccounts() {
                 key={a.id}
                 to={`/accounts/${a.id}`}
                 aria-current={here ? "page" : undefined}
-                aria-label={`${b.institution} ${a.type === "credit_card" ? "card" : typeName[a.type].toLowerCase()}, ${formatBRL(a.balanceCents)}`}
+                aria-label={`${a.manual ? a.name : `${b.institution} ${a.type === "credit_card" ? "card" : typeName[a.type].toLowerCase()}`}, ${formatBRL(a.balanceCents)}`}
                 className={cn(
                   "-mx-2 flex min-h-8 items-baseline justify-between gap-2 rounded-sm py-1.5 pr-2 pl-[30px] type-caption no-underline transition-colors",
                   here ? "bg-tinta-soft font-semibold text-tinta hover:text-tinta" : "text-ink-muted hover:bg-paper-sunken hover:text-ink",
                 )}
               >
-                <span className="truncate">{a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
+                <span className="truncate">{a.manual ? a.name : a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
                 <Amount cents={a.balanceCents} size="sm" tone={here ? "ink" : "auto"} />
               </Link>
             );
@@ -72,14 +81,18 @@ export function AccountsPanel({ banks }: { banks: Bank[] }) {
       <div className="flex flex-col gap-3">
         {banks.map((b, i) => (
           <div key={b.connection?.itemId ?? b.institution} className={i < banks.length - 1 ? "flex flex-col gap-1 border-b border-rule pb-3" : "flex flex-col gap-1"}>
-            <SyncStatus institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.detail ?? "Not synced yet"} />
+            {b.manual ? (
+              <span className="flex min-h-10 items-center text-[15px] leading-[22px] font-semibold">{b.institution}</span>
+            ) : (
+              <SyncStatus institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.detail ?? "Not synced yet"} />
+            )}
             {b.accounts.map((a) => (
               <Link
                 key={a.id}
                 to={`/accounts/${a.id}`}
                 className="flex min-h-11 items-center justify-between gap-2 pl-10 text-[14px] leading-5 text-ink no-underline hover:text-ink"
               >
-                <span className="text-ink-muted">{typeName[a.type]}</span>
+                <span className="text-ink-muted">{a.manual ? a.name : typeName[a.type]}</span>
                 <span className="inline-flex items-center gap-1.5">
                   <Amount cents={a.balanceCents} />
                   <ChevronRight className="size-3.5 text-ink-muted" aria-hidden />

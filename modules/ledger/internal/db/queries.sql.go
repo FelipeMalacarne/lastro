@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+const deleteBalanceSnapshot = `-- name: DeleteBalanceSnapshot :execrows
+DELETE FROM ledger.balance_snapshots WHERE account_id = $1 AND date = $2
+`
+
+type DeleteBalanceSnapshotParams struct {
+	AccountID string
+	Date      time.Time
+}
+
+func (q *Queries) DeleteBalanceSnapshot(ctx context.Context, arg DeleteBalanceSnapshotParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBalanceSnapshot, arg.AccountID, arg.Date)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteSplit = `-- name: DeleteSplit :exec
 DELETE FROM ledger.splits WHERE transaction_id = $1
 `

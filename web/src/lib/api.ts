@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 // The API's shapes (see modules/ledger/views.go and modules/ingest/http.go).
 
-export type AccountType = "checking" | "savings" | "credit_card";
+export type AccountType = "checking" | "savings" | "credit_card" | "cash" | "asset";
 
 export type Account = {
   id: string;
@@ -13,6 +13,8 @@ export type Account = {
   currency: string;
   balanceCents: number;
   balanceAt: string;
+  /** Typed in by me, outside Open Finance: a wallet ("cash") or an asset. */
+  manual: boolean;
   /** A card's limit and bill, each part null when the bank does not report it. */
   card: { limitCents: number | null; availableCents: number | null; dueDate: string | null; closeDate: string | null } | null;
 };
@@ -170,12 +172,16 @@ export const typeLabel: Record<AccountType, string> = {
   checking: "checking",
   savings: "savings",
   credit_card: "credit card",
+  cash: "wallet",
+  asset: "asset",
 };
 
 export const typeName: Record<AccountType, string> = {
   checking: "Checking",
   savings: "Savings",
   credit_card: "Credit card",
+  cash: "Wallet",
+  asset: "Asset",
 };
 
 /** Refetches every resource read so far: after a change, whatever shows it is fresh. */
@@ -324,6 +330,8 @@ export type NetWorthPoint = {
   cardsCents: number;
   investedCents: number;
   emergencyCents: number;
+  /** Assets outside Open Finance, typed in. */
+  otherCents: number;
   basisCents: number;
   totalCents: number;
 };

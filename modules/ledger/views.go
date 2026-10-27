@@ -19,7 +19,8 @@ type AccountView struct {
 	Currency     string    `json:"currency"`
 	BalanceCents int64     `json:"balanceCents"`
 	BalanceAt    time.Time `json:"balanceAt"`
-	Card         *CardView `json:"card"` // credit cards, when the bank reports any of it
+	Manual       bool      `json:"manual"` // typed in by me, outside Open Finance
+	Card         *CardView `json:"card"`   // credit cards, when the bank reports any of it
 }
 
 // CardView is a card's limit and bill, each part only when the bank reports it.

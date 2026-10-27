@@ -104,8 +104,9 @@ function Hero({ v }: { v: PortfolioOverview }) {
   const rows: { label: string; caption: string; cents: number }[] = [
     { label: "Invested", caption: "The allocation below", cents: nw.investedCents },
     { label: "Emergency fund", caption: "Apart from the allocation", cents: nw.emergencyCents },
-    { label: "Cash in accounts", caption: "Checking and savings", cents: nw.cashCents },
+    { label: "Cash in accounts", caption: "Checking, savings and the wallet", cents: nw.cashCents },
     { label: "Card bills", caption: "Owed on the cards", cents: nw.cardsCents },
+    ...(nw.otherCents ? [{ label: "Outside Open Finance", caption: "Balances you typed in", cents: nw.otherCents }] : []),
   ];
   const from = since(v.since);
   return (

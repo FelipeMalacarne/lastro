@@ -154,7 +154,7 @@ func (r *PostgresRepository) saveValuation(ctx context.Context, v Valuation, nw 
 		}
 		return q.SaveNetWorth(ctx, db.SaveNetWorthParams{
 			Date: v.Date, CashCents: nw.Cash.Cents(), CardsCents: nw.Cards.Cents(), InvestedCents: nw.Invested.Cents(),
-			EmergencyCents: nw.Emergency.Cents(), BasisCents: nw.Basis.Cents(), UpdatedAt: now,
+			EmergencyCents: nw.Emergency.Cents(), OtherCents: nw.Other.Cents(), BasisCents: nw.Basis.Cents(), UpdatedAt: now,
 		})
 	})
 }
@@ -187,7 +187,7 @@ func (r *PostgresRepository) netWorth(ctx context.Context, from time.Time) ([]Ne
 	for i, row := range rows {
 		out[i] = NetWorth{
 			Date: row.Date, Cash: money.BRLCents(row.CashCents), Cards: money.BRLCents(row.CardsCents),
-			Invested: money.BRLCents(row.InvestedCents), Emergency: money.BRLCents(row.EmergencyCents), Basis: money.BRLCents(row.BasisCents),
+			Invested: money.BRLCents(row.InvestedCents), Emergency: money.BRLCents(row.EmergencyCents), Other: money.BRLCents(row.OtherCents), Basis: money.BRLCents(row.BasisCents),
 		}
 	}
 	return out, nil

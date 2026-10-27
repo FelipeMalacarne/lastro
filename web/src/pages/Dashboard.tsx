@@ -169,6 +169,7 @@ function NetWorth() {
     { label: "Invested", cents: now.investedCents, to: "/portfolio" },
     { label: "Emergency fund", cents: now.emergencyCents, to: "/portfolio" },
     { label: "Cash after card bills", cents: now.cashCents + now.cardsCents, to: "/transactions" },
+    ...(now.otherCents ? [{ label: "Outside Open Finance", cents: now.otherCents, to: "/settings#manual" }] : []),
   ];
   return (
     <Panel className="max-lg:order-2 lg:p-6" footer="Investments at the latest prices; accounts as the banks last reported them.">

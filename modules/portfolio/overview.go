@@ -215,7 +215,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 func netWorthView(n NetWorth) NetWorthView {
 	return NetWorthView{
 		Date: day(n.Date), CashCents: n.Cash.Cents(), CardsCents: n.Cards.Cents(), InvestedCents: n.Invested.Cents(),
-		EmergencyCents: n.Emergency.Cents(), BasisCents: n.Basis.Cents(), TotalCents: n.Total().Cents(),
+		EmergencyCents: n.Emergency.Cents(), OtherCents: n.Other.Cents(), BasisCents: n.Basis.Cents(), TotalCents: n.Total().Cents(),
 	}
 }
 

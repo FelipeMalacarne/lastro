@@ -384,6 +384,7 @@ func accountView(row db.LedgerAccount) AccountView {
 		Currency:     row.Currency,
 		BalanceCents: row.BalanceCents,
 		BalanceAt:    row.BalanceAt,
+		Manual:       AccountType(row.Type).IsManual(),
 	}
 	if row.CreditLimitCents != nil || row.BillDueDate != nil || row.BillCloseDate != nil {
 		v.Card = &CardView{
@@ -775,4 +776,15 @@ func (r *PostgresRepository) TagCategories(ctx context.Context, tag string) ([]C
 		out[i] = CategoryTotal{Category: row.CategoryID, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
 	}
 	return out, nil
+}
+
+func (r *PostgresRepository) DeleteSnapshot(ctx context.Context, account AccountID, day time.Time) error {
+	n, err := r.q.DeleteBalanceSnapshot(ctx, db.DeleteBalanceSnapshotParams{AccountID: string(account), Date: civilDate(day)})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: no balance on %s", ErrNotFound, day.Format(time.DateOnly))
+	}
+	return nil
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, Clock, ExternalLink, TriangleAlert } from "lucide-react";
 
+import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
 import { CategoryTag } from "@/components/CategoryTag";
 import { SegmentedControl } from "@/components/SegmentedControl";
@@ -25,6 +26,7 @@ type ServerSettings = {
 
 const sections = [
   { id: "connections", label: "Connections" },
+  { id: "manual", label: "Outside Open Finance" },
   { id: "budget", label: "Budget" },
   { id: "investments", label: "Investments" },
   { id: "categorization", label: "Categorization" },
@@ -55,7 +57,7 @@ export function nextSync(now = new Date()): string {
 export function Settings() {
   const [at, setAt] = useState("connections");
   const { banks } = useBanks();
-  const warn = banks.some((b) => !b.connection || b.connection.health !== "ok" || b.connection.expiresSoon);
+  const warn = banks.some((b) => !b.manual && (!b.connection || b.connection.health !== "ok" || b.connection.expiresSoon));
 
   // A link to a section (/settings#budget) opens on it.
   useEffect(() => {
@@ -107,6 +109,7 @@ export function Settings() {
         </nav>
         <div className="flex min-w-0 max-w-[820px] flex-1 flex-col gap-4 lg:gap-6">
           <Connections />
+          <ManualAccounts />
           <BudgetSettings />
           <Investments />
           <Categorization />
@@ -156,7 +159,7 @@ function Connections() {
       {loading && banks.length === 0 && <p className="m-0 type-body text-ink-muted">Loading…</p>}
       {!loading && banks.length === 0 && !error && <p className="m-0 type-body text-ink-muted">No connections yet. The first sync brings them in.</p>}
       <ul role="list" className="m-0 flex list-none flex-col p-0">
-        {banks.map((b) => {
+        {banks.filter((b) => !b.manual).map((b) => {
           const c = b.connection;
           const state = c?.health ?? "stale";
           const attention = state === "stale" || state === "reauth";
@@ -195,6 +198,86 @@ function Connections() {
           To add a bank, connect it in Meu Pluggy and add its item id to <code className="font-figure">LASTRO_PLUGGY_ITEM_IDS</code>.
         </span>
       </div>
+    </Section>
+  );
+}
+
+/** Accounts outside Open Finance (canvas: "Accounts outside Open Finance"). */
+function ManualAccounts() {
+  const { banks } = useBanks();
+  const accounts = banks.find((b) => b.manual)?.accounts ?? [];
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"cash" | "asset">("asset");
+  const [balance, setBalance] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const cents = balance.trim() ? parseBRL(balance) : 0;
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || cents === null) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await send("POST", "/api/v1/accounts", { name: name.trim(), type: kind, balanceCents: cents });
+      setName("");
+      setBalance("");
+      setMsg("Added.");
+    } catch (err) {
+      setMsg(`Could not add: ${(err as Error).message}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const stale = (iso: string) => Date.now() - new Date(iso).getTime() > 90 * 24 * 3600 * 1000;
+  return (
+    <Section
+      id="manual"
+      title="Accounts outside Open Finance"
+      intro="Cash in the wallet, a private pension, FGTS: money Pluggy never sees. A wallet holds the transactions you add; an asset only has a balance you update now and then."
+    >
+      {accounts.length > 0 && (
+        <ul role="list" className="m-0 flex list-none flex-col p-0">
+          {accounts.map((a) => (
+            <li key={a.id} className="border-t border-rule">
+              <Link to={`/accounts/${a.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 text-ink no-underline hover:text-ink">
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate type-body-strong">{a.name}</span>
+                  <span className={cn("type-caption", a.type === "asset" && stale(a.balanceAt) ? "text-warning" : "text-ink-muted")}>
+                    {typeName[a.type]} · {a.type === "asset" ? "updated" : "last entry"} {formatDay(a.balanceAt.slice(0, 10))}
+                    {a.type === "asset" && stale(a.balanceAt) ? ", more than 90 days ago" : ""}
+                  </span>
+                </span>
+                <Amount cents={a.balanceCents} sign="none" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={add} className="flex flex-col gap-3 border-t border-rule pt-4">
+        <span className="type-label text-ink-muted">Add an account</span>
+        <div className="flex flex-wrap items-end gap-3">
+          <TextField label="Name" placeholder="e.g. Wallet, Brasilprev PGBL" value={name} onChange={(e) => setName(e.target.value)} className="min-w-0 flex-[1_1_220px]" />
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] leading-[18px] font-semibold">Kind</span>
+            <SegmentedControl
+              label="Kind"
+              value={kind}
+              onChange={(v) => setKind(v as "cash" | "asset")}
+              options={[
+                { value: "cash", label: "Wallet" },
+                { value: "asset", label: "Asset" },
+              ]}
+            />
+          </div>
+          <TextField label="Balance today" placeholder="R$ 0,00" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className="min-w-0 flex-[0_1_160px]" />
+          <Button type="submit" variant="primary" disabled={busy || !name.trim() || cents === null}>
+            Add
+          </Button>
+        </div>
+        <span className="type-caption text-ink-muted">
+          {msg ?? "A wallet counts as cash in net worth; an asset on its own line, “Outside Open Finance”. Neither is part of the allocation."}
+        </span>
+      </form>
     </Section>
   );
 }

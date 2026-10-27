@@ -115,10 +115,11 @@ type NetWorth struct {
 	Cards     money.Money // negative
 	Invested  money.Money
 	Emergency money.Money
+	Other     money.Money // assets outside Open Finance, typed in
 	Basis     money.Money
 }
 
 // Total is the net worth.
 func (n NetWorth) Total() money.Money {
-	return money.BRLCents(n.Cash.Cents() + n.Cards.Cents() + n.Invested.Cents() + n.Emergency.Cents())
+	return money.BRLCents(n.Cash.Cents() + n.Cards.Cents() + n.Invested.Cents() + n.Emergency.Cents() + n.Other.Cents())
 }

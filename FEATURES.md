@@ -56,7 +56,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - [ ] Import of the B3 trade statement for positions that do not come through Open Finance. (Not needed while every broker is connected: Nubank sends stocks and ETFs, see `docs/pluggy.md`.)
 
 **P2**
-- [ ] Manual entries for cash or for accounts outside Open Finance (e.g. private pension plans).
+- [x] Manual entries for cash or for accounts outside Open Finance (e.g. private pension plans).
 
 ### F2. Transactions
 

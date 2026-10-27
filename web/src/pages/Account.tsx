@@ -7,6 +7,7 @@ import { CardMonthBars } from "@/components/charts/CardMonthBars";
 import { MonthBars } from "@/components/charts/MonthBars";
 import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { LimitBar } from "@/components/LimitBar";
+import { ManualAccountView } from "@/components/ManualAccount";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
@@ -41,6 +42,28 @@ export function AccountPage({ id }: { id: string }) {
     return <PageHeader title={loading ? "Loading the account…" : "No such account"} caption={loading ? undefined : "It may have been removed from Meu Pluggy."} />;
   }
   const { a, bank } = found;
+  if (a.manual) {
+    return (
+      <>
+        <PageHeader
+          title={a.name}
+          caption={`${typeName[a.type]} · outside Open Finance, typed in by you`}
+          actions={
+            a.type === "cash" ? (
+              <Button asChild variant="secondary">
+                <Link to={`/transactions?month=${month}&account=${a.id}`}>
+                  <List aria-hidden />
+                  See its transactions
+                </Link>
+              </Button>
+            ) : undefined
+          }
+        />
+        <ManualAccountView a={a} />
+        {a.type === "cash" && <AccountTransactions a={a} />}
+      </>
+    );
+  }
   const notice = pickNotice([bank]);
   const synced = bank.connection ? bank.connection.detail : "Not synced yet";
   return (
@@ -436,7 +459,7 @@ function AccountTransactions({ a }: { a: Account }) {
   const res = useResource<TransactionList>(`/api/v1/transactions?month=${month}&account=${a.id}`);
   const list = res.data?.transactions ?? [];
   const shown = list.slice(0, 8);
-  const name = `${a.institution} ${typeLabel[a.type]}`;
+  const name = a.manual ? a.name : `${a.institution} ${typeLabel[a.type]}`;
   return (
     <Panel
       title={`${formatMonth(month).split(" ")[0]} in ${a.type === "credit_card" ? `the ${name}` : name}`}

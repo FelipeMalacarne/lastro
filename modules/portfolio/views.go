@@ -33,6 +33,7 @@ type NetWorthView struct {
 	CardsCents     int64  `json:"cardsCents"`
 	InvestedCents  int64  `json:"investedCents"`
 	EmergencyCents int64  `json:"emergencyCents"`
+	OtherCents     int64  `json:"otherCents"` // outside Open Finance
 	BasisCents     int64  `json:"basisCents"`
 	TotalCents     int64  `json:"totalCents"`
 }

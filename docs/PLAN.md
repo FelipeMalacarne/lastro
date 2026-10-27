@@ -99,7 +99,7 @@ What `FEATURES.md` still lists, in the order that pays most. Each screen change 
 - [x] Valuation metrics per stock (P/E, P/B, dividend yield) and their history, from brapi (F8 P1)
 - [ ] Monthly report at the start of each month, through the alerts channel (F10 P2)
 - [x] Price alerts, e.g. a stock down more than X% in a day (F8 P2)
-- [ ] Manual entries for cash or accounts outside Open Finance (F1 P2)
+- [x] Manual entries for cash or accounts outside Open Finance (F1 P2)
 
 ## Parked
 

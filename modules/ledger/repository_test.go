@@ -456,3 +456,83 @@ func TestRepositoryNotesTagsAndSplits(t *testing.T) {
 		t.Errorf("the split is gone: %+v", d.Split)
 	}
 }
+
+func TestRepositoryManualAccounts(t *testing.T) {
+	ctx := context.Background()
+	svc, _, got := newService(t)
+	chk := details(t)
+	if _, err := svc.SyncAccount(ctx, chk); err != nil {
+		t.Fatal(err)
+	}
+	wallet, err := svc.CreateManualAccount(ctx, "Wallet", AccountCash, money.BRLCents(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// R$ 300 taken out at the ATM, then spent at the market.
+	atm := imported(t, "atm", -30000)
+	atm.Date, atm.Description = oct(26), "Saque 24h"
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: chk.ExternalID, Transactions: []ImportedTransaction{atm}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddManualTransaction(ctx, wallet, oct(26), "Saque", money.BRLCents(30000)); err != nil {
+		t.Fatal(err)
+	}
+	feira, err := svc.AddManualTransaction(ctx, wallet, oct(26), "Feira de domingo", money.BRLCents(-6400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := (*got)[len(*got)-1]; len(last.TransactionIDs) != 1 || last.TransactionIDs[0] != feira {
+		t.Errorf("an entry is published like an import, so the rules run: %+v", *got)
+	}
+	a, err := svc.Account(ctx, wallet)
+	if err != nil || a.BalanceCents != 23600 || !a.Manual || a.Institution != ManualInstitution {
+		t.Fatalf("wallet: %+v %v", a, err)
+	}
+	list, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1), Flow: FlowTransfer})
+	if len(list.Transactions) != 2 {
+		t.Errorf("the withdrawal and the wallet's side are a transfer: %+v", list.Transactions)
+	}
+
+	if err := svc.RemoveManualTransaction(ctx, feira); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := svc.Account(ctx, wallet); a.BalanceCents != 30000 {
+		t.Errorf("removing an entry gives its money back: %d", a.BalanceCents)
+	}
+	var bankTx TransactionID
+	for _, v := range list.Transactions {
+		if v.Description == "Saque 24h" {
+			bankTx = v.ID
+		}
+	}
+	if err := svc.RemoveManualTransaction(ctx, bankTx); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a synced transaction is never removed by hand: %v", err)
+	}
+
+	pgbl, err := svc.CreateManualAccount(ctx, "Brasilprev PGBL", AccountAsset, money.BRLCents(4710865))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetManualBalance(ctx, pgbl, oct(27), money.BRLCents(4831277)); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetManualBalance(ctx, pgbl, oct(1), money.BRLCents(4600000)); err != nil {
+		t.Fatal(err)
+	}
+	h, err := svc.BalanceHistory(ctx, pgbl)
+	if err != nil || len(h.Points) < 2 {
+		t.Fatalf("history: %+v %v", h, err)
+	}
+	if a, _ := svc.Account(ctx, pgbl); a.BalanceCents != 4831277 {
+		t.Errorf("the latest balance: %d", a.BalanceCents)
+	}
+	if err := svc.DeleteManualBalance(ctx, pgbl, oct(27)); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := svc.Account(ctx, pgbl); a.BalanceCents == 4831277 {
+		t.Errorf("after deleting the latest, the one before: %d", a.BalanceCents)
+	}
+	if _, err := svc.AddManualTransaction(ctx, pgbl, oct(27), "x", money.BRLCents(-1)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an asset takes no transactions: %v", err)
+	}
+}

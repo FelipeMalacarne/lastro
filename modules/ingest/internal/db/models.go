@@ -221,6 +221,7 @@ type PortfolioNetWorth struct {
 	EmergencyCents int64
 	BasisCents     int64
 	UpdatedAt      time.Time
+	OtherCents     int64
 }
 
 type PortfolioPosition struct {
