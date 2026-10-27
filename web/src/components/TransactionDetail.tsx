@@ -8,6 +8,7 @@ import { CategoryTag } from "@/components/CategoryTag";
 import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { Kbd } from "@/components/Kbd";
 import { Sparkline } from "@/components/Sparkline";
+import { NoteSection, SplitSection, TagsSection } from "@/components/TransactionNotes";
 import { Button } from "@/components/ui/button";
 import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail, type Undo } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
@@ -123,9 +124,25 @@ function Body({ d }: { d: Detail }) {
               ? "Card bills need no category: the purchases on the card already have theirs."
               : "Money moving between your accounts, or to and from your own investments, needs no category."}
           </p>
+        ) : d.split.length ? (
+          <span className="type-caption text-ink-muted">Split, chosen by you. The budget counts each part in its category.</span>
         ) : (
           <CategorySection t={t} />
         )}
+      </Section>
+
+      {!neutral && (
+        <Section title={d.split.length ? `Split in ${d.split.length}` : "Split"}>
+          <SplitSection t={t} split={d.split} />
+        </Section>
+      )}
+
+      <Section title="Note">
+        <NoteSection t={t} />
+      </Section>
+
+      <Section title="Tags">
+        <TagsSection t={t} />
       </Section>
 
       {p && (

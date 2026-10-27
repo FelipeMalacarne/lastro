@@ -1,7 +1,9 @@
 package ledger
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -98,7 +100,70 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, v, err)
 	})
 
-	// GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&q=ifood
+	// PUT /api/v1/transactions/{id}/note {"note": "..."}: an empty note clears it.
+	mux.HandleFunc("PUT /api/v1/transactions/{id}/note", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Note string `json:"note"`
+		}
+		if err := decode(w, r, &in, "note"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		writeNoContent(w, r, logger, s.SetNote(r.Context(), id, in.Note))
+	})
+
+	// PUT /api/v1/transactions/{id}/tags {"tags": ["trip-rio"]} replaces them.
+	mux.HandleFunc("PUT /api/v1/transactions/{id}/tags", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Tags []string `json:"tags"`
+		}
+		if err := decode(w, r, &in, "tags"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		writeNoContent(w, r, logger, s.SetTags(r.Context(), id, in.Tags))
+	})
+
+	// DELETE /api/v1/transactions/{id}/split: the largest part's category stays.
+	mux.HandleFunc("DELETE /api/v1/transactions/{id}/split", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		writeNoContent(w, r, logger, s.Unsplit(r.Context(), id))
+	})
+
+	mux.HandleFunc("GET /api/v1/tags", func(w http.ResponseWriter, r *http.Request) {
+		tags, err := s.Tags(r.Context())
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"tags": tags})
+	})
+
+	// GET /api/v1/tags/{tag}: the tag's money by category over every month.
+	mux.HandleFunc("GET /api/v1/tags/{tag}", func(w http.ResponseWriter, r *http.Request) {
+		cs, err := s.TagCategories(r.Context(), r.PathValue("tag"))
+		if errors.Is(err, ErrInvalid) {
+			err = httpx.BadRequest(err.Error())
+		}
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"categories": cs})
+	})
+
+	// GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&tag=trip-rio&q=ifood
 	mux.HandleFunc("GET /api/v1/transactions", func(w http.ResponseWriter, r *http.Request) {
 		f, err := parseFilter(r)
 		if err != nil {
@@ -136,9 +201,16 @@ func parseFilter(r *http.Request) (TransactionFilter, error) {
 	if f.Search = strings.TrimSpace(q.Get("q")); len([]rune(f.Search)) > 100 {
 		return TransactionFilter{}, httpx.BadRequest("search is limited to 100 characters")
 	}
+	if t := q.Get("tag"); t != "" {
+		tag, err := NewTag(t)
+		if err != nil {
+			return TransactionFilter{}, httpx.BadRequest(err.Error())
+		}
+		f.Tag = string(tag)
+	}
 	if sc := q.Get("scope"); sc != "" {
-		if sc != "all" || f.Search == "" {
-			return TransactionFilter{}, httpx.BadRequest(`scope can only be "all", with a search`)
+		if sc != "all" || (f.Search == "" && f.Tag == "") {
+			return TransactionFilter{}, httpx.BadRequest(`scope can only be "all", with a search or a tag`)
 		}
 		f.AllMonths = true
 	}
@@ -177,4 +249,41 @@ func writeView(w http.ResponseWriter, r *http.Request, logger *slog.Logger, v an
 		return
 	}
 	httpx.JSON(w, http.StatusOK, v)
+}
+
+func transactionID(w http.ResponseWriter, r *http.Request, logger *slog.Logger) (TransactionID, bool) {
+	id := r.PathValue("id")
+	if !uuidRe.MatchString(id) {
+		httpx.WriteError(w, r, logger, httpx.BadRequest("id must be a transaction id"))
+		return "", false
+	}
+	return TransactionID(id), true
+}
+
+// writeNoContent answers 204, or the error: 400 for an invalid value, 404
+// for an unknown id.
+func writeNoContent(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
+	switch {
+	case errors.Is(err, ErrInvalid):
+		err = httpx.BadRequest(err.Error())
+	case errors.Is(err, ErrNotFound):
+		err = httpx.NotFound("no such transaction")
+	}
+	if err != nil {
+		httpx.WriteError(w, r, logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decode(w http.ResponseWriter, r *http.Request, v any, shape string) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return httpx.BadRequest("the body must be a JSON object with " + shape)
+	}
+	if dec.Decode(&struct{}{}) != io.EOF {
+		return httpx.BadRequest("the body must hold a single JSON object")
+	}
+	return nil
 }

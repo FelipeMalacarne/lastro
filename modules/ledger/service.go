@@ -60,6 +60,14 @@ type Repository interface {
 	CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error)
 	MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error)
 	Charges(ctx context.Context, from time.Time) ([]Charge, error)
+
+	// What I add to a transaction.
+	SetNote(ctx context.Context, id TransactionID, n Note) error
+	SetTags(ctx context.Context, id TransactionID, tags []Tag) error
+	Split(ctx context.Context, id TransactionID) ([]SplitPartView, error)
+	SaveSplit(ctx context.Context, id TransactionID, s Split) error
+	Tags(ctx context.Context) ([]TagView, error)
+	TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -194,6 +202,12 @@ func (s *Service) Categorize(ctx context.Context, id TransactionID, c CategoryID
 			return err
 		}
 		evs = t.PullEvents()
+		if src == SourceManual {
+			// One category chosen by hand replaces a split.
+			if err := r.SaveSplit(ctx, id, Split{}); err != nil {
+				return err
+			}
+		}
 		return r.SaveTransactions(ctx, txs)
 	})
 	if err != nil {
@@ -220,6 +234,89 @@ func (s *Service) Uncategorize(ctx context.Context, id TransactionID) error {
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: uncategorize %s: %w", id, err)
+	}
+	return nil
+}
+
+// SetNote writes my note on a transaction; an empty one clears it.
+func (s *Service) SetNote(ctx context.Context, id TransactionID, note string) error {
+	n, err := NewNote(note)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetNote(ctx, id, n); err != nil {
+		return fmt.Errorf("ledger: note %s: %w", id, err)
+	}
+	return nil
+}
+
+// SetTags replaces a transaction's tags.
+func (s *Service) SetTags(ctx context.Context, id TransactionID, tags []string) error {
+	ts, err := NewTags(tags)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetTags(ctx, id, ts); err != nil {
+		return fmt.Errorf("ledger: tags %s: %w", id, err)
+	}
+	return nil
+}
+
+// Tags lists every tag in use, the most recently used first.
+func (s *Service) Tags(ctx context.Context) ([]TagView, error) {
+	ts, err := s.repo.Tags(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: tags: %w", err)
+	}
+	return ts, nil
+}
+
+// TagCategories is one tag's money by category over every month.
+func (s *Service) TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error) {
+	t, err := NewTag(tag)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.repo.TagCategories(ctx, string(t))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: tag %s: %w", t, err)
+	}
+	return cs, nil
+}
+
+// SplitTransaction divides a transaction across categories (see
+// Transaction.SplitInto); categorize checks the categories are live first.
+func (s *Service) SplitTransaction(ctx context.Context, id TransactionID, parts []SplitPart) error {
+	var evs []events.Event
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, []TransactionID{id})
+		if err != nil {
+			return err
+		}
+		if len(txs) == 0 {
+			return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+		}
+		split, err := txs[0].SplitInto(parts)
+		if err != nil {
+			return err
+		}
+		evs = txs[0].PullEvents()
+		if err := r.SaveSplit(ctx, id, split); err != nil {
+			return err
+		}
+		return r.SaveTransactions(ctx, txs)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: split %s: %w", id, err)
+	}
+	return s.bus.Publish(ctx, evs...)
+}
+
+// Unsplit removes a split; the transaction keeps the largest part's
+// category, still mine.
+func (s *Service) Unsplit(ctx context.Context, id TransactionID) error {
+	if err := s.repo.SaveSplit(ctx, id, Split{}); err != nil {
+		return fmt.Errorf("ledger: unsplit %s: %w", id, err)
 	}
 	return nil
 }
@@ -438,7 +535,12 @@ func (s *Service) Transaction(ctx context.Context, id TransactionID) (Transactio
 	if err != nil {
 		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
 	}
-	d := TransactionDetail{Transaction: v}
+	d := TransactionDetail{Transaction: v, Split: []SplitPartView{}}
+	if len(v.SplitCategories) > 0 {
+		if d.Split, err = s.repo.Split(ctx, id); err != nil {
+			return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+		}
+	}
 	if v.CounterpartID != nil {
 		c, err := s.repo.TransactionView(ctx, *v.CounterpartID)
 		switch {

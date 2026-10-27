@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 
+import { Amount } from "@/components/Amount";
 import { CategoryTag } from "@/components/CategoryTag";
 import { DayBars } from "@/components/charts/DayBars";
 import { Kbd } from "@/components/Kbd";
@@ -19,7 +20,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { typeLabel, useResource, type Category, type DaysView, type Transaction, type TransactionList } from "@/lib/api";
+import { typeLabel, useResource, type Category, type DaysView, type TagView, type Transaction, type TransactionList } from "@/lib/api";
 import { useCategories, useWaiting } from "@/lib/categories";
 import { addMonths, dayLabel, formatBRL, formatDay, formatMonth, formatWeekday, todayISO } from "@/lib/format";
 import { useWide } from "@/lib/media";
@@ -52,7 +53,9 @@ export function Transactions() {
   const cats = useCategories();
   const waiting = useWaiting();
   const q = query.get("q") ?? "";
-  const everyMonth = Boolean(q) && query.get("scope") === "all";
+  const tag = query.get("tag") ?? "";
+  const everyMonth = Boolean(q || tag) && query.get("scope") === "all";
+  const tags = useResource<{ tags: TagView[] }>("/api/v1/tags").data?.tags ?? [];
   const asked = query.get("day");
   const day = asked && DAY_RE.test(asked) && asked.startsWith(month + "-") ? asked : null;
   const tx = query.get("tx");
@@ -73,9 +76,10 @@ export function Transactions() {
     if (category) p.set("category", category);
     if (flow !== "all") p.set("flow", flow);
     if (q) p.set("q", q);
+    if (tag) p.set("tag", tag);
     if (everyMonth) p.set("scope", "all");
     return "/api/v1/transactions?" + p.toString();
-  }, [month, day, account, category, flow, q, everyMonth]);
+  }, [month, day, account, category, flow, q, tag, everyMonth]);
   const res = useResource<TransactionList>(url);
   const days = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`);
 
@@ -109,7 +113,7 @@ export function Transactions() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tx, prev, next]);
 
-  const filtered = Boolean(account || category || flow !== "all" || q || day);
+  const filtered = Boolean(account || category || flow !== "all" || q || tag || day);
   const currentCategory = category === "none" ? null : cats.byId.get(category);
   const monthName = formatMonth(month).split(" ")[0];
   const caption = list
@@ -167,7 +171,7 @@ export function Transactions() {
           type="search"
           className="lg:min-w-0 lg:flex-[1_1_300px]"
         />
-        {q && (
+        {(q || tag) && (
           <SegmentedControl
             label="Search in"
             value={everyMonth ? "all" : "month"}
@@ -228,8 +232,31 @@ export function Transactions() {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {(tags.length > 0 || tag) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="max-lg:h-7 max-lg:px-3 max-lg:text-[13px]">
+                  {tag ? `Tag: ${tag}` : "Any tag"}
+                  <ChevronDown aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup value={tag} onValueChange={(v) => setQuery("tag", v || null)}>
+                  <DropdownMenuRadioItem value="">Any tag</DropdownMenuRadioItem>
+                  {tags.map((t) => (
+                    <DropdownMenuRadioItem key={t.tag} value={t.tag}>
+                      <span className="font-figure text-[13px]">#{t.tag}</span>
+                      <span className="ml-auto type-figure-sm text-ink-muted">{t.count}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
+
+      {tag && <TagSummary tag={tag} info={tags.find((t) => t.tag === tag)} byId={cats.byId} />}
 
       {day && (
         <div className="flex flex-wrap items-center gap-2 text-[14px] leading-5">
@@ -286,6 +313,34 @@ export function Transactions() {
 
       {tx && !wide && <Sheet onClose={close} id={tx} prev={prev} next={next} />}
     </>
+  );
+}
+
+/** A tag over every month: its total, by category (canvas: "Split, note and tags"). */
+function TagSummary({ tag, info, byId }: { tag: string; info?: TagView; byId: Map<string, Category> }) {
+  const res = useResource<{ categories: { category: string; outCents: number; inCents: number; count: number }[] }>(`/api/v1/tags/${encodeURIComponent(tag)}`);
+  const rows = (res.data?.categories ?? []).filter((c) => c.outCents > 0);
+  const max = Math.max(1, ...rows.map((c) => c.outCents));
+  const title = info ? `#${tag} · ${formatBRL(info.outCents)} out in ${info.count} ${info.count === 1 ? "transaction" : "transactions"}` : `#${tag}`;
+  return (
+    <Panel title={title} footer="Every month, a split counted by its parts. Choose “Every month” above to list them all.">
+      {rows.length === 0 ? (
+        <p className="m-0 type-body text-ink-muted">{res.data ? "Nothing spent with this tag." : "Loading…"}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {rows.map((c) => {
+            const cat = byId.get(c.category);
+            return (
+              <div key={c.category || "none"} className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_auto] items-center gap-3">
+                <CategoryTag name={cat?.name} color={cat?.color} />
+                <span className="h-2.5 rounded-xs" style={{ width: `${(c.outCents / max) * 100}%`, background: cat ? `var(--${cat.color})` : "var(--rule-strong)" }} />
+                <Amount cents={c.outCents} sign="none" />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -393,6 +448,9 @@ function Days({ transactions, selected, categories }: { transactions: Transactio
                 pending={t.status === "pending"}
                 installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
                 category={categoryOf(t, categories)}
+                moreCategories={Math.max(0, t.splitCategories.length - 1)}
+                tags={t.tags}
+                noted={Boolean(t.note)}
               />
             </div>
           ))}

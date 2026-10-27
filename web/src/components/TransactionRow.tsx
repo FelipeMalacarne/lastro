@@ -25,6 +25,12 @@ type Props = {
    */
   category?: { name: string; color: NoteColor } | null;
   categorized?: boolean;
+  /** A split's other parts, after the main category. */
+  moreCategories?: number;
+  /** "trip-rio": shown after the meta line. */
+  tags?: string[];
+  /** Whether it carries a note. */
+  noted?: boolean;
   onCategoryClick?: () => void;
   selected?: boolean;
   /** Where the row leads (its detail): the whole row becomes a link. */
@@ -45,8 +51,14 @@ export function TransactionRow(p: Props) {
   } else if (p.categorized === false) {
     cat = <span className="type-caption text-ink-muted">Uncategorized</span>;
   } else {
-    cat = <CategoryTag name={p.category?.name} color={p.category?.color} onClick={p.onCategoryClick} />;
+    cat = (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <CategoryTag name={p.category?.name} color={p.category?.color} onClick={p.onCategoryClick} />
+        {Boolean(p.moreCategories) && <span className="type-figure-sm text-ink-muted" title="Split across categories">+{p.moreCategories}</span>}
+      </span>
+    );
   }
+  const extra = [...(p.tags ?? []).map((t) => `#${t}`), p.noted ? "note" : ""].filter(Boolean).join(" ");
   const className = cn(
     "grid min-h-11 items-center gap-x-4 border-b border-rule bg-paper-raised px-4 py-2 sm:px-5",
         "grid-cols-[minmax(0,1fr)_auto] gap-y-0.5 [grid-template-areas:'main_amount''main_date''cat_cat']",
@@ -71,7 +83,13 @@ export function TransactionRow(p: Props) {
           {p.kind === "bill_payment" && <Badge icon={CreditCard}>Card bill</Badge>}
           {p.installment && <Badge figure>{p.installment}</Badge>}
         </div>
-        {p.meta && <div className="type-caption text-ink-muted">{p.meta}</div>}
+        {(p.meta || extra) && (
+          <div className="truncate type-caption text-ink-muted">
+            {p.meta}
+            {p.meta && extra ? " · " : ""}
+            {extra && <span className="font-figure text-[12px]">{extra}</span>}
+          </div>
+        )}
       </div>
       {/* On a phone the meta line already says it; the column only adds noise. */}
       <div className={cn("flex min-w-0 [grid-area:cat]", (neutral || p.categorized === false) && "max-sm:hidden")}>{cat}</div>

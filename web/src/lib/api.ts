@@ -47,7 +47,13 @@ export type Transaction = {
   account: AccountRef;
   counterpart: AccountRef | null;
   counterpartId: string | null;
+  note: string;
+  tags: string[];
+  /** A split's categories, largest part first; empty when not split. */
+  splitCategories: string[];
 };
+
+export type TagView = { tag: string; count: number; outCents: number; inCents: number; last: string };
 
 export type TransactionList = {
   transactions: Transaction[];
@@ -94,6 +100,7 @@ export type Purchase = {
 
 export type TransactionDetail = {
   transaction: Transaction;
+  split: { category: string; amountCents: number }[];
   counterpartTransaction: Transaction | null;
   purchase: Purchase | null;
   history: { count: number; totalCents: number; months: { month: string; cents: number; count: number }[] };

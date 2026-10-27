@@ -120,7 +120,11 @@ func pathID(r *http.Request) (ledger.CategoryID, error) {
 
 // decode reads one small JSON object with only the known fields.
 func decode(w http.ResponseWriter, r *http.Request, v any, shape string) error {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	return decodeUpTo(w, r, v, shape, 4<<10)
+}
+
+func decodeUpTo(w http.ResponseWriter, r *http.Request, v any, shape string, limit int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return httpx.BadRequest("the body must be a JSON object with " + shape)
@@ -303,11 +307,45 @@ func (s *Service) registerReviewRoutes(mux *http.ServeMux, logger *slog.Logger) 
 		httpx.JSON(w, http.StatusOK, changeJSON(ch))
 	})
 
+	// PUT /api/v1/transactions/{id}/split {"parts": [{"category": "<id>", "amountCents": -41230}, ...]}
+	// divides a transaction across live categories; the parts add up to its amount.
+	mux.HandleFunc("PUT /api/v1/transactions/{id}/split", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !uuidRe.MatchString(id) {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("id must be a transaction id"))
+			return
+		}
+		var in struct {
+			Parts []struct {
+				Category    string `json:"category"`
+				AmountCents int64  `json:"amountCents"`
+			} `json:"parts"`
+		}
+		if err := decode(w, r, &in, "parts"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		parts := make([]SplitPart, len(in.Parts))
+		for i, p := range in.Parts {
+			c, err := categoryID(p.Category)
+			if err != nil {
+				httpx.WriteError(w, r, logger, err)
+				return
+			}
+			parts[i] = SplitPart{Category: c, AmountCents: p.AmountCents}
+		}
+		if err := s.Split(r.Context(), ledger.TransactionID(id), parts); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// POST /api/v1/undo {"rule": "<id>", "wasRule": "<category id>", "before": [...]}
 	// takes back a choice: the body is the "undo" a choice answered with.
 	mux.HandleFunc("POST /api/v1/undo", func(w http.ResponseWriter, r *http.Request) {
 		var in undoJSON
-		if err := decode(w, r, &in, "the undo a choice answered with"); err != nil {
+		if err := decodeUpTo(w, r, &in, "the undo a choice answered with", 1<<20); err != nil {
 			httpx.WriteError(w, r, logger, err)
 			return
 		}

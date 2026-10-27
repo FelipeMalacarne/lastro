@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -363,5 +364,95 @@ func TestRepositoryCategorizableAndUncategorized(t *testing.T) {
 	}
 	if got, err := svc.Categorizable(ctx, nil); got != nil || err != nil {
 		t.Errorf("no ids, nothing: %+v %v", got, err)
+	}
+}
+
+func TestRepositoryNotesTagsAndSplits(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newService(t)
+	chk := details(t)
+	if _, err := svc.SyncAccount(ctx, chk); err != nil {
+		t.Fatal(err)
+	}
+	shop := imported(t, "shop", -85680)
+	shop.Description = "Carrefour Hiper"
+	hotel := imported(t, "hotel", -142000)
+	hotel.Description = "Hotel Arpoador"
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: chk.ExternalID, Transactions: []ImportedTransaction{shop, hotel}}); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]TransactionID{}
+	list, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1)})
+	for _, v := range list.Transactions {
+		ids[v.Description] = v.ID
+	}
+	groceries, shopping, leisure := mustCategory(t, "groceries"), mustCategory(t, "shopping"), mustCategory(t, "leisure")
+
+	if err := svc.SetNote(ctx, ids["Carrefour Hiper"], " vacuum cleaner, warranty to 2027 "); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetTags(ctx, ids["Hotel Arpoador"], []string{"#Trip Rio", "reimbursable"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Categorize(ctx, ids["Hotel Arpoador"], leisure, SourceRule); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SplitTransaction(ctx, ids["Carrefour Hiper"], []SplitPart{
+		{Category: groceries, Amount: money.BRLCents(-46690)},
+		{Category: shopping, Amount: money.BRLCents(-38990)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	totals, err := svc.CategoryTotals(ctx, oct(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, c := range totals {
+		got[c.Category] = c.OutCents
+	}
+	if !maps.Equal(got, map[string]int64{"groceries": 46690, "shopping": 38990, "leisure": 142000}) {
+		t.Errorf("a split counts each part in its category: %v", got)
+	}
+
+	d, err := svc.Transaction(ctx, ids["Carrefour Hiper"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Transaction.Note != "vacuum cleaner, warranty to 2027" || len(d.Split) != 2 || d.Transaction.Category.ID != "groceries" || d.Transaction.Category.Source != "manual" {
+		t.Errorf("detail: %+v %+v", d.Transaction, d.Split)
+	}
+	if !slices.Equal(d.Transaction.SplitCategories, []string{"groceries", "shopping"}) {
+		t.Errorf("split categories, largest first: %v", d.Transaction.SplitCategories)
+	}
+
+	byNote, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1), Search: "warranty"})
+	if len(byNote.Transactions) != 1 {
+		t.Errorf("search reads notes: %+v", byNote.Transactions)
+	}
+	byPart, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1), Category: "shopping"})
+	if len(byPart.Transactions) != 1 {
+		t.Errorf("a category filter finds a split part: %+v", byPart.Transactions)
+	}
+	byTag, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1).AddDate(1, 0, 0), AllMonths: true, Tag: "trip-rio"})
+	if len(byTag.Transactions) != 1 || !slices.Equal(byTag.Transactions[0].Tags, []string{"reimbursable", "trip-rio"}) {
+		t.Errorf("a tag across every month: %+v", byTag.Transactions)
+	}
+	tags, err := svc.Tags(ctx)
+	if err != nil || len(tags) != 2 || tags[0].OutCents != 142000 {
+		t.Errorf("tags in use: %+v %v", tags, err)
+	}
+	tc, err := svc.TagCategories(ctx, "trip-rio")
+	if err != nil || len(tc) != 1 || tc[0].Category != "leisure" {
+		t.Errorf("a tag by category: %+v %v", tc, err)
+	}
+
+	// One category chosen by hand replaces the split.
+	if err := svc.Categorize(ctx, ids["Carrefour Hiper"], shopping, SourceManual); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := svc.Transaction(ctx, ids["Carrefour Hiper"]); len(d.Split) != 0 || len(d.Transaction.SplitCategories) != 0 {
+		t.Errorf("the split is gone: %+v", d.Split)
 	}
 }

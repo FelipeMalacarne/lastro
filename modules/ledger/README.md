@@ -24,6 +24,9 @@
 - A manual category beats an automatic one. Rules and the LLM never overwrite a manual choice (`ErrManualCategory`).
 - Pending transactions may change or disappear on the next sync. A transaction the source stops returning is removed (kept, but out of every list and total); if it comes back, it is restored. Removed transactions cannot be categorized or paired. Only posted transactions go into closed reports.
 - Only a credit card has card details, in the account's currency, with a limit that is never negative (what is available can be, over the limit). They travel with the balance: an older read replaces neither.
+- What I add to a transaction (a note up to 500 characters, up to 10 tags, a split) is never touched by a sync. A tag is lowercase letters and digits joined by dashes.
+- A split divides an expense or income across 2 to 10 different categories, every part on the transaction's side, adding up to its amount exactly. The largest part becomes the category, chosen by me. Totals by category (`category_lines`) count the parts; a split the bank's restatement no longer adds up is ignored until it is split again. Choosing one category by hand removes the split.
+- An undo puts back a category exactly as it was (`Restore`), a manual one or none included.
 - A balance older than the one already known never replaces it, in the account or in its day's snapshot. There is at most one snapshot per account per day.
 
 ## Read side
@@ -35,8 +38,10 @@
 - `GET /api/v1/accounts/{id}/balance`: the balance at the end of each day (`BalanceHistory`).
 - `GET /api/v1/accounts/{id}/months`: each month in and out, what counts (spending, refunds), and its flows by kind, direction and, for pairs, the other side's account. Months after today's are `future`: on a card, the installments already committed.
 - `GET /api/v1/accounts/{id}/installments`: the purchases with installments still to come, the one ending first first.
-- `GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&q=<text>`: a month (or one of its days) of live transactions, newest first, each with its account and, for pairs, the other side and its account, plus a summary (count, pending, money in and out that counts). The search ignores case and accents; `scope=all` searches every month (only with `q`). `category=none` lists the expenses and income still waiting for a category.
-- `GET /api/v1/transactions/{id}`: one transaction, the other side of its pair, its purchase's installments and how often its description came up in the last six months.
+- `GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&q=<text>`: a month (or one of its days) of live transactions, newest first, each with its account and, for pairs, the other side and its account, plus a summary (count, pending, money in and out that counts). The search ignores case and accents and reads notes too; `tag=` keeps one tag; `scope=all` searches every month (only with `q` or `tag`). Each row has `note`, `tags` and `splitCategories` (largest part first). `category=none` lists the expenses and income still waiting for a category.
+- `PUT /api/v1/transactions/{id}/note` `{"note"}`, `PUT /api/v1/transactions/{id}/tags` `{"tags"}` and `DELETE /api/v1/transactions/{id}/split`: 204. The split itself is set through `categorize` (`PUT /api/v1/transactions/{id}/split`), which checks the categories are live.
+- `GET /api/v1/tags`: every tag in use with its count, money out and in, and last date; `GET /api/v1/tags/{tag}`: that tag's money by category over every month.
+- `GET /api/v1/transactions/{id}`: one transaction, its `split`, the other side of its pair, its purchase's installments and how often its description came up in the last six months.
 - `GET /api/v1/transactions/days?month=2026-10`: spending, money in and money moved day by day, every account together, with the month before and what it had spent by the same day.
 
 For `categorize`, the Service answers what automation may categorize: live expenses and income whose category nobody chose by hand. `Categorizable(ids)` filters the given transactions; `Uncategorized()` returns every one still without a category; `Uncategorize(id)` takes back a category automation gave (never a manual one). Transfers and card bill payments are never handed over.

@@ -116,6 +116,25 @@ type LedgerBalanceSnapshot struct {
 	TakenAt      time.Time
 }
 
+type LedgerCategoryLine struct {
+	ID          string
+	AccountID   string
+	Date        time.Time
+	Kind        string
+	Currency    string
+	RemovedAt   *time.Time
+	Tags        []string
+	CategoryID  string
+	AmountCents int64
+}
+
+type LedgerSplit struct {
+	TransactionID string
+	Position      int16
+	CategoryID    string
+	AmountCents   int64
+}
+
 type LedgerTransaction struct {
 	ID                string
 	AccountID         string
@@ -137,6 +156,8 @@ type LedgerTransaction struct {
 	RemovedAt         *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	Note              string
+	Tags              []string
 }
 
 type MarketBond struct {

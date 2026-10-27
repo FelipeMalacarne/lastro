@@ -52,6 +52,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest`, its newest five transactions and the model's `suggestion` (`category`, `confidence` in percent) when it named one.
 - `POST /api/v1/review` `{"pattern": {"kind", "text"}, "category"}`: teaches the rule and answers `{"categorized", "undo"}`.
 - `PUT /api/v1/transactions/{id}/category` `{"category", "teach"}`: my choice for one transaction (manual, never overwritten); with `teach`, it also becomes a rule. Answers `{"categorized", "undo"}`.
+- `PUT /api/v1/transactions/{id}/split` `{"parts": [{"category", "amountCents"}]}`: divides a transaction across live categories (ledger checks the parts add up); 204.
 - `POST /api/v1/undo`: takes back a choice; the body is the `undo` it answered with (`rule`, `wasRule`, `before`). Answers `{"restored": n}`.
 - `GET /api/v1/patterns/suggest?description=…`: the pattern a correction of that description would teach.
 - `GET /api/v1/rules`: every rule in the order the engine tries them, each with `order`, `meets` (transactions its pattern matches), `decides` (transactions it settles now) and `last` (the newest of those).

@@ -46,6 +46,11 @@ type TransactionView struct {
 	// payments, and CounterpartID the other side itself.
 	Counterpart   *AccountRef    `json:"counterpart"`
 	CounterpartID *TransactionID `json:"counterpartId"`
+	Note          string         `json:"note"`
+	Tags          []string       `json:"tags"`
+	// SplitCategories are a split transaction's categories, largest part
+	// first; empty when it is not split.
+	SplitCategories []string `json:"splitCategories"`
 }
 
 type InstallmentView struct {
@@ -154,8 +159,11 @@ const maxListed = 2000
 // TransactionFilter selects a month of transactions.
 type TransactionFilter struct {
 	Month time.Time // any day in the month
-	// AllMonths searches every month instead of Month; only with a Search.
+	// AllMonths searches every month instead of Month; only with a Search
+	// or a Tag.
 	AllMonths bool
+	// Tag keeps the transactions with this tag.
+	Tag     string
 	Account AccountID // empty: every account
 	Flow    Flow
 	// Search matches descriptions, ignoring case and accents.
@@ -347,6 +355,7 @@ func purchaseView(p Purchase, today time.Time) PurchaseView {
 // description came up in the last six months.
 type TransactionDetail struct {
 	Transaction TransactionView  `json:"transaction"`
+	Split       []SplitPartView  `json:"split"`
 	Counterpart *TransactionView `json:"counterpartTransaction"`
 	Purchase    *PurchaseView    `json:"purchase"`
 	History     DescriptionStats `json:"history"`
@@ -407,4 +416,20 @@ func descriptionStats(rows []MonthTotal, from time.Time) DescriptionStats {
 		}
 	}
 	return st
+}
+
+// SplitPartView is one part of a split transaction.
+type SplitPartView struct {
+	Category    string `json:"category"`
+	AmountCents int64  `json:"amountCents"`
+}
+
+// TagView is a tag in use: how many transactions carry it and the money
+// that counts among them.
+type TagView struct {
+	Tag      string `json:"tag"`
+	Count    int    `json:"count"`
+	OutCents int64  `json:"outCents"`
+	InCents  int64  `json:"inCents"`
+	Last     string `json:"last"`
 }

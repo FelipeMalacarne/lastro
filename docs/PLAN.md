@@ -93,8 +93,8 @@ Every transaction has a category or is waiting in the review queue, and every co
 
 What `FEATURES.md` still lists, in the order that pays most. Each screen change starts on the canvas.
 
-- [ ] Split a transaction across categories (F2 P1)
-- [ ] Notes and tags on a transaction (F2 P1)
+- [x] Split a transaction across categories (F2 P1)
+- [x] Notes and tags on a transaction (F2 P1)
 - [ ] Dividends received, per stock and per year (F8 P1)
 - [ ] Valuation metrics per stock (P/E, P/B, dividend yield) and their history, once the source is chosen (F8 P1; open question in `FEATURES.md`)
 - [ ] Monthly report at the start of each month, through the alerts channel (F10 P2)

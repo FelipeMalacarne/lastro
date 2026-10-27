@@ -72,8 +72,8 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - [x] Installment purchases show "n of m" and count in the month of each installment.
 
 **P1**
-- [ ] Split a transaction into several categories.
-- [ ] Notes and tags on a transaction.
+- [x] Split a transaction into several categories.
+- [x] Notes and tags on a transaction.
 
 ### F3. Categorization
 
@@ -166,7 +166,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - [x] Reminder before each company's earnings report, with the thesis shown alongside.
 
 **P1**
-- [ ] Price history chart per stock and ETF.
+- [x] Price history chart per stock and ETF.
 - [ ] Valuation metrics per stock (P/E, P/B, dividend yield), with their history.
 - [ ] Dividends received, per stock and per year.
 - [x] Yearly scoreboard: the satellite's return against the Ibovespa and against CDI.

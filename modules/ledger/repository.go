@@ -398,7 +398,7 @@ func accountView(row db.LedgerAccount) AccountView {
 
 func (r *PostgresRepository) TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error) {
 	p := db.ListTransactionViewsParams{MaxRows: int32(limit)}
-	if !f.AllMonths || f.Search == "" {
+	if !f.AllMonths || (f.Search == "" && f.Tag == "") {
 		from, to := f.Range()
 		p.DateFrom, p.DateTo = &from, &to
 	}
@@ -416,6 +416,10 @@ func (r *PostgresRepository) TransactionViews(ctx context.Context, f Transaction
 	if f.Category != "" {
 		c := f.Category
 		p.Category = &c
+	}
+	if f.Tag != "" {
+		t := f.Tag
+		p.Tag = &t
 	}
 	rows, err := r.q.ListTransactionViews(ctx, p)
 	if err != nil {
@@ -442,14 +446,23 @@ func (r *PostgresRepository) TransactionView(ctx context.Context, id Transaction
 
 func transactionView(row db.ListTransactionViewsRow) TransactionView {
 	v := TransactionView{
-		ID:          TransactionID(row.ID),
-		Date:        row.Date.Format(time.DateOnly),
-		Description: row.Description,
-		AmountCents: row.AmountCents,
-		Currency:    row.Currency,
-		Kind:        row.Kind,
-		Status:      row.Status,
-		Account:     AccountRef{ID: AccountID(row.AccountID), Name: row.AccountName, Institution: row.AccountInstitution, Type: row.AccountType},
+		ID:              TransactionID(row.ID),
+		Date:            row.Date.Format(time.DateOnly),
+		Description:     row.Description,
+		AmountCents:     row.AmountCents,
+		Currency:        row.Currency,
+		Kind:            row.Kind,
+		Status:          row.Status,
+		Account:         AccountRef{ID: AccountID(row.AccountID), Name: row.AccountName, Institution: row.AccountInstitution, Type: row.AccountType},
+		Note:            row.Note,
+		Tags:            row.Tags,
+		SplitCategories: row.SplitCategories,
+	}
+	if v.Tags == nil {
+		v.Tags = []string{}
+	}
+	if v.SplitCategories == nil {
+		v.SplitCategories = []string{}
 	}
 	if row.InstallmentNumber != nil && row.InstallmentTotal != nil {
 		v.Installment = &InstallmentView{Number: int(*row.InstallmentNumber), Total: int(*row.InstallmentTotal)}
@@ -644,7 +657,7 @@ func (r *PostgresRepository) CategoryMonths(ctx context.Context, from, to time.T
 	}
 	out := make([]CategoryMonth, len(rows))
 	for i, row := range rows {
-		out[i] = CategoryMonth{Month: row.Month, Category: deref(row.CategoryID), Kind: row.Kind, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+		out[i] = CategoryMonth{Month: row.Month, Category: row.CategoryID, Kind: row.Kind, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
 	}
 	return out, nil
 }
@@ -683,7 +696,83 @@ func (r *PostgresRepository) CategoryTotals(ctx context.Context, from, to time.T
 	}
 	out := make([]CategoryTotal, len(rows))
 	for i, row := range rows {
-		out[i] = CategoryTotal{Category: deref(row.CategoryID), OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+		out[i] = CategoryTotal{Category: row.CategoryID, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) SetNote(ctx context.Context, id TransactionID, n Note) error {
+	k, err := r.q.SetNote(ctx, db.SetNoteParams{ID: string(id), Note: string(n)})
+	if err != nil {
+		return err
+	}
+	if k == 0 {
+		return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) SetTags(ctx context.Context, id TransactionID, tags []Tag) error {
+	ss := make([]string, len(tags))
+	for i, t := range tags {
+		ss[i] = string(t)
+	}
+	k, err := r.q.SetTags(ctx, db.SetTagsParams{ID: string(id), Tags: ss})
+	if err != nil {
+		return err
+	}
+	if k == 0 {
+		return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) Split(ctx context.Context, id TransactionID) ([]SplitPartView, error) {
+	rows, err := r.q.ListSplit(ctx, string(id))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SplitPartView, len(rows))
+	for i, row := range rows {
+		out[i] = SplitPartView{Category: row.CategoryID, AmountCents: row.AmountCents}
+	}
+	return out, nil
+}
+
+// SaveSplit replaces a transaction's split; an empty one removes it.
+func (r *PostgresRepository) SaveSplit(ctx context.Context, id TransactionID, s Split) error {
+	if err := r.q.DeleteSplit(ctx, string(id)); err != nil {
+		return err
+	}
+	for i, p := range s.parts {
+		err := r.q.InsertSplitPart(ctx, db.InsertSplitPartParams{TransactionID: string(id), Position: int16(i), CategoryID: p.Category.String(), AmountCents: p.Amount.Cents()})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *PostgresRepository) Tags(ctx context.Context) ([]TagView, error) {
+	rows, err := r.q.ListTags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TagView, len(rows))
+	for i, row := range rows {
+		out[i] = TagView{Tag: row.Tag, Count: int(row.N), OutCents: row.OutCents, InCents: row.InCents, Last: row.Last.Format(time.DateOnly)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error) {
+	rows, err := r.q.ListTagCategories(ctx, tag)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CategoryTotal, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryTotal{Category: row.CategoryID, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
 	}
 	return out, nil
 }

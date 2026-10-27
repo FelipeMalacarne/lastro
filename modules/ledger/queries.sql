@@ -102,6 +102,8 @@ ORDER BY t.date, t.id;
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
+    t.note, t.tags,
+    COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -118,7 +120,9 @@ WHERE t.removed_at IS NULL
       sqlc.narg(category)::text IS NULL
       OR (sqlc.narg(category)::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
       OR t.category_id = sqlc.narg(category)::text
+      OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text)
   )
+  AND (sqlc.narg(tag)::text IS NULL OR sqlc.narg(tag)::text = ANY (t.tags))
   AND (
       sqlc.narg(flow)::text IS NULL
       OR (sqlc.narg(flow)::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
@@ -127,7 +131,7 @@ WHERE t.removed_at IS NULL
   )
   AND (
       sqlc.narg(search)::text IS NULL
-      OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+      OR translate(lower(t.description || ' ' || t.note), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
          LIKE '%' || translate(lower(sqlc.narg(search)::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
   )
 ORDER BY t.date DESC, t.created_at DESC, t.id
@@ -234,25 +238,25 @@ GROUP BY description, account_id;
 -- name: ListCategoryTotals :many
 -- Live expenses and income in a date range by category (null: none yet):
 -- money out, money in and how many.
-SELECT category_id,
+SELECT COALESCE(category_id, '')::text AS category_id,
     COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
     COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
     count(*)::int AS n
-FROM ledger.transactions
+FROM ledger.category_lines
 WHERE removed_at IS NULL AND kind IN ('expense', 'income')
   AND currency = 'BRL'
   AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
-GROUP BY category_id;
+GROUP BY 1;
 
 -- name: ListCategoryMonths :many
 -- Live expenses and income by month, category (null: none yet) and kind:
 -- money out, money in and how many. What budgets and averages are built on,
--- in reais only.
-SELECT date_trunc('month', date)::date AS month, category_id, kind,
+-- in reais only. A split counts each part in its category.
+SELECT date_trunc('month', date)::date AS month, COALESCE(category_id, '')::text AS category_id, kind,
     COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
     COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
     count(*)::int AS n
-FROM ledger.transactions
+FROM ledger.category_lines
 WHERE removed_at IS NULL AND kind IN ('expense', 'income')
   AND currency = 'BRL'
   AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
@@ -284,3 +288,46 @@ WHERE t.removed_at IS NULL AND t.kind = 'expense' AND t.amount_cents < 0
   AND t.installment_total IS NULL
   AND t.date >= sqlc.arg(date_from)::date
 ORDER BY t.date, t.id;
+
+-- name: SetNote :execrows
+UPDATE ledger.transactions SET note = sqlc.arg(note), updated_at = now()
+WHERE id = sqlc.arg(id) AND removed_at IS NULL;
+
+-- name: SetTags :execrows
+UPDATE ledger.transactions SET tags = sqlc.arg(tags)::text[], updated_at = now()
+WHERE id = sqlc.arg(id) AND removed_at IS NULL;
+
+-- name: ListSplit :many
+SELECT category_id, amount_cents FROM ledger.splits
+WHERE transaction_id = sqlc.arg(transaction_id)
+ORDER BY position;
+
+-- name: DeleteSplit :exec
+DELETE FROM ledger.splits WHERE transaction_id = sqlc.arg(transaction_id);
+
+-- name: InsertSplitPart :exec
+INSERT INTO ledger.splits (transaction_id, position, category_id, amount_cents)
+VALUES (sqlc.arg(transaction_id), sqlc.arg(position), sqlc.arg(category_id), sqlc.arg(amount_cents));
+
+-- name: ListTags :many
+-- Every tag in use, with how much money it holds: what the tag picker
+-- offers and the tag filter sums.
+SELECT tag::text AS tag, count(*)::int AS n,
+    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.amount_cents > 0), 0)::bigint AS in_cents,
+    max(t.date)::date AS last
+FROM ledger.transactions t, unnest(t.tags) AS tag
+WHERE t.removed_at IS NULL
+GROUP BY tag
+ORDER BY max(t.date) DESC, tag;
+
+-- name: ListTagCategories :many
+-- One tag's money by category, every month, a split counted by its parts.
+SELECT COALESCE(category_id, '')::text AS category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND sqlc.arg(tag)::text = ANY (tags)
+GROUP BY 1
+ORDER BY 2 DESC;

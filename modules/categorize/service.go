@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"lastro/modules/ledger"
+	"lastro/money"
 )
 
 var (
@@ -356,6 +357,42 @@ func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, cate
 		return Change{Undo: Undo{Before: []Before{before[tx]}}}, nil
 	}
 	return s.correct(ctx, before, *teach, "", category)
+}
+
+// SplitPart is one category's share of a split, in the transaction's
+// currency.
+type SplitPart struct {
+	Category    ledger.CategoryID
+	AmountCents int64
+}
+
+// Split divides a transaction across live categories (ledger checks the
+// parts add up). Like any choice of mine, rules never touch it again.
+func (s *Service) Split(ctx context.Context, tx ledger.TransactionID, parts []SplitPart) error {
+	d, err := s.ledger.Transaction(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("categorize: split: %w", err)
+	}
+	cur := money.Currency(d.Transaction.Currency)
+	out := make([]ledger.SplitPart, len(parts))
+	for i, p := range parts {
+		c, err := s.repo.category(ctx, p.Category)
+		if err != nil {
+			return fmt.Errorf("categorize: split: %w", err)
+		}
+		if c.Archived {
+			return fmt.Errorf("%w: %s", ErrArchived, c.Name)
+		}
+		amt, err := money.New(p.AmountCents, cur)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		out[i] = ledger.SplitPart{Category: p.Category, Amount: amt}
+	}
+	if err := s.ledger.SplitTransaction(ctx, tx, out); err != nil {
+		return fmt.Errorf("categorize: split: %w", err)
+	}
+	return nil
 }
 
 // RuleView is a rule as the Categories and rules screen lists it: in the
