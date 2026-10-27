@@ -3,6 +3,7 @@ import { ArrowLeftRight, Clock, CreditCard } from "lucide-react";
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
 import { CategoryTag, type NoteColor } from "@/components/CategoryTag";
+import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
 
 export type RowKind = "expense" | "income" | "transfer" | "bill_payment";
@@ -26,6 +27,8 @@ type Props = {
   categorized?: boolean;
   onCategoryClick?: () => void;
   selected?: boolean;
+  /** Where the row leads (its detail): the whole row becomes a link. */
+  to?: string;
   className?: string;
 };
 
@@ -44,17 +47,17 @@ export function TransactionRow(p: Props) {
   } else {
     cat = <CategoryTag name={p.category?.name} color={p.category?.color} onClick={p.onCategoryClick} />;
   }
-  return (
-    <div
-      aria-selected={p.selected || undefined}
-      className={cn(
-        "grid min-h-11 items-center gap-x-4 border-b border-rule bg-paper-raised px-4 py-2 sm:px-5",
+  const className = cn(
+    "grid min-h-11 items-center gap-x-4 border-b border-rule bg-paper-raised px-4 py-2 sm:px-5",
         "grid-cols-[minmax(0,1fr)_auto] gap-y-0.5 [grid-template-areas:'main_amount''main_date''cat_cat']",
         "sm:grid-cols-[52px_minmax(0,1fr)_minmax(0,200px)_140px] sm:[grid-template-areas:'date_main_cat_amount']",
-        p.selected && "bg-tinta-soft shadow-[inset_2px_0_0_var(--tinta)]",
-        p.className,
-      )}
-    >
+    p.selected && "bg-tinta-soft shadow-[inset_2px_0_0_var(--tinta)]",
+    p.to && "text-ink no-underline transition-colors hover:text-ink focus-visible:focus-ring",
+    p.to && !p.selected && "hover:bg-paper-sunken",
+    p.className,
+  );
+  const body = (
+    <>
       <span className="type-figure-sm self-end text-right text-ink-muted [grid-area:date] sm:self-center sm:text-left">{p.date}</span>
       <div className="min-w-0 [grid-area:main]">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -75,6 +78,18 @@ export function TransactionRow(p: Props) {
       <div className="self-start text-right [grid-area:amount] sm:self-center">
         <Amount cents={p.amountCents} sign={neutral ? "none" : "always"} tone={neutral ? "muted" : "auto"} pending={p.pending} />
       </div>
+    </>
+  );
+  if (p.to) {
+    return (
+      <Link to={p.to} aria-current={p.selected ? "true" : undefined} className={className}>
+        {body}
+      </Link>
+    );
+  }
+  return (
+    <div aria-selected={p.selected || undefined} className={className}>
+      {body}
     </div>
   );
 }

@@ -49,3 +49,14 @@ export function Link({ to, onClick, ...rest }: LinkProps) {
   }
   return <a href={href} onClick={go} {...rest} />;
 }
+
+/** The current location with some query parameters replaced (null removes one). */
+export function hrefWith(changes: Record<string, string | null>): string {
+  const q = new URLSearchParams(location.search);
+  for (const [k, v] of Object.entries(changes)) {
+    if (v === null) q.delete(k);
+    else q.set(k, v);
+  }
+  const s = q.toString();
+  return location.pathname + (s ? "?" + s : "");
+}

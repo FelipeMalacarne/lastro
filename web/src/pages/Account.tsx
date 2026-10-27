@@ -447,8 +447,9 @@ function AccountTransactions({ a }: { a: Account }) {
       {!res.data && !res.error && <p className="m-0 px-5 py-6 type-body text-ink-muted">Loading transactions…</p>}
       {res.data && list.length === 0 && <p className="m-0 px-5 py-6 type-body text-ink-muted">Nothing in {formatMonth(month).split(" ")[0]}.</p>}
       {shown.map((t) => (
-        <Link key={t.id} to={`/transactions?month=${month}&account=${a.id}&tx=${t.id}`} className="block text-ink no-underline hover:text-ink">
-          <TransactionRow
+        <TransactionRow
+            key={t.id}
+            to={`/transactions?month=${month}&account=${a.id}&tx=${t.id}`}
             date={formatDay(t.date)}
             description={t.description}
             meta={t.counterpart ? `${t.amountCents < 0 ? "To" : "From"} ${t.counterpart.institution} ${typeLabel[t.counterpart.type]}` : undefined}
@@ -457,9 +458,7 @@ function AccountTransactions({ a }: { a: Account }) {
             pending={t.status === "pending"}
             installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
             categorized={false}
-            className="hover:bg-paper-sunken"
           />
-        </Link>
       ))}
     </Panel>
   );
