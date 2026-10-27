@@ -20,7 +20,7 @@ type Held struct {
 // latest valued day on or before it, zero when the ticker was not among
 // that day's holdings. Before the first valued day it does not know.
 type HeldHistory struct {
-	days []time.Time                     // every valued day, oldest first
+	days []time.Time                    // every valued day, oldest first
 	by   map[string]map[time.Time]int64 // ticker → day → quantity in millionths
 }
 

@@ -35,9 +35,9 @@ func TestHoldingsAndEarned(t *testing.T) {
 
 	divs := map[string][]market.Dividend{
 		"ITSA4": {
-			{ComDate: d("2026-01-15"), Label: "JCP", RateMicro: 20_000},                                 // before lastro knew
+			{ComDate: d("2026-01-15"), Label: "JCP", RateMicro: 20_000},                                     // before lastro knew
 			{ComDate: d("2026-04-10"), Label: "DIVIDENDO", RateMicro: 25_000, PaymentDate: d("2026-05-02")}, // 100 shares
-			{ComDate: d("2026-08-20"), Label: "JCP", RateMicro: 33_333, PaymentDate: d("2026-09-01")},     // 300 shares
+			{ComDate: d("2026-08-20"), Label: "JCP", RateMicro: 33_333, PaymentDate: d("2026-09-01")},       // 300 shares
 		},
 		"WEGE3": {{ComDate: d("2026-07-10"), Label: "JCP", RateMicro: 157_843}}, // none held
 	}
