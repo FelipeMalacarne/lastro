@@ -38,7 +38,8 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] `GET /api/v1/transactions` and the Transactions screen (list, filters, search), with each account's sync status and the stale-sync notice
 - [x] Backup of `postgres-main` in gielinor: the Barman Cloud plugin to R2, ready to turn on (gielinor `clusters/saradomin/apps/postgres/backup`)
 - [ ] Turn the backup on: R2 bucket and token, then the component (gielinor `apps/postgres/backup/README.md`; needs me)
-- [ ] Pluggy credentials and item ids in `lastro-secrets` on saradomin, and a first sync (gielinor `apps/lastro/README.md`; needs me)
+- [x] Pluggy credentials and item ids on saradomin (gielinor `apps/lastro/pluggy-secrets.yaml`, the `lastro-pluggy` Secret)
+- [ ] First sync on saradomin, seen on lastro.ftm.dev.br (the CronJob runs at minute 17 of 0h, 6h, 12h and 18h; needs me to look)
 
 ## M2: categorized without effort (F3)
 
