@@ -76,6 +76,8 @@ type SyncOptions struct {
 // SyncReport says what a sync did, item by item.
 type SyncReport struct {
 	Items []ItemReport
+	// Paired is how many transfers and bill payments the ledger paired.
+	Paired int
 }
 
 // ItemReport is one item's part of a sync.
@@ -87,6 +89,8 @@ type ItemReport struct {
 	Skipped     int // records the ledger has no place for, or that could not be read
 	Investments int
 	Err         error
+
+	from time.Time // the first day read; zero means the whole history
 }
 
 // Sync reads every configured item and imports what changed. An item that
@@ -104,6 +108,9 @@ func (s *Service) Sync(ctx context.Context, opts SyncOptions) (SyncReport, error
 	var report SyncReport
 	var errs []error
 	done := SyncCompleted{}
+	// Pairs cross items, so the matcher runs once, over the earliest window
+	// any item read (zero, everything, after a first or full sync).
+	matchFrom, readSome := s.now(), false
 	for _, id := range s.itemIDs {
 		var rep ItemReport
 		if opts.Reprocess {
@@ -113,12 +120,25 @@ func (s *Service) Sync(ctx context.Context, opts SyncOptions) (SyncReport, error
 		}
 		rep.ItemID, rep.Err = id, err
 		report.Items = append(report.Items, rep)
+		if err == nil {
+			readSome = true
+			if rep.from.Before(matchFrom) {
+				matchFrom = rep.from
+			}
+		}
 		done.ItemIDs = append(done.ItemIDs, id)
 		if err != nil {
 			done.Failed = append(done.Failed, id)
 			errs = append(errs, fmt.Errorf("%s (%s): %w", cmp.Or(rep.Institution, "item"), id, err))
 			s.logger.ErrorContext(ctx, "sync item failed", "item", id, "err", err)
 		}
+	}
+	if readSome {
+		n, err := s.ledger.MatchTransfers(ctx, matchFrom)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		report.Paired = n
 	}
 	if err := s.bus.Publish(ctx, done); err != nil {
 		errs = append(errs, err)
@@ -172,6 +192,7 @@ func (s *Service) syncItem(ctx context.Context, id string, full bool) (rep ItemR
 	}
 
 	from := window(state, full, started)
+	rep.from = from
 	balanceAt := cmp.Or(fresh.DataUpdatedAt, started)
 	for _, pa := range accounts {
 		txs, err := s.pluggy.Transactions(ctx, pa.ID, from)

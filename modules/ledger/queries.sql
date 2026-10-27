@@ -70,3 +70,16 @@ WHERE EXCLUDED.taken_at >= ledger.balance_snapshots.taken_at;
 
 -- name: ListBalanceSnapshots :many
 SELECT * FROM ledger.balance_snapshots WHERE account_id = $1 ORDER BY date;
+
+-- name: ListPairCandidates :many
+-- What the TransferMatcher may pair: unpaired, live, non-zero transactions
+-- whose source kind could be one side of a transfer or a bill payment.
+SELECT sqlc.embed(t), a.type AS account_type
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+WHERE t.removed_at IS NULL
+  AND t.counterpart_id IS NULL
+  AND t.amount_cents <> 0
+  AND t.source_kind IN ('expense', 'income', 'bill_payment')
+  AND (sqlc.narg(window_from)::date IS NULL OR t.date >= sqlc.narg(window_from)::date)
+ORDER BY t.date, t.id;

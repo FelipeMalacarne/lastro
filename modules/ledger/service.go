@@ -30,6 +30,9 @@ type Repository interface {
 	// ids or bank references, removed ones included.
 	TransactionsForImport(ctx context.Context, account AccountID, from time.Time, ids []ExternalID, bankRefs []string) ([]*Transaction, error)
 	Transactions(ctx context.Context, ids []TransactionID) ([]*Transaction, error)
+	// PairCandidates returns the unpaired, live transactions dated on or
+	// after from (all, for a zero from) that could be one side of a pair.
+	PairCandidates(ctx context.Context, from time.Time) ([]*Transaction, error)
 	SaveTransactions(ctx context.Context, txs []*Transaction) error
 }
 
@@ -124,6 +127,28 @@ func (s *Service) ImportTransactions(ctx context.Context, b ImportBatch) (Import
 		}
 	}
 	return rec.result, nil
+}
+
+// MatchTransfers runs the TransferMatcher over the transactions dated on or
+// after from (all of them, for a zero from), a few days earlier so a pair
+// straddling from is seen whole. It returns how many pairs it made.
+func (s *Service) MatchTransfers(ctx context.Context, from time.Time) (int, error) {
+	if !from.IsZero() {
+		from = from.AddDate(0, 0, -billPaymentWindow)
+	}
+	var paired []*Transaction
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		cands, err := r.PairCandidates(ctx, from)
+		if err != nil {
+			return err
+		}
+		paired = MatchTransfers(cands)
+		return r.SaveTransactions(ctx, paired)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("ledger: match transfers: %w", err)
+	}
+	return len(paired) / 2, nil
 }
 
 // Categorize sets a transaction's category. It returns ErrManualCategory

@@ -155,6 +155,67 @@ func (q *Queries) ListBalanceSnapshots(ctx context.Context, accountID string) ([
 	return items, nil
 }
 
+const listPairCandidates = `-- name: ListPairCandidates :many
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+WHERE t.removed_at IS NULL
+  AND t.counterpart_id IS NULL
+  AND t.amount_cents <> 0
+  AND t.source_kind IN ('expense', 'income', 'bill_payment')
+  AND ($1::date IS NULL OR t.date >= $1::date)
+ORDER BY t.date, t.id
+`
+
+type ListPairCandidatesRow struct {
+	LedgerTransaction LedgerTransaction
+	AccountType       string
+}
+
+// What the TransferMatcher may pair: unpaired, live, non-zero transactions
+// whose source kind could be one side of a transfer or a bill payment.
+func (q *Queries) ListPairCandidates(ctx context.Context, windowFrom *time.Time) ([]ListPairCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, listPairCandidates, windowFrom)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPairCandidatesRow
+	for rows.Next() {
+		var i ListPairCandidatesRow
+		if err := rows.Scan(
+			&i.LedgerTransaction.ID,
+			&i.LedgerTransaction.AccountID,
+			&i.LedgerTransaction.ExternalID,
+			&i.LedgerTransaction.BankRef,
+			&i.LedgerTransaction.Date,
+			&i.LedgerTransaction.Description,
+			&i.LedgerTransaction.AmountCents,
+			&i.LedgerTransaction.Currency,
+			&i.LedgerTransaction.SourceKind,
+			&i.LedgerTransaction.Status,
+			&i.LedgerTransaction.InstallmentNumber,
+			&i.LedgerTransaction.InstallmentTotal,
+			&i.LedgerTransaction.CategoryID,
+			&i.LedgerTransaction.CategorySource,
+			&i.LedgerTransaction.CounterpartID,
+			&i.LedgerTransaction.PairKind,
+			&i.LedgerTransaction.Kind,
+			&i.LedgerTransaction.RemovedAt,
+			&i.LedgerTransaction.CreatedAt,
+			&i.LedgerTransaction.UpdatedAt,
+			&i.AccountType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactionsForImport = `-- name: ListTransactionsForImport :many
 SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
 FROM ledger.transactions t

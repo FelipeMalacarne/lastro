@@ -11,7 +11,7 @@
 - `BalanceSnapshot` (in `account.go`): an account's balance on a day, the last one known that day. Every `SyncAccount` records one, so the net worth history (M4) starts with the first sync.
 - `Pair` (in `transaction.go`): links the two sides of a movement between my own accounts. Into a card it makes both sides a card bill payment; between bank accounts, a transfer.
 - Value objects (`values.go`): `ExternalID` (the source's id, today Pluggy's), `Kind` (expense, income, transfer, card bill payment; only the first two count in totals), `Installment` ("3 of 10"), `CategoryID` (opaque, owned by `categorize`), `Source` (rule, LLM or manual), `Status` (pending or posted) and `AccountType` (checking, savings, credit card). Constructors return an error wrapping `ErrInvalid` instead of an invalid value.
-- `TransferMatcher` (domain service): pairs an outflow in one of my accounts with the matching inflow in another.
+- `TransferMatcher` (`MatchTransfers` in `transfer.go`, a domain service): among unpaired transactions, pairs an outflow from one of my bank accounts with an inflow of the same amount in another account. Into a card, the inflow must be what the card calls a bill payment, up to 3 days apart; between bank accounts, an expense with an income, up to 1 day apart. Closer dates pair first, and an outflow or inflow with two equally good candidates in different accounts is left alone rather than guessed. `ingest` runs it after every sync.
 
 ## Invariants
 

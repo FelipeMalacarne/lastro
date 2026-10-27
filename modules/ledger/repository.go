@@ -155,6 +155,27 @@ func (r *PostgresRepository) Transactions(ctx context.Context, ids []Transaction
 	return out, nil
 }
 
+func (r *PostgresRepository) PairCandidates(ctx context.Context, from time.Time) ([]*Transaction, error) {
+	var window *time.Time
+	if !from.IsZero() {
+		d := civilDate(from)
+		window = &d
+	}
+	rows, err := r.q.ListPairCandidates(ctx, window)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Transaction, 0, len(rows))
+	for _, row := range rows {
+		t, err := transactionFromRow(row.LedgerTransaction, row.AccountType)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 func (r *PostgresRepository) SaveTransactions(ctx context.Context, txs []*Transaction) error {
 	if len(txs) == 0 {
 		return nil

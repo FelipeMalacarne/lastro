@@ -50,5 +50,8 @@ func runSync(ctx context.Context, args []string) error {
 		}
 		fmt.Println()
 	}
+	if rep.Paired > 0 {
+		fmt.Printf("Paired %d transfers and card bill payments between my accounts\n", rep.Paired)
+	}
 	return err
 }

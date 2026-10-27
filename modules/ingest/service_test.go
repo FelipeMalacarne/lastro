@@ -94,6 +94,9 @@ func TestSyncEndToEnd(t *testing.T) {
 	if fake.reads[0] != (time.Time{}) {
 		t.Errorf("the first sync reads everything, read from %v", fake.reads[0])
 	}
+	if rep.Paired != 2 {
+		t.Errorf("the Pix from Nubank to Itaú and the card bill paid from checking pair: %d", rep.Paired)
+	}
 
 	// The next sync reads a window and changes nothing.
 	fake.reads = nil
