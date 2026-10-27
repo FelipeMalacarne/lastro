@@ -67,6 +67,17 @@ type Tracking struct {
 	Left      money.Money // available minus spent
 }
 
+// SetAside is what a month's transfers to accounts outside lastro (the
+// broker, the bank's own investments) put aside: what went out minus what
+// came back, never below zero. Redeeming one investment to buy another puts
+// nothing aside.
+func SetAside(out, back money.Money) money.Money {
+	if back.Cents() >= out.Cents() {
+		return money.BRLCents(0)
+	}
+	return money.BRLCents(out.Cents() - back.Cents())
+}
+
 // Effective is the budget that applies to a month: the latest saved at or
 // before it, as that month's copy. saved must be in month order.
 func Effective(saved []*MonthlyBudget, m Month) (*MonthlyBudget, bool) {
