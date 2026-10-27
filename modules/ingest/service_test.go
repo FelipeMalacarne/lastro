@@ -226,3 +226,119 @@ func TestSyncMeuPluggyFixtures(t *testing.T) {
 		t.Fatalf("the connection is named after the bank: %+v %v", conns, err)
 	}
 }
+
+// The read models the account page and the transaction detail use, on my
+// real connection. Nothing here depends on today's date.
+func TestReadModelsOnMeuPluggyFixtures(t *testing.T) {
+	ctx := context.Background()
+	s, fake, led := newSync(t)
+	set, err := fixtures.Load("testdata/meupluggy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.set = set
+	s.itemIDs = []string{set.Items[0].ID}
+	s.now = func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) }
+	if _, err := s.Sync(ctx, SyncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := led.Accounts(ctx)
+	if err != nil || len(accounts) != 2 {
+		t.Fatalf("accounts: %+v %v", accounts, err)
+	}
+	var checking, card ledger.AccountView
+	for _, a := range accounts {
+		if a.Type == "credit_card" {
+			card = a
+		} else {
+			checking = a
+		}
+	}
+
+	// Card details from creditData: a limit and a due day, no closing day.
+	if card.Card == nil || card.Card.LimitCents == nil || card.Card.AvailableCents == nil || card.Card.DueDate == nil || card.Card.CloseDate != nil {
+		t.Errorf("card details: %+v", card.Card)
+	}
+	if checking.Card != nil {
+		t.Errorf("checking has no card details: %+v", checking.Card)
+	}
+
+	// The rebuilt balance ends at the bank's and starts at the first transaction.
+	h, err := led.BalanceHistory(ctx, checking.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := h.Points[len(h.Points)-1]; last.BalanceCents != checking.BalanceCents || last.Date != checking.BalanceAt.Format(time.DateOnly) {
+		t.Errorf("the last point is the bank's balance: %+v, want %d on %s", last, checking.BalanceCents, checking.BalanceAt.Format(time.DateOnly))
+	}
+	if h.Points[0].Date != "2025-03-21" {
+		t.Errorf("history starts with checking's first transaction: %s", h.Points[0].Date)
+	}
+
+	// October's spending is the same seen by account and by day.
+	var spent int64
+	for _, a := range accounts {
+		months, err := led.Months(ctx, a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range months {
+			if m.Month == "2026-10" {
+				spent += m.SpentCents
+			}
+		}
+	}
+	days, err := led.Days(ctx, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spent == 0 || days.Summary.SpentCents != spent || len(days.Previous) == 0 {
+		t.Errorf("October spending: by account %d, by day %d (%d days before)", spent, days.Summary.SpentCents, len(days.Previous))
+	}
+
+	// Purchases in progress add up, and the one ending first comes first.
+	purchases, err := led.Installments(ctx, card.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range purchases {
+		if p.RemainingCount != p.Total-p.Current || p.RemainingCount <= 0 || p.RemainingCents != int64(p.RemainingCount)*p.AmountCents {
+			t.Errorf("purchase %s: %+v", p.Description, p)
+		}
+		if i > 0 && p.LastDate < purchases[i-1].LastDate {
+			t.Errorf("by last installment: %s before %s", purchases[i-1].LastDate, p.LastDate)
+		}
+	}
+
+	// A paired bill payment shows its other side; an installment, its purchase.
+	var bill *ledger.TransactionView
+	for m := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC); bill == nil && m.Year() >= 2025; m = m.AddDate(0, -1, 0) {
+		list, err := led.Transactions(ctx, ledger.TransactionFilter{Month: m, Account: checking.ID, Flow: ledger.FlowTransfer})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, tx := range list.Transactions {
+			if tx.Kind == "bill_payment" {
+				bill = &list.Transactions[i]
+				break
+			}
+		}
+	}
+	if bill == nil {
+		t.Fatal("no bill payment from checking")
+	}
+	d, err := led.Transaction(ctx, bill.ID)
+	if err != nil || d.Counterpart == nil || d.Counterpart.AmountCents != -bill.AmountCents || d.Counterpart.Account.ID != card.ID {
+		t.Fatalf("the bill payment's other side is on the card: %+v %v", d.Counterpart, err)
+	}
+	if len(d.History.Months) != 6 {
+		t.Errorf("six months of history: %+v", d.History)
+	}
+	if len(purchases) > 0 {
+		inst := purchases[0].Installments[0].ID
+		d, err := led.Transaction(ctx, inst)
+		if err != nil || d.Purchase == nil || d.Purchase.Description != purchases[0].Description {
+			t.Errorf("an installment shows its purchase: %+v %v", d.Purchase, err)
+		}
+	}
+}

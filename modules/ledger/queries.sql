@@ -93,13 +93,14 @@ ORDER BY t.date, t.id;
 -- Read side: what the Transactions screen lists (CQRS-lite: straight to a DTO).
 
 -- name: ListTransactionViews :many
--- A month of live transactions, newest first, with each one's account and,
--- for pairs, the other side's account. flow is 'in' or 'out' (money that
--- counts, by direction) or 'transfer' (transfers and card bill payments).
--- search matches the description ignoring case and accents.
+-- Live transactions in a date range (or one, by id), newest first, with each
+-- one's account and, for pairs, the other side and its account. flow is 'in'
+-- or 'out' (money that counts, by direction) or 'transfer' (transfers and
+-- card bill payments). search matches the description ignoring case and
+-- accents.
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
-    t.installment_number, t.installment_total, t.category_id, t.category_source,
+    t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -108,8 +109,9 @@ JOIN ledger.accounts a ON a.id = t.account_id
 LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
 LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
 WHERE t.removed_at IS NULL
-  AND t.date >= sqlc.arg(date_from)::date
-  AND t.date < sqlc.arg(date_to)::date
+  AND (sqlc.narg(id)::uuid IS NULL OR t.id = sqlc.narg(id)::uuid)
+  AND (sqlc.narg(date_from)::date IS NULL OR t.date >= sqlc.narg(date_from)::date)
+  AND (sqlc.narg(date_to)::date IS NULL OR t.date < sqlc.narg(date_to)::date)
   AND (sqlc.narg(account_id)::uuid IS NULL OR t.account_id = sqlc.narg(account_id)::uuid)
   AND (
       sqlc.narg(flow)::text IS NULL
@@ -126,7 +128,64 @@ ORDER BY t.date DESC, t.created_at DESC, t.id
 LIMIT sqlc.arg(max_rows);
 
 -- name: ListAccountViews :many
-SELECT id, name, institution, type, number, currency, balance_cents, balance_at,
-    credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date
-FROM ledger.accounts
+SELECT * FROM ledger.accounts
 ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id;
+
+-- name: GetAccountView :one
+SELECT * FROM ledger.accounts WHERE id = $1;
+
+-- name: ListDailyNet :many
+-- What an account's live transactions add up to each day, up to a day.
+SELECT date, sum(amount_cents)::bigint AS net_cents
+FROM ledger.transactions
+WHERE account_id = $1 AND removed_at IS NULL AND date <= sqlc.arg(until)::date
+GROUP BY date
+ORDER BY date;
+
+-- name: ListMonthFlows :many
+-- An account's live transactions by month, kind and direction, and for pairs
+-- by the other side's account.
+SELECT
+    date_trunc('month', t.date)::date AS month, t.kind, t.amount_cents > 0 AS inflow,
+    ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
+    ca.institution AS counterpart_institution, ca.type AS counterpart_account_type,
+    sum(t.amount_cents)::bigint AS cents, count(*)::int AS n
+FROM ledger.transactions t
+LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
+LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
+WHERE t.account_id = $1 AND t.removed_at IS NULL AND t.amount_cents <> 0
+GROUP BY 1, 2, 3, 4, 5, 6, 7
+ORDER BY 1, 2, 3, 5;
+
+-- name: ListInstallments :many
+-- An account's live installments, for GroupInstallments.
+SELECT id, description, installment_number, installment_total, amount_cents, currency, date, status
+FROM ledger.transactions
+WHERE account_id = $1 AND removed_at IS NULL AND installment_total IS NOT NULL
+ORDER BY date, id;
+
+-- name: ListDescriptionMonths :many
+-- Each month's live transactions with one description (ignoring case), in
+-- every account, that count: what the detail's history shows.
+SELECT date_trunc('month', date)::date AS month, sum(amount_cents)::bigint AS cents, count(*)::int AS n
+FROM ledger.transactions
+WHERE removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND lower(description) = lower(sqlc.arg(description))
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY 1
+ORDER BY 1;
+
+-- name: ListDaySpending :many
+-- Every account's live transactions by day: spending (outflows that count),
+-- money in that counts, and money moved (transfers out and card bills paid).
+SELECT
+    date,
+    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0), 0)::bigint AS spent_cents,
+    count(*) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0)::int AS purchases,
+    COALESCE(sum(amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents > 0), 0)::bigint AS in_cents,
+    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('transfer', 'bill_payment') AND amount_cents < 0), 0)::bigint AS moved_cents
+FROM ledger.transactions
+WHERE removed_at IS NULL AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY date
+ORDER BY date;

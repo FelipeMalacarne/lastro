@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTransactionsEndpointValidatesTheFilter(t *testing.T) {
@@ -21,6 +22,8 @@ func TestTransactionsEndpointValidatesTheFilter(t *testing.T) {
 		{"month=2026-10&account=1", "account must be an account id"},
 		{"month=2026-10&flow=sideways", "flow must be"},
 		{"month=2026-10&q=" + strings.Repeat("a", 101), "limited to 100"},
+		{"month=2026-10&day=2026-11-02", "day must be a day of the month"},
+		{"month=2026-10&day=22", "day must be a day of the month"},
 	}
 	for _, tt := range tests {
 		rec := httptest.NewRecorder()
@@ -59,3 +62,36 @@ func TestSummarize(t *testing.T) {
 		t.Fatalf("transfers and bill payments never count: %+v", s)
 	}
 }
+
+func TestReadEndpointsValidateIDs(t *testing.T) {
+	mux := http.NewServeMux()
+	New(nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tests := []struct{ path, want string }{
+		{"/api/v1/accounts/nubank", "id must be an account id"},
+		{"/api/v1/accounts/42/balance", "id must be an account id"},
+		{"/api/v1/accounts/x/months", "id must be an account id"},
+		{"/api/v1/accounts/x/installments", "id must be an account id"},
+		{"/api/v1/transactions/ifood", "id must be a transaction id"},
+		{"/api/v1/transactions/days", "month must look like"},
+		{"/api/v1/transactions/days?month=October", "month must look like"},
+	}
+	for _, tt := range tests {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+			t.Errorf("%s: got %d %s", tt.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestFilterRange(t *testing.T) {
+	f := TransactionFilter{Month: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)}
+	if from, to := f.Range(); from.Format(time.DateOnly) != "2026-10-01" || to.Format(time.DateOnly) != "2026-11-01" {
+		t.Errorf("the month: %v %v", from, to)
+	}
+	f.Day = time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
+	if from, to := f.Range(); from.Format(time.DateOnly) != "2026-10-22" || to.Format(time.DateOnly) != "2026-10-23" {
+		t.Errorf("one day: %v %v", from, to)
+	}
+}
+

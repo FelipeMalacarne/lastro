@@ -75,6 +75,28 @@ func TestMeuPluggyFixtures(t *testing.T) {
 		t.Errorf("moves to and from my own investments: %d, want 153", kinds[ledger.KindTransfer])
 	}
 
+	// The 59 installments are 11 purchases, each a run of installments with
+	// no number twice (see ledger.GroupInstallments).
+	var rows []ledger.InstallmentRow
+	for _, tx := range all {
+		if !tx.Installment().IsZero() {
+			rows = append(rows, ledger.InstallmentRow{ID: tx.ID(), Description: tx.Description(), Installment: tx.Installment(), Amount: tx.Amount(), Date: tx.Date(), Status: tx.Status()})
+		}
+	}
+	purchases := ledger.GroupInstallments(rows)
+	if len(purchases) != 11 {
+		t.Errorf("installments group into %d purchases, want 11", len(purchases))
+	}
+	for _, p := range purchases {
+		first := p.Installments[0].Installment.Number()
+		for i, r := range p.Installments {
+			if r.Installment.Number() != first+i {
+				t.Errorf("%s: installments out of order or with gaps: %+v", p.Description, p.Installments)
+				break
+			}
+		}
+	}
+
 	paired := ledger.MatchTransfers(all) // the domain service, as the sync runs it
 	bills := 0
 	for _, tx := range paired {

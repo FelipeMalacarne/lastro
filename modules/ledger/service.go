@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
+	"lastro/money"
 	"lastro/platform/events"
 )
 
@@ -37,7 +39,17 @@ type Repository interface {
 
 	// Read side.
 	AccountViews(ctx context.Context) ([]AccountView, error)
+	AccountView(ctx context.Context, id AccountID) (AccountView, error)
 	TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error)
+	TransactionView(ctx context.Context, id TransactionID) (TransactionView, error)
+	// DailyNet sums an account's live transactions by day, up to a day.
+	DailyNet(ctx context.Context, account AccountID, until time.Time) ([]DayNet, error)
+	MonthFlows(ctx context.Context, account AccountID) ([]MonthFlowRow, error)
+	Installments(ctx context.Context, account AccountID) ([]InstallmentRow, error)
+	// DescriptionMonths counts the transactions that count with a
+	// description (ignoring case), by month, in [from, to).
+	DescriptionMonths(ctx context.Context, description string, from, to time.Time) ([]MonthTotal, error)
+	DaySpending(ctx context.Context, from, to time.Time) ([]DayView, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -204,4 +216,153 @@ func (s *Service) Transactions(ctx context.Context, f TransactionFilter) (Transa
 	}
 	list.Summary = summarize(list.Transactions)
 	return list, nil
+}
+
+// Account returns one account with its latest balance and card details.
+func (s *Service) Account(ctx context.Context, id AccountID) (AccountView, error) {
+	v, err := s.repo.AccountView(ctx, id)
+	if err != nil {
+		return AccountView{}, fmt.Errorf("ledger: account %s: %w", id, err)
+	}
+	return v, nil
+}
+
+// BalanceHistory rebuilds an account's balance at the end of each day, from
+// its first transaction to the day of the bank's latest balance.
+func (s *Service) BalanceHistory(ctx context.Context, id AccountID) (BalanceHistoryView, error) {
+	acc, err := s.repo.AccountView(ctx, id)
+	if err != nil {
+		return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+	}
+	current, err := money.New(acc.BalanceCents, money.Currency(acc.Currency))
+	if err != nil {
+		return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+	}
+	nets, err := s.repo.DailyNet(ctx, id, acc.BalanceAt)
+	if err != nil {
+		return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+	}
+	points, err := BalanceHistory(current, acc.BalanceAt, nets)
+	if err != nil {
+		return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+	}
+	v := BalanceHistoryView{Currency: acc.Currency, AsOf: acc.BalanceAt, Points: make([]BalancePointView, len(points))}
+	for i, p := range points {
+		v.Points[i] = BalancePointView{Date: p.Date.Format(time.DateOnly), BalanceCents: p.Balance.Cents()}
+	}
+	return v, nil
+}
+
+// Months returns an account's months, oldest first, with their flows. On a
+// card the months after today's hold the installments already committed.
+func (s *Service) Months(ctx context.Context, id AccountID) ([]MonthView, error) {
+	if _, err := s.repo.AccountView(ctx, id); err != nil {
+		return nil, fmt.Errorf("ledger: months %s: %w", id, err)
+	}
+	rows, err := s.repo.MonthFlows(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: months %s: %w", id, err)
+	}
+	return monthViews(rows, s.now()), nil
+}
+
+// Installments returns an account's purchases with installments still to
+// come, the one ending first first.
+func (s *Service) Installments(ctx context.Context, id AccountID) ([]PurchaseView, error) {
+	if _, err := s.repo.AccountView(ctx, id); err != nil {
+		return nil, fmt.Errorf("ledger: installments %s: %w", id, err)
+	}
+	rows, err := s.repo.Installments(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: installments %s: %w", id, err)
+	}
+	today := s.now()
+	var live []Purchase
+	for _, p := range GroupInstallments(rows) {
+		if p.InProgress(today) {
+			live = append(live, p)
+		}
+	}
+	slices.SortStableFunc(live, func(a, b Purchase) int { return a.Last().Compare(b.Last()) })
+	out := make([]PurchaseView, len(live))
+	for i, p := range live {
+		out[i] = purchaseView(p, today)
+	}
+	return out, nil
+}
+
+// Transaction returns one live transaction with the other side of its
+// pair, its purchase's installments and its description's last six months.
+func (s *Service) Transaction(ctx context.Context, id TransactionID) (TransactionDetail, error) {
+	v, err := s.repo.TransactionView(ctx, id)
+	if err != nil {
+		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+	}
+	d := TransactionDetail{Transaction: v}
+	if v.CounterpartID != nil {
+		c, err := s.repo.TransactionView(ctx, *v.CounterpartID)
+		switch {
+		case err == nil:
+			d.Counterpart = &c
+		case !errors.Is(err, ErrNotFound):
+			return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+		}
+	}
+	if v.Installment != nil {
+		rows, err := s.repo.Installments(ctx, v.Account.ID)
+		if err != nil {
+			return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+		}
+		for _, p := range GroupInstallments(rows) {
+			if slices.ContainsFunc(p.Installments, func(r InstallmentRow) bool { return r.ID == id }) {
+				pv := purchaseView(p, s.now())
+				d.Purchase = &pv
+			}
+		}
+	}
+	date, err := time.Parse(time.DateOnly, v.Date)
+	if err != nil {
+		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+	}
+	to := monthOf(date).AddDate(0, 1, 0)
+	from := to.AddDate(0, -6, 0)
+	months, err := s.repo.DescriptionMonths(ctx, v.Description, from, to)
+	if err != nil {
+		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+	}
+	d.History = descriptionStats(months, from)
+	return d, nil
+}
+
+// Days returns a month's spending day by day, every account together, with
+// the month before. PreviousToDate compares like with like: for the month
+// in progress, the month before up to the same day.
+func (s *Service) Days(ctx context.Context, month time.Time) (DaysView, error) {
+	from := monthOf(month)
+	to := from.AddDate(0, 1, 0)
+	prevFrom := from.AddDate(0, -1, 0)
+	days, err := s.repo.DaySpending(ctx, from, to)
+	if err != nil {
+		return DaysView{}, fmt.Errorf("ledger: days %s: %w", from.Format("2006-01"), err)
+	}
+	prev, err := s.repo.DaySpending(ctx, prevFrom, from)
+	if err != nil {
+		return DaysView{}, fmt.Errorf("ledger: days %s: %w", from.Format("2006-01"), err)
+	}
+	v := DaysView{Month: from.Format("2006-01"), Days: days, Previous: prev}
+	for _, d := range days {
+		v.Summary.SpentCents += d.SpentCents
+		v.Summary.InCents += d.InCents
+		v.Summary.MovedCents += d.MovedCents
+	}
+	cutoff := 31
+	if today := s.now(); monthOf(today).Equal(from) {
+		cutoff = today.Day()
+	}
+	for _, d := range prev {
+		if day, _ := time.Parse(time.DateOnly, d.Date); day.Day() <= cutoff {
+			v.Summary.PreviousToDateCents += d.SpentCents
+		}
+	}
+	return v, nil
 }
