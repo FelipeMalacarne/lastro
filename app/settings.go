@@ -1,0 +1,45 @@
+package app
+
+import (
+	"errors"
+	"net/http"
+
+	"lastro/platform/httpx"
+	"lastro/platform/llm"
+)
+
+// settingsJSON is what the Settings screen shows about the server. Every
+// value comes from the LASTRO_* variables, so it is read-only here.
+type settingsJSON struct {
+	Version string  `json:"version"`
+	Env     string  `json:"env"`
+	SignIn  string  `json:"signIn"`
+	Model   modelJS `json:"model"`
+}
+
+type modelJS struct {
+	// State is "off" (not configured), "online", "missing" (Ollama answers
+	// without the model) or "offline".
+	State string `json:"state"`
+	Name  string `json:"name"`
+}
+
+func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
+	out := settingsJSON{Version: a.Version, Env: a.Config.Env, SignIn: "Cloudflare Access"}
+	if a.Config.Auth.Disabled {
+		out.SignIn = "Off (dev)"
+	}
+	out.Model.Name = a.LLM.Model()
+	switch err := a.LLM.Ping(r.Context()); {
+	case err == nil:
+		out.Model.State = "online"
+	case errors.Is(err, llm.ErrDisabled):
+		out.Model.State = "off"
+	case errors.Is(err, llm.ErrModelMissing):
+		out.Model.State = "missing"
+	default:
+		a.Logger.WarnContext(r.Context(), "local model unreachable", "error", err)
+		out.Model.State = "offline"
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}

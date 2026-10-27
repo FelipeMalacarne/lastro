@@ -7,7 +7,15 @@
     <title>lastro</title>
     <script>
       // Pick the theme before the first paint, so dark mode never flashes light.
-      document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      // A choice made in Settings (or with the sidebar's moon) wins over the device's.
+      (function () {
+        var saved = null;
+        try {
+          saved = localStorage.getItem("lastro.theme");
+        } catch (e) {}
+        var dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
     </script>
   </head>
   <body>

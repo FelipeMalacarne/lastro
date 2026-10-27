@@ -62,7 +62,7 @@ Every transaction has a category or is waiting in the review queue, and every co
 - [x] Transactions: each row shows its category's name and colour, and the list filters by category (the last open item of F2)
 - [x] `Classifier` via Ollama, validating that the answer is an existing category, with its suggestions in the queue
 - [x] List, edit and archive categories and rules (the "Categories and rules" screen)
-- [ ] web: the shared sidebar (search, accounts with sync state, Categories and rules, Settings, theme) and the Settings page with Connections, Categorization and Appearance; its Budget and Investments sections arrive with M3 and M4
+- [x] web: the shared sidebar (search, accounts with sync state, Categories and rules, Settings, theme) and the Settings page with Connections, Categorization and Appearance; its Budget and Investments sections arrive with M3 and M4
 
 ## M3: the month at a glance (F4, F5, dashboard)
 

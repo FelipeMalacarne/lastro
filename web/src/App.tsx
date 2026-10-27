@@ -7,6 +7,7 @@ import { AccountPage } from "@/pages/Account";
 import { Categories } from "@/pages/Categories";
 import { Gallery } from "@/pages/Gallery";
 import { Review } from "@/pages/Review";
+import { Settings } from "@/pages/Settings";
 import { Soon } from "@/pages/Soon";
 import { Transactions } from "@/pages/Transactions";
 
@@ -31,6 +32,8 @@ function page(path: string) {
       return <Review />;
     case "/categories":
       return <Categories />;
+    case "/settings":
+      return <Settings />;
     case "/budget":
       return <Soon title="Budget" milestone="M3" what="Pay yourself first, then a limit per category, with rollover." />;
     case "/portfolio":

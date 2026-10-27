@@ -3,9 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import "./index.css";
 import { App } from "./App";
-import { followSystemTheme } from "./lib/theme";
-
-followSystemTheme();
+import "./lib/theme";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

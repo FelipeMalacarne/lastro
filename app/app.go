@@ -30,6 +30,8 @@ type App struct {
 	DB     *pgxpool.Pool
 	Bus    *events.Bus
 	LLM    *llm.Client
+	// Version is the build's, for the Settings screen; the CLI sets it.
+	Version string
 
 	auth func(http.Handler) http.Handler
 
@@ -113,6 +115,7 @@ func (a *App) Close() { a.DB.Close() }
 func (a *App) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
+	api.HandleFunc("GET /api/v1/settings", a.handleSettings)
 	a.Ledger.RegisterRoutes(api, a.Logger)
 	a.Ingest.RegisterRoutes(api, a.Logger)
 	a.Categorize.RegisterRoutes(api, a.Logger)
@@ -128,5 +131,5 @@ func (a *App) Handler() http.Handler {
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.IdentityFrom(r.Context())
-	httpx.JSON(w, http.StatusOK, map[string]string{"email": id.Email})
+	httpx.JSON(w, http.StatusOK, map[string]string{"email": id.Email, "version": a.Version, "env": a.Config.Env})
 }
