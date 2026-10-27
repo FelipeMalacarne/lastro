@@ -37,8 +37,12 @@ func Sources(brapiToken string) (SeriesSource, QuoteSource, BondSource) {
 }
 
 // history is how far back, in years, a series or a new ticker is read the
-// first time; brapi takes "1y", "2y" or "5y".
-const history = 2
+// first time; brapi takes "1y", "2y" or "5y". brapi's free plan goes back
+// only shortRange, which a new ticker falls back to.
+const (
+	history    = 2
+	shortRange = "3mo"
+)
 
 var saoPaulo, _ = time.LoadLocation("America/Sao_Paulo")
 
@@ -157,6 +161,9 @@ func (s *Service) refreshQuote(ctx context.Context, symbol string) (int, error) 
 		rng = fmt.Sprintf("%dy", history)
 	}
 	q, err := s.quotes.Quote(ctx, symbol, rng)
+	if errors.Is(err, brapi.ErrRange) && n == 0 {
+		q, err = s.quotes.Quote(ctx, symbol, shortRange)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -306,7 +313,17 @@ func (s *Service) Valuations(ctx context.Context, symbol string, from time.Time)
 	return out, nil
 }
 
+// refreshBonds reads Tesouro Direto's file only when the titles stored are
+// older than the last business day: the file is big and the source
+// rate-limits.
 func (s *Service) refreshBonds(ctx context.Context) (int, error) {
+	stored, err := s.repo.latestBonds(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if len(stored) > 0 && !stored[0].Date.Before(lastWeekday(s.today())) {
+		return 0, nil
+	}
 	rows, err := s.bonds.Latest(ctx)
 	if err != nil {
 		return 0, err

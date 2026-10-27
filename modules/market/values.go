@@ -101,3 +101,14 @@ type Bond struct {
 
 // Title is how Tesouro Direto names it on its site: "Tesouro IPCA+ 2035".
 func (b Bond) Title() string { return fmt.Sprintf("%s %d", b.Name, b.Maturity.Year()) }
+
+// lastWeekday is the weekday before day: the last day Tesouro Direto can
+// have published. Holidays are not known, so after one the file is read
+// again for nothing.
+func lastWeekday(day time.Time) time.Time {
+	d := day.AddDate(0, 0, -1)
+	for d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+		d = d.AddDate(0, 0, -1)
+	}
+	return d
+}
