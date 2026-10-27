@@ -4,6 +4,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -59,6 +60,21 @@ func (p Pluggy) Validate() error {
 	return nil
 }
 
+// LoadPluggy reads and validates only the Pluggy settings, for commands that
+// talk to Pluggy without a database (lastro fixtures).
+func LoadPluggy() (Pluggy, error) {
+	p := pluggyFrom(func(key, def string) string { return cmp.Or(strings.TrimSpace(os.Getenv(key)), def) })
+	return p, p.Validate()
+}
+
+func pluggyFrom(get func(key, def string) string) Pluggy {
+	return Pluggy{
+		ClientID:     get("LASTRO_PLUGGY_CLIENT_ID", ""),
+		ClientSecret: get("LASTRO_PLUGGY_CLIENT_SECRET", ""),
+		ItemIDs:      splitList(get("LASTRO_PLUGGY_ITEM_IDS", "")),
+	}
+}
+
 // Load reads the configuration from the process environment.
 func Load() (Config, error) { return LoadFrom(os.Getenv) }
 
@@ -83,11 +99,7 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			URL:   get("LASTRO_OLLAMA_URL", ""),
 			Model: get("LASTRO_OLLAMA_MODEL", ""),
 		},
-		Pluggy: Pluggy{
-			ClientID:     get("LASTRO_PLUGGY_CLIENT_ID", ""),
-			ClientSecret: get("LASTRO_PLUGGY_CLIENT_SECRET", ""),
-			ItemIDs:      splitList(get("LASTRO_PLUGGY_ITEM_IDS", "")),
-		},
+		Pluggy: pluggyFrom(get),
 	}
 
 	var errs []error

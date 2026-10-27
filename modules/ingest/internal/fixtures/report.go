@@ -1,0 +1,157 @@
+package fixtures
+
+import (
+	"cmp"
+	"fmt"
+	"io"
+	"maps"
+	"slices"
+	"strings"
+	"time"
+	"unicode"
+
+	"lastro/modules/ingest/internal/pluggy"
+)
+
+// Report prints what a dump contains in aggregate: counts, date ranges,
+// statuses, enum values and description shapes built only from banking
+// vocabulary. It never prints an amount, a name, an id or a free-text word,
+// so the output is safe to share.
+func Report(w io.Writer, s Set, now time.Time) {
+	p := func(format string, args ...any) { _, _ = fmt.Fprintf(w, format+"\n", args...) }
+	p("Pluggy dump report: aggregates only, safe to share.")
+	for i, it := range s.Items {
+		of := "direct connector"
+		if it.Connector.IsOpenFinance {
+			of = "Open Finance"
+		}
+		p("")
+		p("Item %d of %d: %s (%s), status %s / %s", i+1, len(s.Items), it.Connector.Name, of, it.Status, it.ExecutionStatus)
+		if it.Error != nil && it.Error.Code != "" {
+			p("  error code: %s", it.Error.Code)
+		}
+		p("  data last updated by Pluggy: %s; authorization expires: %s", day(it.LastUpdatedAt), day(it.ConsentExpiresAt))
+		for j, a := range s.Accounts[it.ID] {
+			reportAccount(p, j+1, a, s.Transactions[a.ID], now)
+		}
+		invs := s.Investments[it.ID]
+		kinds := map[string]int{}
+		for _, inv := range invs {
+			kinds[inv.Type+"/"+cmp.Or(inv.Subtype, "-")+" "+cmp.Or(inv.Status, "-")]++
+		}
+		p("  investments: %d, by type:%s", len(invs), histogram(kinds))
+	}
+}
+
+func reportAccount(p func(string, ...any), n int, a pluggy.Account, txs []pluggy.Transaction, now time.Time) {
+	p("  account %d: %s/%s, %s, %d transactions", n, a.Type, a.Subtype, a.CurrencyCode, len(txs))
+	if len(txs) == 0 {
+		return
+	}
+	var first, last string
+	status, ops, inflowOps, shapesIn, shapesOut, currencies := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
+	var future, midnight, withTime, withProviderID, installments, withBill, inAccountCurrency int
+	totals := map[string]int{}
+	for _, t := range txs {
+		d := day(t.Date)
+		if first == "" || d < first {
+			first = d
+		}
+		if d > last {
+			last = d
+		}
+		if d > now.Format(time.DateOnly) {
+			future++
+		}
+		if strings.HasSuffix(t.Date, "T00:00:00.000Z") || strings.HasSuffix(t.Date, "T00:00:00Z") {
+			midnight++
+		} else if strings.Contains(t.Date, "T") {
+			withTime++
+		}
+		status[t.Status]++
+		ops[cmp.Or(t.OperationType, "(none)")]++
+		if t.ProviderID != "" {
+			withProviderID++
+		}
+		if t.CurrencyCode != a.CurrencyCode {
+			currencies[t.CurrencyCode]++
+		}
+		if t.AmountInAccountCurrency != "" {
+			inAccountCurrency++
+		}
+		if m := t.CreditCardMetadata; m != nil {
+			if m.TotalInstallments > 1 {
+				installments++
+				totals[fmt.Sprint(m.TotalInstallments)]++
+			}
+			if m.BillID != "" {
+				withBill++
+			}
+		}
+		if t.Type == "CREDIT" {
+			inflowOps[cmp.Or(t.OperationType, "(none)")]++
+			if a.Type == "CREDIT" {
+				shapesIn[shape(t.Description)]++
+			}
+		} else if a.Type == "BANK" && (strings.Contains(shape(t.Description), "FATURA") || strings.Contains(shape(t.Description), "CARTAO")) {
+			shapesOut[shape(t.Description)]++
+		}
+	}
+	p("    dates: %s to %s; %d dated after today", first, last, future)
+	p("    time of day: %d at midnight UTC, %d with a time, %d plain dates", midnight, withTime, len(txs)-midnight-withTime)
+	p("    status:%s", histogram(status))
+	p("    with the bank's own id (providerId): %d of %d", withProviderID, len(txs))
+	p("    operation types:%s", histogram(ops))
+	p("    inflows by operation type:%s", histogram(inflowOps))
+	if len(currencies) > 0 || inAccountCurrency > 0 {
+		p("    other currencies:%s; with amountInAccountCurrency: %d", histogram(currencies), inAccountCurrency)
+	}
+	if a.Type == "CREDIT" {
+		p("    installments: %d (totals seen:%s); with billId: %d", installments, histogram(totals), withBill)
+		p("    inflow descriptions:%s", histogram(shapesIn))
+	} else if len(shapesOut) > 0 {
+		p("    outflows that look like card bill payments:%s", histogram(shapesOut))
+	}
+}
+
+// shape keeps only banking vocabulary: other words become "*" and digits "#".
+func shape(desc string) string {
+	var out []string
+	for _, w := range strings.FieldsFunc(desc, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		switch f := fold(w); {
+		case isDigits(f):
+			out = append(out, "#")
+		case vocabulary[f]:
+			out = append(out, f)
+		default:
+			out = append(out, "*")
+		}
+	}
+	return strings.Join(slices.Compact(out), " ")
+}
+
+// histogram formats counts as " A 3, B 1", most frequent first, at most 8 entries.
+func histogram(m map[string]int) string {
+	if len(m) == 0 {
+		return " none"
+	}
+	keys := slices.SortedFunc(maps.Keys(m), func(a, b string) int {
+		return cmp.Or(cmp.Compare(m[b], m[a]), cmp.Compare(a, b))
+	})
+	var parts []string
+	for i, k := range keys {
+		if i == 8 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(keys)-8))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", k, m[k]))
+	}
+	return " " + strings.Join(parts, ", ")
+}
+
+func day(ts string) string {
+	if len(ts) >= 10 {
+		return ts[:10]
+	}
+	return cmp.Or(ts, "unknown")
+}

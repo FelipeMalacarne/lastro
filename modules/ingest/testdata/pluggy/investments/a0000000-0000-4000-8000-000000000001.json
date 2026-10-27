@@ -1,0 +1,27 @@
+[
+  {
+    "id": "e0000000-0000-4000-8000-000000000001",
+    "itemId": "a0000000-0000-4000-8000-000000000001",
+    "type": "FIXED_INCOME",
+    "subtype": "CDB",
+    "name": "Caixinha Reserva",
+    "code": null,
+    "isin": null,
+    "number": null,
+    "currencyCode": "BRL",
+    "balance": 5000,
+    "amount": 5000,
+    "amountOriginal": 4700,
+    "quantity": null,
+    "value": null,
+    "date": "2026-10-26T00:00:00.000Z",
+    "dueDate": null,
+    "issuer": "Nu Financeira",
+    "rate": 100,
+    "rateType": "CDI",
+    "fixedAnnualRate": null,
+    "status": "ACTIVE",
+    "createdAt": "2026-01-10T12:00:00.000Z",
+    "updatedAt": "2026-10-26T09:12:00.000Z"
+  }
+]

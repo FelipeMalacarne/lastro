@@ -28,6 +28,7 @@ lastro serve        API + embedded frontend
 lastro sync         pull accounts and transactions from Pluggy (M1)
 lastro contribute   show where this month's contribution should go (M4)
 lastro migrate      apply pending migrations
+lastro fixtures     download Pluggy responses, print a report safe to share and anonymize them into test fixtures
 lastro version      print the version
 ```
 

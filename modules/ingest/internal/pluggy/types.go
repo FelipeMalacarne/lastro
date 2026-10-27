@@ -1,0 +1,109 @@
+package pluggy
+
+import "encoding/json"
+
+// The types below hold only the fields ingest reads. Amounts stay json.Number
+// (the literal Pluggy sent) so they become cents without passing through a
+// float. Dates stay strings because Pluggy mixes full timestamps and plain
+// dates. Raw keeps the whole record as received, for the raw payload store.
+//
+// Fields that identify people (owner, taxNumber, paymentData) are left out on
+// purpose: they exist only in Raw.
+
+// Item is one connection. With Meu Pluggy, each bank connected there is an item.
+type Item struct {
+	ID               string          `json:"id"`
+	Connector        Connector       `json:"connector"`
+	Status           string          `json:"status"`
+	ExecutionStatus  string          `json:"executionStatus"`
+	Error            *ItemError      `json:"error"`
+	LastUpdatedAt    string          `json:"lastUpdatedAt"`
+	ConsentExpiresAt string          `json:"consentExpiresAt"`
+	Raw              json.RawMessage `json:"-"`
+}
+
+// Connector is the institution behind an item.
+type Connector struct {
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	IsOpenFinance bool   `json:"isOpenFinance"`
+}
+
+// ItemError explains why the last update of an item failed.
+type ItemError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// Account is a bank account (type BANK) or a credit card (type CREDIT).
+type Account struct {
+	ID            string          `json:"id"`
+	ItemID        string          `json:"itemId"`
+	Type          string          `json:"type"`
+	Subtype       string          `json:"subtype"`
+	Number        string          `json:"number"`
+	Name          string          `json:"name"`
+	MarketingName string          `json:"marketingName"`
+	Balance       json.Number     `json:"balance"`
+	CurrencyCode  string          `json:"currencyCode"`
+	CreditData    *CreditData     `json:"creditData"`
+	Raw           json.RawMessage `json:"-"`
+}
+
+// CreditData is the card part of a CREDIT account.
+type CreditData struct {
+	Brand                string      `json:"brand"`
+	Level                string      `json:"level"`
+	BalanceCloseDate     string      `json:"balanceCloseDate"`
+	BalanceDueDate       string      `json:"balanceDueDate"`
+	CreditLimit          json.Number `json:"creditLimit"`
+	AvailableCreditLimit json.Number `json:"availableCreditLimit"`
+}
+
+// Transaction is one movement of an account. Type says the direction from
+// the holder's point of view (DEBIT out, CREDIT in), on cards too: Pluggy
+// normalizes card purchases to DEBIT and bill payments to CREDIT.
+type Transaction struct {
+	ID                      string              `json:"id"`
+	AccountID               string              `json:"accountId"`
+	Description             string              `json:"description"`
+	DescriptionRaw          string              `json:"descriptionRaw"`
+	CurrencyCode            string              `json:"currencyCode"`
+	Amount                  json.Number         `json:"amount"`
+	AmountInAccountCurrency json.Number         `json:"amountInAccountCurrency"`
+	Date                    string              `json:"date"`
+	Type                    string              `json:"type"`
+	Status                  string              `json:"status"`
+	OperationType           string              `json:"operationType"`
+	ProviderID              string              `json:"providerId"`
+	CreditCardMetadata      *CreditCardMetadata `json:"creditCardMetadata"`
+	Raw                     json.RawMessage     `json:"-"`
+}
+
+// CreditCardMetadata carries the installment and bill of a card transaction.
+type CreditCardMetadata struct {
+	InstallmentNumber int    `json:"installmentNumber"`
+	TotalInstallments int    `json:"totalInstallments"`
+	PurchaseDate      string `json:"purchaseDate"`
+	BillID            string `json:"billId"`
+}
+
+// Investment is one position of an item. M4 maps them into portfolio; until
+// then ingest only stores them.
+type Investment struct {
+	ID           string          `json:"id"`
+	ItemID       string          `json:"itemId"`
+	Type         string          `json:"type"`
+	Subtype      string          `json:"subtype"`
+	Name         string          `json:"name"`
+	Code         string          `json:"code"`
+	ISIN         string          `json:"isin"`
+	CurrencyCode string          `json:"currencyCode"`
+	Balance      json.Number     `json:"balance"`
+	Quantity     json.Number     `json:"quantity"`
+	Date         string          `json:"date"`
+	DueDate      string          `json:"dueDate"`
+	Status       string          `json:"status"`
+	RateType     string          `json:"rateType"`
+	Raw          json.RawMessage `json:"-"`
+}

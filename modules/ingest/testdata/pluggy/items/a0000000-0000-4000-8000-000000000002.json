@@ -1,0 +1,13 @@
+{
+  "id": "a0000000-0000-4000-8000-000000000002",
+  "connector": { "id": 601, "name": "Itaú", "isOpenFinance": true, "type": "PERSONAL_BANK" },
+  "status": "UPDATED",
+  "executionStatus": "PARTIAL_SUCCESS",
+  "error": null,
+  "createdAt": "2026-01-10T12:05:00.000Z",
+  "updatedAt": "2026-10-23T08:00:00.000Z",
+  "lastUpdatedAt": "2026-10-23T08:00:00.000Z",
+  "consentExpiresAt": "2027-09-30T00:00:00.000Z",
+  "nextAutoSyncAt": null,
+  "products": ["ACCOUNTS", "TRANSACTIONS", "INVESTMENTS"]
+}

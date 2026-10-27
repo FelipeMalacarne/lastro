@@ -1,0 +1,27 @@
+[
+  {
+    "id": "e0000000-0000-4000-8000-000000000002",
+    "itemId": "a0000000-0000-4000-8000-000000000002",
+    "type": "FIXED_INCOME",
+    "subtype": "TREASURY",
+    "name": "Tesouro IPCA+ 2035",
+    "code": null,
+    "isin": "BRSTNCNTB4U6",
+    "number": null,
+    "currencyCode": "BRL",
+    "balance": 12345.67,
+    "amount": 12500,
+    "amountOriginal": 11000,
+    "quantity": 3.42,
+    "value": 3650.2,
+    "date": "2026-10-23T00:00:00.000Z",
+    "dueDate": "2035-05-15T00:00:00.000Z",
+    "issuer": "Tesouro Nacional",
+    "rate": 100,
+    "rateType": "IPCA",
+    "fixedAnnualRate": 6.1,
+    "status": "ACTIVE",
+    "createdAt": "2026-01-10T12:05:00.000Z",
+    "updatedAt": "2026-10-23T08:00:00.000Z"
+  }
+]

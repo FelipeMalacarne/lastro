@@ -1,0 +1,19 @@
+[
+  {
+    "id": "b0000000-0000-4000-8000-000000000021",
+    "itemId": "a0000000-0000-4000-8000-000000000002",
+    "type": "BANK",
+    "subtype": "CHECKING_ACCOUNT",
+    "number": "1234/56789-0",
+    "name": "Conta Corrente",
+    "marketingName": "Itaú Uniclass",
+    "balance": 812.4,
+    "currencyCode": "BRL",
+    "owner": "Pessoa Exemplo",
+    "taxNumber": "000.000.000-00",
+    "bankData": { "transferNumber": "341/1234/56789-0", "closingBalance": 812.4, "automaticallyInvestedBalance": 0 },
+    "creditData": null,
+    "createdAt": "2026-01-10T12:05:00.000Z",
+    "updatedAt": "2026-10-23T08:00:00.000Z"
+  }
+]

@@ -1,0 +1,46 @@
+[
+  {
+    "id": "b0000000-0000-4000-8000-000000000011",
+    "itemId": "a0000000-0000-4000-8000-000000000001",
+    "type": "BANK",
+    "subtype": "CHECKING_ACCOUNT",
+    "number": "0001/9876543-2",
+    "name": "Conta Corrente",
+    "marketingName": null,
+    "balance": 3210.55,
+    "currencyCode": "BRL",
+    "owner": "Pessoa Exemplo",
+    "taxNumber": "000.000.000-00",
+    "bankData": { "transferNumber": "260/0001/9876543-2", "closingBalance": 3210.55, "automaticallyInvestedBalance": null },
+    "creditData": null,
+    "createdAt": "2026-01-10T12:00:00.000Z",
+    "updatedAt": "2026-10-26T09:12:00.000Z"
+  },
+  {
+    "id": "b0000000-0000-4000-8000-000000000012",
+    "itemId": "a0000000-0000-4000-8000-000000000001",
+    "type": "CREDIT",
+    "subtype": "CREDIT_CARD",
+    "number": "4321",
+    "name": "Nubank Ultravioleta Mastercard",
+    "marketingName": "Ultravioleta",
+    "balance": 1530.2,
+    "currencyCode": "BRL",
+    "owner": "PESSOA EXEMPLO",
+    "taxNumber": "***.***.000-00",
+    "bankData": null,
+    "creditData": {
+      "level": "BLACK",
+      "brand": "MASTERCARD",
+      "balanceCloseDate": "2026-11-03",
+      "balanceDueDate": "2026-11-10",
+      "availableCreditLimit": 13469.8,
+      "creditLimit": 15000,
+      "isLimitFlexible": false,
+      "status": "ACTIVE",
+      "holderType": "MAIN"
+    },
+    "createdAt": "2026-01-10T12:00:00.000Z",
+    "updatedAt": "2026-10-26T09:12:00.000Z"
+  }
+]

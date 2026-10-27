@@ -22,11 +22,12 @@ Each box is one small PR. A task that creates or changes a screen starts on the 
 
 Every account and transaction on the phone, synced every day, with transfers and card bills never counted as spending.
 
-- [ ] Pluggy spike: anonymized fixtures from my real connections, and a note in `docs/` answering the open questions (how much history the first sync returns, how card bills, installments and pending transactions arrive, which investments come through)
+- [x] `ingest`: Pluggy client in `internal/pluggy` (auth, items, accounts, transactions and investments)
+- [x] Pluggy spike from the docs: `lastro fixtures` (download, a report safe to share, anonymizer), synthetic fixtures and `docs/pluggy.md` answering the open questions
+- [ ] Pluggy spike with my connections: run `lastro fixtures`, commit the anonymized fixtures and fill the "Confirmed" column of `docs/pluggy.md` (needs my credentials, so I run it)
 - [ ] `ledger`: value objects `ExternalID`, `Kind`, `Installment`, `CategoryID` and `Source`, with tests
 - [ ] `ledger`: `Account` and `Transaction` aggregates, with invariants and events
 - [ ] `ledger`: migrations, `queries.sql` and `repository.go` with idempotent upsert
-- [ ] `ingest`: Pluggy client in `internal/pluggy` (auth, accounts, transactions and investments)
 - [ ] `ingest`: Pluggy → ledger mapping, tested against the fixtures
 - [ ] `ingest`: raw payloads and sync state per item
 - [ ] `lastro sync` end to end, and the CronJob turned on
