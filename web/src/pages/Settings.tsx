@@ -79,7 +79,7 @@ export function Settings() {
 
   return (
     <>
-      <PageHeader title="Settings" caption="Changes save as you make them · server settings come from the LASTRO_* variables and are read-only here" monthless />
+      <PageHeader title="Settings" caption="Theme saves as you pick it; the other sections save with their button · server settings come from the LASTRO_* variables and are read-only here" monthless />
       <div className="flex items-start gap-8">
         <nav aria-label="Settings sections" className="sticky top-8 hidden w-[184px] flex-none flex-col gap-0.5 lg:flex">
           {sections.map((s) => {

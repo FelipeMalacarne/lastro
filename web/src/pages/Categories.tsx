@@ -91,7 +91,7 @@ export function Categories() {
         <PageHeader
           title="Categories and rules"
           caption={caption}
-          monthless
+         
           actions={
             <Button onClick={() => setCreating(true)}>
               <Plus aria-hidden />

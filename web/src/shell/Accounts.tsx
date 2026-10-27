@@ -4,6 +4,7 @@ import { Amount } from "@/components/Amount";
 import { Panel } from "@/components/Panel";
 import { SyncStatus } from "@/components/SyncStatus";
 import { typeName, useResource, type Account, type Connection } from "@/lib/api";
+import { formatBRL } from "@/lib/format";
 import { Link, useLocation } from "@/lib/router";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +47,7 @@ export function SidebarAccounts() {
                 key={a.id}
                 to={`/accounts/${a.id}`}
                 aria-current={here ? "page" : undefined}
+                aria-label={`${b.institution} ${a.type === "credit_card" ? "card" : typeName[a.type].toLowerCase()}, ${formatBRL(a.balanceCents)}`}
                 className={cn(
                   "-mx-2 flex min-h-8 items-baseline justify-between gap-2 rounded-sm py-1.5 pr-2 pl-[30px] type-caption no-underline transition-colors",
                   here ? "bg-tinta-soft font-semibold text-tinta hover:text-tinta" : "text-ink-muted hover:bg-paper-sunken hover:text-ink",

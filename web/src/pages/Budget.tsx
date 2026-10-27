@@ -49,9 +49,9 @@ export function Budget() {
   const shown = filter === "attention" ? attention : filter === "rollover" ? rolls : v.categories;
   const gone = Math.round(v.elapsedBp / 100);
   const caption = [
-    isCurrent ? `${v.days - v.daysLeft + 1} of ${v.days} days gone · ${v.daysLeft} ${v.daysLeft === 1 ? "day" : "days"} left` : `${formatMonth(v.month)} is over`,
+    isCurrent ? `Day ${v.days - v.daysLeft + 1} of ${v.days} · ${v.daysLeft} ${v.daysLeft === 1 ? "day" : "days"} left, today included` : `${formatMonth(v.month)} is over`,
     rolls.length ? `${rolls.length} ${rolls.length === 1 ? "category rolls" : "categories roll"} over` : null,
-    v.hasBudget && !v.saved && v.from ? `following ${formatMonth(v.from)}'s budget` : null,
+    v.hasBudget && !v.saved && v.from ? `limits as set in ${formatMonth(v.from)}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

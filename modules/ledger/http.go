@@ -136,6 +136,12 @@ func parseFilter(r *http.Request) (TransactionFilter, error) {
 	if f.Search = strings.TrimSpace(q.Get("q")); len([]rune(f.Search)) > 100 {
 		return TransactionFilter{}, httpx.BadRequest("search is limited to 100 characters")
 	}
+	if sc := q.Get("scope"); sc != "" {
+		if sc != "all" || f.Search == "" {
+			return TransactionFilter{}, httpx.BadRequest(`scope can only be "all", with a search`)
+		}
+		f.AllMonths = true
+	}
 	if c := q.Get("category"); c != "" {
 		if c != CategoryNone && !uuidRe.MatchString(c) {
 			return TransactionFilter{}, httpx.BadRequest(`category must be a category id or "none"`)

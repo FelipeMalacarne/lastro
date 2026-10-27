@@ -1,4 +1,4 @@
-import { formatAxis, formatBRL } from "@/lib/format";
+import { formatAxis, formatCompact, formatBRL } from "@/lib/format";
 
 type Props = {
   /** The invested total at the end of each past month, oldest first. */
@@ -13,9 +13,6 @@ type Props = {
   width?: number;
 };
 
-const H = 320;
-const L = 80;
-const R = 112;
 const T = 16;
 const B = 32;
 
@@ -25,6 +22,12 @@ const B = 32;
  * simulated paths land.
  */
 export function ProjectionChart({ history, low, base, high, bands, startYear, width = 1000 }: Props) {
+  // A narrow chart keeps its text near its size on a phone: less room for labels.
+  const narrow = width < 500;
+  const H = narrow ? 260 : 320;
+  const L = narrow ? 60 : 80;
+  const R = narrow ? 64 : 112;
+  const axis = narrow ? formatCompact : formatAxis;
   const years = base.length - 1;
   const past = history.length; // months before today
   const span = past / 12 + years;
@@ -44,7 +47,7 @@ export function ProjectionChart({ history, low, base, high, bands, startYear, wi
 
   const label = (v: number, dy: number, tone: string) => (
     <text x={x(years) + 8} y={y(v) + dy} className={`font-figure text-[12px] ${tone}`}>
-      {formatAxis(v)}
+      {axis(v)}
     </text>
   );
   // Keep the three end labels apart.
@@ -64,7 +67,7 @@ export function ProjectionChart({ history, low, base, high, bands, startYear, wi
         <g key={t}>
           <line x1={L} x2={width - R + 8} y1={y(t)} y2={y(t)} className="stroke-rule" />
           <text x={L - 8} y={y(t) + 4} textAnchor="end" className="fill-ink-muted font-figure text-[11px]">
-            {formatAxis(t)}
+            {axis(t)}
           </text>
         </g>
       ))}

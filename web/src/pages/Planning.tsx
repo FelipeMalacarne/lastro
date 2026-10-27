@@ -134,7 +134,7 @@ export function Planning() {
                 high={high.yearlyCents}
                 bands={view === "simulation" ? p.monteCarlo.bands.filter((b) => b.month % 12 === 0).map((b) => ({ p10: b.p10Cents, p90: b.p90Cents })) : undefined}
                 startYear={new Date().getFullYear()}
-                width={wide ? 1000 : 420}
+                width={wide ? 1000 : 340}
               />
             ) : (
               <div className="h-[200px]" />

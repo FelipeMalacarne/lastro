@@ -35,7 +35,7 @@
 - `GET /api/v1/accounts/{id}/balance`: the balance at the end of each day (`BalanceHistory`).
 - `GET /api/v1/accounts/{id}/months`: each month in and out, what counts (spending, refunds), and its flows by kind, direction and, for pairs, the other side's account. Months after today's are `future`: on a card, the installments already committed.
 - `GET /api/v1/accounts/{id}/installments`: the purchases with installments still to come, the one ending first first.
-- `GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&q=<text>`: a month (or one of its days) of live transactions, newest first, each with its account and, for pairs, the other side and its account, plus a summary (count, pending, money in and out that counts). The search ignores case and accents. `category=none` lists the expenses and income still waiting for a category.
+- `GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&q=<text>`: a month (or one of its days) of live transactions, newest first, each with its account and, for pairs, the other side and its account, plus a summary (count, pending, money in and out that counts). The search ignores case and accents; `scope=all` searches every month (only with `q`). `category=none` lists the expenses and income still waiting for a category.
 - `GET /api/v1/transactions/{id}`: one transaction, the other side of its pair, its purchase's installments and how often its description came up in the last six months.
 - `GET /api/v1/transactions/days?month=2026-10`: spending, money in and money moved day by day, every account together, with the month before and what it had spent by the same day.
 

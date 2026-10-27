@@ -16,6 +16,7 @@ import {
   useResource,
   type BudgetMonth,
   type NetWorthPoint,
+  type PortfolioOverview,
   type Category,
   type DaysView,
   type Recurring,
@@ -49,7 +50,7 @@ export function Dashboard() {
     .sort()
     .at(-1);
   const caption = [
-    budget && isCurrent ? `${budget.days - budget.daysLeft + 1} of ${budget.days} days gone` : budget ? `${formatMonth(month)} is over` : null,
+    budget && isCurrent ? `Day ${budget.days - budget.daysLeft + 1} of ${budget.days}` : budget ? `${formatMonth(month)} is over` : null,
     synced ? `synced ${ago(synced)}` : null,
   ]
     .filter(Boolean)
@@ -156,14 +157,13 @@ function prevOf(m: string): string {
 /** Net worth (F6): everything owned, its last twelve months, and what it is made of. */
 function NetWorth() {
   const res = useResource<{ points: NetWorthPoint[] }>("/api/v1/net-worth?months=12");
+  // The same twelve months as the Portfolio, so the two never disagree.
+  const overview = useResource<PortfolioOverview>("/api/v1/portfolio").data;
   const points = res.data?.points ?? [];
   const now = points.at(-1);
   if (!now) return <Panel title="Net worth">{res.error ? `Could not load: ${res.error}.` : "Loading…"}</Panel>;
   const first = points[0];
   const delta = now.totalCents - first.totalCents;
-  const putIn = now.basisCents - first.basisCents;
-  // What markets added: the change in investments beyond what was put in.
-  const returns = now.investedCents + now.emergencyCents - (first.investedCents + first.emergencyCents) - putIn;
   const fromLabel = formatMonth(first.date.slice(0, 7), true);
   const rows = [
     { label: "Invested", cents: now.investedCents, to: "/portfolio" },
@@ -191,15 +191,15 @@ function NetWorth() {
             </div>
           </div>
         )}
-        {points.length > 1 && (
+        {overview?.putIn12mCents != null && overview.since && (
           <div className="grid grid-cols-2 gap-4 border-t border-rule pt-3">
             <div className="flex flex-col gap-0.5">
-              <span className="type-caption text-ink-muted">Put in since {fromLabel}</span>
-              <Amount cents={putIn} sign="none" />
+              <span className="type-caption text-ink-muted">Invested since {formatDay(overview.since)} {overview.since.slice(0, 4)}</span>
+              <Amount cents={overview.putIn12mCents} sign="none" />
             </div>
             <div className="flex flex-col gap-0.5">
-              <span className="type-caption text-ink-muted">Returns</span>
-              <Amount cents={returns} sign="always" />
+              <span className="type-caption text-ink-muted">Returns on it</span>
+              <Amount cents={overview.returns12mCents ?? 0} sign="always" />
             </div>
           </div>
         )}
@@ -243,7 +243,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
   const inLimits = Math.max(v.leftCents, 0);
   if (inLimits > 0) segments.push({ key: "left", label: "Left in limits", cents: inLimits, color: "transparent" });
   const rest = v.incomeCents - pyf.movedCents - spent - inLimits;
-  if (rest > 0) segments.push({ key: "rest", label: "Not assigned", cents: rest, color: "var(--paper-sunken)" });
+  if (rest > 0) segments.push({ key: "rest", label: "Rest of the income", cents: rest, color: "transparent" });
   const total = Math.max(v.incomeCents, segments.reduce((s, x) => s + x.cents, 0), 1);
 
   return (
@@ -294,16 +294,32 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
                 <span
                   key={s.key}
                   title={`${s.label}: ${formatBRL(s.cents)}`}
-                  className={cn("h-full", s.key === "left" && "box-border border-[1.5px] border-dashed border-ink-muted")}
+                  className={cn(
+                    "h-full",
+                    s.key === "left" && "box-border border-[1.5px] border-dashed border-ink-muted",
+                    s.key === "rest" && "box-border border-[1.5px] border-rule-strong bg-[image:repeating-linear-gradient(135deg,var(--rule-strong)_0_1.5px,transparent_1.5px_6px)]",
+                  )}
                   style={{ width: `${(s.cents / total) * 100}%`, background: s.color }}
                 />
               ))}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 type-caption text-ink-muted">
               {pyf.movedCents > 0 && <Legend color="var(--inflow)">Pay yourself first {formatBRL(pyf.movedCents)}</Legend>}
-              <Legend color="var(--ink)">Spent {formatBRL(spent)}</Legend>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="flex h-2.5 w-4 overflow-hidden rounded-xs" aria-hidden>
+                  <span className="flex-1 bg-note-100" />
+                  <span className="flex-1 bg-note-10" />
+                  <span className="flex-1 bg-note-1" />
+                </span>
+                Spent {formatBRL(spent)}, in each category's colour
+              </span>
               {inLimits > 0 && <Legend dashed>Left in limits {formatBRL(inLimits)}</Legend>}
-              {rest > 0 && <Legend color="var(--paper-sunken)">Not assigned {formatBRL(rest)}</Legend>}
+              {rest > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="box-border size-2.5 rounded-xs border border-rule-strong bg-[image:repeating-linear-gradient(135deg,var(--rule-strong)_0_1px,transparent_1px_3px)]" aria-hidden />
+                  Rest of the income {formatBRL(rest)}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -337,7 +353,9 @@ function ByCategory({ v, byId, isCurrent }: { v: BudgetMonth; byId: Map<string, 
   // average; in this one, only the categories already past their whole-month average.
   const named = rows.filter((r) => r.id && r.avg >= 5000);
   let insight: React.ReactNode;
-  if (isCurrent) {
+  if (rows.length === 0) {
+    insight = `No spending recorded in ${formatMonth(v.month)}.`;
+  } else if (isCurrent) {
     // Past it by 10% and R$ 50 at least, so a rent paid to the cent is not news.
     const past = named.filter((r) => r.spent > r.avg * 1.1 && r.spent - r.avg >= 5000).sort((a, b) => b.spent / b.avg - a.spent / a.avg);
     insight = past.length ? (
@@ -394,7 +412,15 @@ function ByCategory({ v, byId, isCurrent }: { v: BudgetMonth; byId: Map<string, 
                   </span>
                 )}
                 <span className="relative h-3 rounded-xs bg-paper-sunken">
-                  <span className="absolute inset-y-0 left-0 rounded-xs" style={{ width: `${(Math.max(r.spent, 0) / max) * 100}%`, background: c ? `var(--${c.color})` : "var(--warning)" }} />
+                  <span
+                    className="absolute inset-y-0 left-0 rounded-xs"
+                    style={{
+                      width: `${(Math.max(r.spent, 0) / max) * 100}%`,
+                      // Waiting for a category: hatched, so it never reads as one.
+                      background: c ? `var(--${c.color})` : "repeating-linear-gradient(135deg, var(--warning) 0 2px, transparent 2px 5px)",
+                      boxShadow: c ? undefined : "inset 0 0 0 1px var(--warning)",
+                    }}
+                  />
                   {r.avg > 0 && <span title="6-month average" className="absolute -inset-y-1 w-0.5 bg-ink" style={{ left: `${(r.avg / max) * 100}%` }} />}
                 </span>
                 <Amount cents={r.spent} sign="none" size="sm" className="text-right" />
@@ -422,7 +448,9 @@ function Through({ month, days, today, isCurrent }: { month: string; days: DaysV
   return (
     <div className="flex flex-col gap-3">
       <p className="m-0 type-body">
-        {days.summary.previousToDateCents === 0 ? (
+        {days.summary.spentCents === 0 && days.summary.previousToDateCents === 0 ? (
+          "No spending in this month or the one before."
+        ) : days.summary.previousToDateCents === 0 ? (
           "Nothing to compare with in the month before."
         ) : (
           <>
@@ -434,7 +462,9 @@ function Through({ month, days, today, isCurrent }: { month: string; days: DaysV
           </>
         )}
       </p>
-      <RunningTotal month={month} days={days.days} previous={days.previous} today={today} width={wide ? 560 : 380} />
+      {(days.summary.spentCents > 0 || days.previous.some((d) => d.spentCents > 0)) && (
+        <RunningTotal month={month} days={days.days} previous={days.previous} today={today} width={wide ? 560 : 340} />
+      )}
       <div className="flex flex-wrap gap-x-4 type-caption text-ink-muted">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-0.5 w-4 bg-ink" aria-hidden />
@@ -541,6 +571,11 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
               );
             })}
           </div>
+          {review.groups.length > groups.length && (
+            <p className="m-0 -mt-2 type-caption text-ink-muted">
+              and {review.groups.length - groups.length} more {review.groups.length - groups.length === 1 ? "merchant" : "merchants"} in the queue
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <Button asChild variant="primary">
               <Link to="/review">Start review {wide && <Kbd>R</Kbd>}</Link>

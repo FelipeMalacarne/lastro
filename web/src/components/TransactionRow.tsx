@@ -50,7 +50,7 @@ export function TransactionRow(p: Props) {
   const className = cn(
     "grid min-h-11 items-center gap-x-4 border-b border-rule bg-paper-raised px-4 py-2 sm:px-5",
         "grid-cols-[minmax(0,1fr)_auto] gap-y-0.5 [grid-template-areas:'main_amount''main_date''cat_cat']",
-        "sm:grid-cols-[52px_minmax(0,1fr)_minmax(0,200px)_140px] sm:[grid-template-areas:'date_main_cat_amount']",
+        "sm:grid-cols-[52px_minmax(0,1fr)_minmax(0,168px)_minmax(112px,auto)] sm:[grid-template-areas:'date_main_cat_amount']",
     p.selected && "bg-tinta-soft shadow-[inset_2px_0_0_var(--tinta)]",
     p.to && "text-ink no-underline transition-colors hover:text-ink focus-visible:focus-ring",
     p.to && !p.selected && "hover:bg-paper-sunken",

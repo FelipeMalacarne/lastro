@@ -24,6 +24,7 @@ import {
   type TransactionList,
 } from "@/lib/api";
 import { addMonths, formatBRL, formatDate, formatDay, formatMonth, todayISO } from "@/lib/format";
+import { useCategories } from "@/lib/categories";
 import { useMonth } from "@/lib/month";
 import { pickNotice } from "@/lib/notice";
 import { Link, navigate } from "@/lib/router";
@@ -286,14 +287,17 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
   // Nubank counts future installments against the limit: what it reports as
   // the card's balance is the limit in use, not the open bill.
   const inUse = limit != null && available != null ? limit - available : -a.balanceCents;
-  const future = Math.min(inUse, all.filter((m) => m.future).reduce((s, m) => s + m.spentCents, 0));
+  const live = purchases.data?.purchases ?? [];
+  const left = live.reduce((s, p) => s + p.remainingCents, 0);
+  // Installments not billed yet: the months ahead when the bank lists them,
+  // else what the purchases in progress still have to bill.
+  const futureMonths = all.filter((m) => m.future).reduce((s, m) => s + m.spentCents, 0);
+  const future = Math.min(inUse, Math.max(futureMonths, left));
   const shown = [...all.filter((m) => !m.future).slice(-12), ...all.filter((m) => m.future)];
   const past = all.filter((m) => !m.future && m.month < current);
   const avg = past.length ? Math.round(past.slice(-11).reduce((s, m) => s + m.spentCents, 0) / Math.min(11, past.length)) : 0;
   const now = all.find((m) => m.month === current);
   const next = all.find((m) => m.month === addMonths(current, 1));
-  const live = purchases.data?.purchases ?? [];
-  const left = live.reduce((s, p) => s + p.remainingCents, 0);
   const bills = all
     .flatMap((m) => m.flows.filter((f) => f.kind === "bill_payment" && f.direction === "in").map((f) => ({ m, f })))
     .reverse()
@@ -328,7 +332,10 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
         <Facts a={a} bank={bank} className="flex-[3_1_260px]" />
       </div>
 
-      <Panel title="Card spending by month" footer="Each installment counts in the month it is billed. Dashed bars are installments already committed to the coming months.">
+      <Panel
+        title="Card spending by month"
+        footer={`Each installment counts in the month it is billed.${futureMonths > 0 ? " Dashed bars are installments already committed to the coming months." : ""}`}
+      >
         <div className="flex flex-col gap-3">
           {now && (
             <p className="m-0 type-body">
@@ -425,6 +432,7 @@ function billDays(a: Account, today: string): string {
 /** The month in view, in this account; a row opens its detail on Transactions. */
 function AccountTransactions({ a }: { a: Account }) {
   const { month } = useMonth();
+  const { byId } = useCategories();
   const res = useResource<TransactionList>(`/api/v1/transactions?month=${month}&account=${a.id}`);
   const list = res.data?.transactions ?? [];
   const shown = list.slice(0, 8);
@@ -457,7 +465,7 @@ function AccountTransactions({ a }: { a: Account }) {
             amountCents={t.amountCents}
             pending={t.status === "pending"}
             installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
-            categorized={false}
+            category={t.category && byId.get(t.category.id) ? { name: byId.get(t.category.id)!.name, color: byId.get(t.category.id)!.color } : null}
           />
       ))}
     </Panel>

@@ -397,8 +397,11 @@ func accountView(row db.LedgerAccount) AccountView {
 }
 
 func (r *PostgresRepository) TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error) {
-	from, to := f.Range()
-	p := db.ListTransactionViewsParams{DateFrom: &from, DateTo: &to, MaxRows: int32(limit)}
+	p := db.ListTransactionViewsParams{MaxRows: int32(limit)}
+	if !f.AllMonths || f.Search == "" {
+		from, to := f.Range()
+		p.DateFrom, p.DateTo = &from, &to
+	}
 	if f.Account != "" {
 		a := string(f.Account)
 		p.AccountID = &a

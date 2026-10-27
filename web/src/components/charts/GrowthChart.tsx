@@ -1,11 +1,8 @@
-import { formatAxis, formatBRL, formatMonth, niceStep } from "@/lib/format";
+import { formatAxis, formatCompact, formatBRL, formatMonth, niceStep } from "@/lib/format";
 
 type Point = { date: string; valueCents: number; basisCents: number };
 
 const W = 640;
-const H = 300;
-const L = 56;
-const R = 112;
 const T = 20;
 const B = 32;
 
@@ -17,6 +14,11 @@ const B = 32;
 export function GrowthChart({ points, width = W }: { points: Point[]; width?: number }) {
   if (points.length < 2) return <p className="m-0 type-body text-ink-muted">The chart starts after the first month of valuations.</p>;
   const Wd = width;
+  const narrow = Wd < 500;
+  const H = narrow ? 240 : 300;
+  const L = narrow ? 60 : 56;
+  const R = narrow ? 72 : 112;
+  const axis = narrow ? formatCompact : formatAxis;
   const max = Math.max(1, ...points.map((p) => Math.max(p.valueCents, p.basisCents)));
   const step = niceStep(max, 3);
   const top = Math.ceil(max / step) * step;
@@ -55,7 +57,7 @@ export function GrowthChart({ points, width = W }: { points: Point[]; width?: nu
         <g key={t}>
           <line x1={L} x2={Wd - R + 8} y1={y(t)} y2={y(t)} className="stroke-rule" />
           <text x={L - 8} y={y(t) + 4} textAnchor="end" className="fill-ink-muted font-figure text-[11px]">
-            {formatAxis(t)}
+            {axis(t)}
           </text>
         </g>
       ))}
@@ -70,13 +72,13 @@ export function GrowthChart({ points, width = W }: { points: Point[]; width?: nu
       <path d={line("valueCents")} fill="none" className="stroke-ink" strokeWidth={2.25} strokeLinejoin="round" />
       <circle cx={x(points.length - 1)} cy={y(last.valueCents)} r={4} className="fill-ink" />
       <text x={x(points.length - 1) + 10} y={y(last.valueCents) + 4} className="fill-ink font-figure text-[12px] font-medium">
-        {formatAxis(last.valueCents)}
+        {axis(last.valueCents)}
       </text>
       <text x={x(points.length - 1) + 10} y={Math.max(y(last.basisCents) + 18, y(last.valueCents) + 22)} className="fill-ink-muted font-figure text-[11px]">
-        {formatAxis(last.basisCents)}
+        {axis(last.basisCents)}
       </text>
       <text x={x(points.length - 1) + 10} y={Math.max(y(last.basisCents) + 32, y(last.valueCents) + 36)} className="fill-ink-muted text-[11px]">
-        put in
+        net put in
       </text>
     </svg>
   );

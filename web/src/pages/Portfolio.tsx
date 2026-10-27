@@ -301,13 +301,13 @@ function Growth({ v }: { v: PortfolioOverview }) {
         ? `Returns made ${share}% of the growth since ${first ? formatMonth(first.date.slice(0, 7), true) : ""}`
         : `Contributions carried the growth; returns took ${formatBRL(-returns)}`;
   return (
-    <Panel title={title} footer={`The invested total at the end of each month, split into what you put in and what it earned.`}>
+    <Panel title={title} footer="The invested total at the end of each month, split into what you put in (net of what you took out) and what it earned.">
       <div className="flex flex-col gap-3">
-        <GrowthChart points={v.growth} width={wide ? 640 : 400} />
+        <GrowthChart points={v.growth} width={wide ? 640 : 340} />
         <div className="flex flex-wrap gap-x-4 gap-y-1 type-caption text-ink-muted">
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-xs bg-rule-strong/60" aria-hidden />
-            Put in, {formatBRL(putIn)}
+            Put in since {first ? formatMonth(first.date.slice(0, 7), true) : ""}, {formatBRL(putIn)}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-xs bg-inflow/40" aria-hidden />
@@ -422,7 +422,7 @@ function Positions({ v }: { v: PortfolioOverview }) {
   ].filter((g) => g.rows.length > 0);
   const cols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_140px_110px_120px_72px]";
   return (
-    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Return since it was put in. Click a position to move it to another class or to the emergency fund, or to see a stock's prices.">
+    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. “Since bought” is a position’s gain over what it cost; the class returns above cover the last twelve months. Click a position to move it to another class or to the emergency fund, or to see a stock's prices.">
       <div role="table" aria-label="Positions by class">
         <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", cols)}>
           <span role="columnheader">Asset</span>
@@ -436,7 +436,7 @@ function Positions({ v }: { v: PortfolioOverview }) {
             Value
           </span>
           <span role="columnheader" className="hidden text-right sm:block">
-            Return
+            Since bought
           </span>
         </div>
         {groups.map((g) => {

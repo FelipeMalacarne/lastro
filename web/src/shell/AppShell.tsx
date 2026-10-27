@@ -21,6 +21,10 @@ const destinations: Destination[] = [
   { to: "/planning", label: "Planning", icon: TrendingUp, phone: true },
 ];
 
+// Screens that do not look at a month: the phone's top bar leaves the
+// switcher out, as their desktop headers do.
+const monthless = new Set(["/review", "/portfolio", "/contribute", "/planning", "/settings"]);
+
 function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn("font-display text-[22px] leading-7 font-[640] tracking-[-0.02em] text-ink [font-stretch:108%]", className)}>
@@ -100,7 +104,7 @@ export function AppShell({ accounts, children }: Props) {
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
       if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
-      if (e.key === "r" && location.pathname !== "/review") {
+      if (e.key.toLowerCase() === "r" && location.pathname !== "/review") {
         e.preventDefault();
         navigate("/review");
         return;
@@ -162,7 +166,7 @@ export function AppShell({ accounts, children }: Props) {
             <Wordmark />
           </Link>
           <div className="flex items-center gap-1">
-            <MonthSwitcher label={formatMonth(month, true)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />
+            {!monthless.has(path) && <MonthSwitcher label={formatMonth(month, true)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
             <Link
               to="/settings"
               aria-label="Settings"

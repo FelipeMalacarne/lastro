@@ -52,6 +52,7 @@ export function Transactions() {
   const cats = useCategories();
   const waiting = useWaiting();
   const q = query.get("q") ?? "";
+  const everyMonth = Boolean(q) && query.get("scope") === "all";
   const asked = query.get("day");
   const day = asked && DAY_RE.test(asked) && asked.startsWith(month + "-") ? asked : null;
   const tx = query.get("tx");
@@ -72,8 +73,9 @@ export function Transactions() {
     if (category) p.set("category", category);
     if (flow !== "all") p.set("flow", flow);
     if (q) p.set("q", q);
+    if (everyMonth) p.set("scope", "all");
     return "/api/v1/transactions?" + p.toString();
-  }, [month, day, account, category, flow, q]);
+  }, [month, day, account, category, flow, q, everyMonth]);
   const res = useResource<TransactionList>(url);
   const days = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`);
 
@@ -165,6 +167,17 @@ export function Transactions() {
           type="search"
           className="lg:min-w-0 lg:flex-[1_1_300px]"
         />
+        {q && (
+          <SegmentedControl
+            label="Search in"
+            value={everyMonth ? "all" : "month"}
+            onChange={(v) => setQuery("scope", v === "all" ? "all" : null)}
+            options={[
+              { value: "month", label: `In ${monthName}` },
+              { value: "all", label: "Every month" },
+            ]}
+          />
+        )}
         <div className="flex flex-wrap items-center gap-2 lg:items-end lg:gap-3">
           <div className="hidden flex-col gap-1.5 lg:flex">
             <span className="text-[13px] leading-[18px] font-semibold">Type</span>
@@ -248,7 +261,9 @@ export function Transactions() {
               {noAccounts
                 ? "No accounts yet. They appear after the first sync, which runs within six hours."
                 : q
-                  ? `Nothing matches “${q}” in ${day ? formatDay(day) : monthName}.`
+                  ? everyMonth
+                    ? `Nothing matches “${q}” in any month.`
+                    : `Nothing matches “${q}” in ${day ? formatDay(day) : monthName}.`
                   : day
                     ? `Nothing on ${formatDay(day)}.`
                     : filtered

@@ -114,3 +114,13 @@ export function inputBRL(cents: number): string {
   const p = splitBRL(cents);
   return p.units + p.cents;
 }
+
+/** formatCompact(150000000) → "1,5 mi"; 50000000 → "500 mil": axis labels on a phone. */
+export function formatCompact(cents: number): string {
+  const v = Math.round(cents / 100);
+  const a = Math.abs(v);
+  const sign = v < 0 ? MINUS : "";
+  if (a >= 1_000_000) return `${sign}${(a / 1_000_000).toFixed(a >= 10_000_000 ? 0 : 1).replace(".", ",").replace(",0", "")} mi`;
+  if (a >= 1_000) return `${sign}${Math.round(a / 1_000)} mil`;
+  return sign + String(a);
+}

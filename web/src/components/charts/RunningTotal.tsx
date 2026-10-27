@@ -10,9 +10,6 @@ type Props = {
   width?: number;
 };
 
-const H = 300;
-const L = 56; // room for the axis
-const R = 92; // room for the end labels
 const T = 24;
 const B = 28;
 
@@ -23,6 +20,10 @@ const B = 28;
  */
 export function RunningTotal({ month, days, previous, today, width = 560 }: Props) {
   const W = width;
+  const narrow = W < 500;
+  const H = narrow ? 240 : 300;
+  const L = narrow ? 44 : 56; // room for the axis
+  const R = narrow ? 72 : 92; // room for the end labels
   const [y, m] = month.split("-").map(Number);
   const count = new Date(y, m, 0).getDate();
   const spent = new Map(days.map((d) => [Number(d.date.slice(8)), d.spentCents]));

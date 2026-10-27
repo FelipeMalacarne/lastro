@@ -55,7 +55,8 @@ export function CategoryDecision({ categories, current, suggested, onChoose, key
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement;
       if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
-      if (e.key === "Enter" && offered && !busy) {
+      // Enter on a focused button presses that button, not the suggestion.
+      if (e.key === "Enter" && offered && !busy && !t.closest("button, a")) {
         e.preventDefault();
         void onChoose(offered.id, teach);
         return;

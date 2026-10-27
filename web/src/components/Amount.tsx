@@ -53,7 +53,8 @@ export function Amount({ cents, size = "md", sign = "negative", tone = "auto", p
       {s && <span className={cn(raised, big && "mr-px")}>{s}</span>}
       <span className={cn(raised, big && t !== "inflow" && "text-ink-muted")}>R$&nbsp;</span>
       <span className={underline}>{p.units}</span>
-      <span className={cn(underline, big && "text-[0.6em] tracking-normal")}>{p.cents}</span>
+      {/* A rounded estimate claims no cents. */}
+      {!(estimate && Math.round(cents) % 100 === 0) && <span className={cn(underline, big && "text-[0.6em] tracking-normal")}>{p.cents}</span>}
     </span>
   );
 }

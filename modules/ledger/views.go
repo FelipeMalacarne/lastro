@@ -153,7 +153,9 @@ const maxListed = 2000
 
 // TransactionFilter selects a month of transactions.
 type TransactionFilter struct {
-	Month   time.Time // any day in the month
+	Month time.Time // any day in the month
+	// AllMonths searches every month instead of Month; only with a Search.
+	AllMonths bool
 	Account AccountID // empty: every account
 	Flow    Flow
 	// Search matches descriptions, ignoring case and accents.
