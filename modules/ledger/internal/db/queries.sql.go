@@ -89,6 +89,51 @@ func (q *Queries) GetTransactions(ctx context.Context, ids []string) ([]GetTrans
 	return items, nil
 }
 
+const listAccountViews = `-- name: ListAccountViews :many
+SELECT id, name, institution, type, number, currency, balance_cents, balance_at FROM ledger.accounts
+ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id
+`
+
+type ListAccountViewsRow struct {
+	ID           string
+	Name         string
+	Institution  string
+	Type         string
+	Number       string
+	Currency     string
+	BalanceCents int64
+	BalanceAt    time.Time
+}
+
+func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, error) {
+	rows, err := q.db.Query(ctx, listAccountViews)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAccountViewsRow
+	for rows.Next() {
+		var i ListAccountViewsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Institution,
+			&i.Type,
+			&i.Number,
+			&i.Currency,
+			&i.BalanceCents,
+			&i.BalanceAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAccounts = `-- name: ListAccounts :many
 SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at FROM ledger.accounts ORDER BY institution, type, name, id
 `
@@ -205,6 +250,120 @@ func (q *Queries) ListPairCandidates(ctx context.Context, windowFrom *time.Time)
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
 			&i.AccountType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTransactionViews = `-- name: ListTransactionViews :many
+
+SELECT
+    t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
+    t.installment_number, t.installment_total, t.category_id, t.category_source,
+    a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
+    ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
+    ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
+LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
+WHERE t.removed_at IS NULL
+  AND t.date >= $1::date
+  AND t.date < $2::date
+  AND ($3::uuid IS NULL OR t.account_id = $3::uuid)
+  AND (
+      $4::text IS NULL
+      OR ($4::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+      OR ($4::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+      OR ($4::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+  )
+  AND (
+      $5::text IS NULL
+      OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+         LIKE '%' || translate(lower($5::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+  )
+ORDER BY t.date DESC, t.created_at DESC, t.id
+LIMIT $6
+`
+
+type ListTransactionViewsParams struct {
+	DateFrom  time.Time
+	DateTo    time.Time
+	AccountID *string
+	Flow      *string
+	Search    *string
+	MaxRows   int32
+}
+
+type ListTransactionViewsRow struct {
+	ID                     string
+	Date                   time.Time
+	Description            string
+	AmountCents            int64
+	Currency               string
+	Kind                   string
+	Status                 string
+	InstallmentNumber      *int16
+	InstallmentTotal       *int16
+	CategoryID             *string
+	CategorySource         *string
+	AccountID              string
+	AccountName            string
+	AccountInstitution     string
+	AccountType            string
+	CounterpartAccountID   *string
+	CounterpartAccountName *string
+	CounterpartInstitution *string
+	CounterpartAccountType *string
+}
+
+// Read side: what the Transactions screen lists (CQRS-lite: straight to a DTO).
+// A month of live transactions, newest first, with each one's account and,
+// for pairs, the other side's account. flow is 'in' or 'out' (money that
+// counts, by direction) or 'transfer' (transfers and card bill payments).
+// search matches the description ignoring case and accents.
+func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionViewsParams) ([]ListTransactionViewsRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionViews,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.AccountID,
+		arg.Flow,
+		arg.Search,
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTransactionViewsRow
+	for rows.Next() {
+		var i ListTransactionViewsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Date,
+			&i.Description,
+			&i.AmountCents,
+			&i.Currency,
+			&i.Kind,
+			&i.Status,
+			&i.InstallmentNumber,
+			&i.InstallmentTotal,
+			&i.CategoryID,
+			&i.CategorySource,
+			&i.AccountID,
+			&i.AccountName,
+			&i.AccountInstitution,
+			&i.AccountType,
+			&i.CounterpartAccountID,
+			&i.CounterpartAccountName,
+			&i.CounterpartInstitution,
+			&i.CounterpartAccountType,
 		); err != nil {
 			return nil, err
 		}

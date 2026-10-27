@@ -308,3 +308,80 @@ func transactionParams(t *Transaction) db.SaveTransactionParams {
 	}
 	return p
 }
+
+func (r *PostgresRepository) AccountViews(ctx context.Context) ([]AccountView, error) {
+	rows, err := r.q.ListAccountViews(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AccountView, len(rows))
+	for i, row := range rows {
+		out[i] = AccountView{
+			ID:           AccountID(row.ID),
+			Name:         row.Name,
+			Institution:  row.Institution,
+			Type:         row.Type,
+			Number:       row.Number,
+			Currency:     row.Currency,
+			BalanceCents: row.BalanceCents,
+			BalanceAt:    row.BalanceAt,
+		}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error) {
+	from, to := f.MonthRange()
+	p := db.ListTransactionViewsParams{DateFrom: from, DateTo: to, MaxRows: int32(limit)}
+	if f.Account != "" {
+		a := string(f.Account)
+		p.AccountID = &a
+	}
+	if f.Flow != FlowAll {
+		fl := string(f.Flow)
+		p.Flow = &fl
+	}
+	if q := likePattern(f.Search); q != "" {
+		p.Search = &q
+	}
+	rows, err := r.q.ListTransactionViews(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TransactionView, len(rows))
+	for i, row := range rows {
+		v := TransactionView{
+			ID:          TransactionID(row.ID),
+			Date:        row.Date.Format(time.DateOnly),
+			Description: row.Description,
+			AmountCents: row.AmountCents,
+			Currency:    row.Currency,
+			Kind:        row.Kind,
+			Status:      row.Status,
+			Account:     AccountRef{ID: AccountID(row.AccountID), Name: row.AccountName, Institution: row.AccountInstitution, Type: row.AccountType},
+		}
+		if row.InstallmentNumber != nil && row.InstallmentTotal != nil {
+			v.Installment = &InstallmentView{Number: int(*row.InstallmentNumber), Total: int(*row.InstallmentTotal)}
+		}
+		if row.CategoryID != nil && row.CategorySource != nil {
+			v.Category = &CategoryView{ID: *row.CategoryID, Source: *row.CategorySource}
+		}
+		if row.CounterpartAccountID != nil {
+			v.Counterpart = &AccountRef{
+				ID:          AccountID(*row.CounterpartAccountID),
+				Name:        deref(row.CounterpartAccountName),
+				Institution: deref(row.CounterpartInstitution),
+				Type:        deref(row.CounterpartAccountType),
+			}
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

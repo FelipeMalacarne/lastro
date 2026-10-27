@@ -23,6 +23,13 @@
 - Pending transactions may change or disappear on the next sync. A transaction the source stops returning is removed (kept, but out of every list and total); if it comes back, it is restored. Removed transactions cannot be categorized or paired. Only posted transactions go into closed reports.
 - A balance older than the one already known never replaces it, in the account or in its day's snapshot. There is at most one snapshot per account per day.
 
+## Read side
+
+`views.go` holds the DTOs the screens read, straight from SQL (CQRS-lite), and `http.go` serves them:
+
+- `GET /api/v1/accounts`: every account with its latest balance.
+- `GET /api/v1/transactions?month=2026-10&account=<id>&flow=in|out|transfer&q=<text>`: a month of live transactions, newest first, each with its account and, for pairs, the other side's account, plus a summary (count, pending, money in and out that counts). The search ignores case and accents.
+
 ## Events
 
 - Publishes: `TransactionsImported` (ids of new or changed transactions, after the import commits), `TransactionCategorized` (recorded by the aggregate, published after the commit).

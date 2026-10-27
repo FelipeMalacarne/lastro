@@ -83,3 +83,42 @@ WHERE t.removed_at IS NULL
   AND t.source_kind IN ('expense', 'income', 'bill_payment')
   AND (sqlc.narg(window_from)::date IS NULL OR t.date >= sqlc.narg(window_from)::date)
 ORDER BY t.date, t.id;
+
+-- Read side: what the Transactions screen lists (CQRS-lite: straight to a DTO).
+
+-- name: ListTransactionViews :many
+-- A month of live transactions, newest first, with each one's account and,
+-- for pairs, the other side's account. flow is 'in' or 'out' (money that
+-- counts, by direction) or 'transfer' (transfers and card bill payments).
+-- search matches the description ignoring case and accents.
+SELECT
+    t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
+    t.installment_number, t.installment_total, t.category_id, t.category_source,
+    a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
+    ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
+    ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
+LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
+WHERE t.removed_at IS NULL
+  AND t.date >= sqlc.arg(date_from)::date
+  AND t.date < sqlc.arg(date_to)::date
+  AND (sqlc.narg(account_id)::uuid IS NULL OR t.account_id = sqlc.narg(account_id)::uuid)
+  AND (
+      sqlc.narg(flow)::text IS NULL
+      OR (sqlc.narg(flow)::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+      OR (sqlc.narg(flow)::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+      OR (sqlc.narg(flow)::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+  )
+  AND (
+      sqlc.narg(search)::text IS NULL
+      OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+         LIKE '%' || translate(lower(sqlc.narg(search)::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+  )
+ORDER BY t.date DESC, t.created_at DESC, t.id
+LIMIT sqlc.arg(max_rows);
+
+-- name: ListAccountViews :many
+SELECT id, name, institution, type, number, currency, balance_cents, balance_at FROM ledger.accounts
+ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id;

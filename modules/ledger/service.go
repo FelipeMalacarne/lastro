@@ -34,6 +34,10 @@ type Repository interface {
 	// after from (all, for a zero from) that could be one side of a pair.
 	PairCandidates(ctx context.Context, from time.Time) ([]*Transaction, error)
 	SaveTransactions(ctx context.Context, txs []*Transaction) error
+
+	// Read side.
+	AccountViews(ctx context.Context) ([]AccountView, error)
+	TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -174,4 +178,30 @@ func (s *Service) Categorize(ctx context.Context, id TransactionID, c CategoryID
 		return fmt.Errorf("ledger: categorize %s: %w", id, err)
 	}
 	return s.bus.Publish(ctx, evs...)
+}
+
+// Accounts lists every account with its latest balance.
+func (s *Service) Accounts(ctx context.Context) ([]AccountView, error) {
+	views, err := s.repo.AccountViews(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: accounts: %w", err)
+	}
+	return views, nil
+}
+
+// Transactions lists a month of transactions, newest first, and sums them.
+func (s *Service) Transactions(ctx context.Context, f TransactionFilter) (TransactionList, error) {
+	if f.Month.IsZero() {
+		return TransactionList{}, fmt.Errorf("%w: a month is required", ErrInvalid)
+	}
+	views, err := s.repo.TransactionViews(ctx, f, maxListed+1)
+	if err != nil {
+		return TransactionList{}, fmt.Errorf("ledger: transactions: %w", err)
+	}
+	list := TransactionList{Transactions: views}
+	if len(views) > maxListed {
+		list.Transactions, list.Truncated = views[:maxListed], true
+	}
+	list.Summary = summarize(list.Transactions)
+	return list, nil
 }

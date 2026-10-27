@@ -26,6 +26,10 @@ Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains
 - Kinds: on a card, an inflow with `PAGAMENTO_FATURA` (or "pagamento recebido/de fatura") is a bill payment and everything else an expense (refunds reduce spending); on a bank account, a redemption or automatic investment move is a transfer, other inflows income and outflows expenses. Transfers between my accounts are paired later by the ledger's `TransferMatcher`.
 - `providerId` becomes the ledger's bank reference.
 
+## API
+
+- `GET /api/v1/connections`: each item's health (`ok`, `syncing`, `stale`, `reauth`), the sentence and the short form for `SyncStatus`, when the bank's data was last refreshed, when the authorization ends, and the ledger accounts it feeds.
+
 ## Invariants
 
 - Reprocessing the same payload produces exactly the same result in `ledger`.

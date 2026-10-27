@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { navigate, useLocation } from "@/lib/router";
+import { SidebarAccounts } from "@/shell/Accounts";
 import { AppShell } from "@/shell/AppShell";
 import { Gallery } from "@/pages/Gallery";
 import { Soon } from "@/pages/Soon";
@@ -14,7 +15,7 @@ export function App() {
     if (path === "/") navigate("/transactions" + location.search, { replace: true });
   }, [path]);
 
-  return <AppShell>{page(path)}</AppShell>;
+  return <AppShell accounts={<SidebarAccounts />}>{page(path)}</AppShell>;
 }
 
 function page(path: string) {

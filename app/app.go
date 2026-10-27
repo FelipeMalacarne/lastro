@@ -97,8 +97,8 @@ func (a *App) Close() { a.DB.Close() }
 func (a *App) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
-	// M1 on: each module registers its own routes. For example:
-	//   a.Ledger.RegisterRoutes(api)
+	a.Ledger.RegisterRoutes(api, a.Logger)
+	a.Ingest.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())

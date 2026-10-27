@@ -202,3 +202,75 @@ func TestRepositorySnapshotsOnePerDay(t *testing.T) {
 		t.Fatalf("want 26 Oct at R$ 2,00 and 27 Oct at R$ 3,00, got %+v", snaps)
 	}
 }
+
+func TestRepositoryTransactionViews(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, _ := newService(t)
+	chk, card := details(t), details(t)
+	card.ExternalID, card.Type, card.Name = mustExternalID(t, "card"), AccountCreditCard, "Ultravioleta"
+	for _, d := range []AccountDetails{chk, card} {
+		if _, err := svc.SyncAccount(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bread := imported(t, "bread", -1250)
+	bread.Description = "Padaria São João"
+	inst := imported(t, "inst", -31990)
+	inst.Installment, _ = NewInstallment(3, 10)
+	pay := imported(t, "pay", -148237)
+	pay.Date = oct(10)
+	nov := imported(t, "nov", -100)
+	nov.Date = oct(31).AddDate(0, 0, 1)
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: chk.ExternalID, Transactions: []ImportedTransaction{bread, pay, nov}}); err != nil {
+		t.Fatal(err)
+	}
+	cardPay := imported(t, "card-pay", 148237)
+	cardPay.Date, cardPay.Kind = oct(10), KindBillPayment
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: card.ExternalID, Transactions: []ImportedTransaction{inst, cardPay}}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := svc.MatchTransfers(ctx, oct(1)); err != nil || n != 1 {
+		t.Fatalf("the bill payment pairs: %d %v", n, err)
+	}
+
+	list, err := svc.Transactions(ctx, TransactionFilter{Month: oct(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Summary != (ListSummary{Count: 4, InCents: 0, OutCents: -33240}) || list.Truncated {
+		t.Fatalf("October without November, and without the paid bill: %+v", list.Summary)
+	}
+	if list.Transactions[0].Date != "2026-10-12" || list.Transactions[3].Date != "2026-10-10" {
+		t.Errorf("newest first: %+v", list.Transactions)
+	}
+	var payView TransactionView
+	for _, v := range list.Transactions {
+		if v.AmountCents == -148237 {
+			payView = v
+		}
+		if v.AmountCents == -31990 && (v.Installment == nil || v.Installment.Number != 3 || v.Account.Name != "Ultravioleta") {
+			t.Errorf("installment view: %+v", v)
+		}
+	}
+	if payView.Kind != "bill_payment" || payView.Counterpart == nil || payView.Counterpart.Type != "credit_card" {
+		t.Errorf("the checking side names the card it paid: %+v", payView)
+	}
+
+	search, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1), Search: "sao joao"})
+	if len(search.Transactions) != 1 || search.Transactions[0].Description != "Padaria São João" {
+		t.Errorf("search ignores case and accents: %+v", search.Transactions)
+	}
+	out, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1), Flow: FlowTransfer})
+	if len(out.Transactions) != 2 {
+		t.Errorf("both sides of the bill payment are transfers in the list: %+v", out.Transactions)
+	}
+	a, _ := repo.AccountByExternalID(ctx, card.ExternalID)
+	only, _ := svc.Transactions(ctx, TransactionFilter{Month: oct(1), Account: a.ID()})
+	if len(only.Transactions) != 2 {
+		t.Errorf("one account: %+v", only.Transactions)
+	}
+	accounts, err := svc.Accounts(ctx)
+	if err != nil || len(accounts) != 2 || accounts[0].Type != "checking" {
+		t.Fatalf("checking first: %+v %v", accounts, err)
+	}
+}
