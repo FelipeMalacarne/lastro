@@ -14,5 +14,10 @@
       "Read(./.env)",
       "Read(./.env.local)"
     ]
-  }
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "includeCoAuthoredBy": false
 }
