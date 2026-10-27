@@ -1,13 +1,16 @@
 package ledger
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
+	"lastro/money"
 	"lastro/platform/httpx"
 )
 
@@ -72,6 +75,22 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, v, err)
 	})
 
+	// GET /api/v1/transactions/categories?month=2026-10: the month's expenses
+	// and income by category (an empty category: still without one).
+	mux.HandleFunc("GET /api/v1/transactions/categories", func(w http.ResponseWriter, r *http.Request) {
+		month, err := time.Parse("2006-01", r.URL.Query().Get("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest(`month must look like "2026-10"`))
+			return
+		}
+		totals, err := s.CategoryTotals(r.Context(), month)
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"month": month.Format("2006-01"), "categories": totals})
+	})
+
 	mux.HandleFunc("GET /api/v1/transactions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if !uuidRe.MatchString(id) {
@@ -82,7 +101,212 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, v, err)
 	})
 
-	// GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&q=ifood
+	// POST /api/v1/accounts {"name": "Wallet", "type": "cash" | "asset", "balanceCents": 30000}
+	// opens an account outside Open Finance.
+	mux.HandleFunc("POST /api/v1/accounts", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Name         string `json:"name"`
+			Type         string `json:"type"`
+			BalanceCents int64  `json:"balanceCents"`
+		}
+		if err := decode(w, r, &in, "name, type and balanceCents"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		id, err := s.CreateManualAccount(r.Context(), in.Name, AccountType(in.Type), money.BRLCents(in.BalanceCents))
+		if errors.Is(err, ErrInvalid) {
+			err = httpx.BadRequest(err.Error())
+		}
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusCreated, map[string]any{"id": id})
+	})
+
+	// PUT /api/v1/accounts/{id}/balance {"date": "2026-10-26", "balanceCents": 4831277}
+	// records a balance I counted, on an account typed in.
+	mux.HandleFunc("PUT /api/v1/accounts/{id}/balance", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := accountID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Date         string `json:"date"`
+			BalanceCents int64  `json:"balanceCents"`
+		}
+		if err := decode(w, r, &in, "date and balanceCents"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		day, err := time.Parse(time.DateOnly, in.Date)
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("date must look like 2026-10-26"))
+			return
+		}
+		writeNoContent(w, r, logger, s.SetManualBalance(r.Context(), id, day, money.BRLCents(in.BalanceCents)))
+	})
+
+	mux.HandleFunc("DELETE /api/v1/accounts/{id}/balance/{date}", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := accountID(w, r, logger)
+		if !ok {
+			return
+		}
+		day, err := time.Parse(time.DateOnly, r.PathValue("date"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("date must look like 2026-10-26"))
+			return
+		}
+		writeNoContent(w, r, logger, s.DeleteManualBalance(r.Context(), id, day))
+	})
+
+	// POST /api/v1/accounts/{id}/transactions {"date", "description", "amountCents"}:
+	// a wallet entry, negative for money out.
+	mux.HandleFunc("POST /api/v1/accounts/{id}/transactions", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := accountID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Date        string `json:"date"`
+			Description string `json:"description"`
+			AmountCents int64  `json:"amountCents"`
+		}
+		if err := decode(w, r, &in, "date, description and amountCents"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		day, err := time.Parse(time.DateOnly, in.Date)
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("date must look like 2026-10-26"))
+			return
+		}
+		tx, err := s.AddManualTransaction(r.Context(), id, day, in.Description, money.BRLCents(in.AmountCents))
+		switch {
+		case errors.Is(err, ErrInvalid):
+			err = httpx.BadRequest(err.Error())
+		case errors.Is(err, ErrNotFound):
+			err = httpx.NotFound("no such account")
+		}
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusCreated, map[string]any{"id": tx})
+	})
+
+	// DELETE /api/v1/transactions/{id}: only a wallet entry I added.
+	mux.HandleFunc("DELETE /api/v1/transactions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		writeNoContent(w, r, logger, s.RemoveManualTransaction(r.Context(), id))
+	})
+
+	// PUT /api/v1/transactions/{id}/note {"note": "..."}: an empty note clears it.
+	mux.HandleFunc("PUT /api/v1/transactions/{id}/note", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Note string `json:"note"`
+		}
+		if err := decode(w, r, &in, "note"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		writeNoContent(w, r, logger, s.SetNote(r.Context(), id, in.Note))
+	})
+
+	// PUT /api/v1/transactions/{id}/tags {"tags": ["trip-rio"]} replaces them.
+	mux.HandleFunc("PUT /api/v1/transactions/{id}/tags", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Tags []string `json:"tags"`
+		}
+		if err := decode(w, r, &in, "tags"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		writeNoContent(w, r, logger, s.SetTags(r.Context(), id, in.Tags))
+	})
+
+	// PUT /api/v1/transactions/transfer {"ids": [...], "transfer": true}: marks
+	// them as transfers to accounts lastro does not have, or takes it back.
+	mux.HandleFunc("PUT /api/v1/transactions/transfer", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			IDs      []string `json:"ids"`
+			Transfer bool     `json:"transfer"`
+		}
+		if err := decodeUpTo(w, r, &in, "ids and transfer", 1<<20); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if len(in.IDs) == 0 || len(in.IDs) > 5000 {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("ids must list 1 to 5000 transactions"))
+			return
+		}
+		ids := make([]TransactionID, len(in.IDs))
+		for i, id := range in.IDs {
+			if !uuidRe.MatchString(id) {
+				httpx.WriteError(w, r, logger, httpx.BadRequest("ids must be transaction ids"))
+				return
+			}
+			ids[i] = TransactionID(id)
+		}
+		n, err := s.MarkTransfers(r.Context(), ids, in.Transfer)
+		switch {
+		case errors.Is(err, ErrInvalid), errors.Is(err, ErrPaired):
+			err = httpx.BadRequest(err.Error())
+		case errors.Is(err, ErrNotFound):
+			err = httpx.NotFound("no such transaction")
+		case errors.Is(err, ErrRemoved):
+			err = httpx.Conflict("the transaction no longer exists at the bank")
+		}
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"changed": n})
+	})
+
+	// DELETE /api/v1/transactions/{id}/split: the largest part's category stays.
+	mux.HandleFunc("DELETE /api/v1/transactions/{id}/split", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		writeNoContent(w, r, logger, s.Unsplit(r.Context(), id))
+	})
+
+	mux.HandleFunc("GET /api/v1/tags", func(w http.ResponseWriter, r *http.Request) {
+		tags, err := s.Tags(r.Context())
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"tags": tags})
+	})
+
+	// GET /api/v1/tags/{tag}: the tag's money by category over every month.
+	mux.HandleFunc("GET /api/v1/tags/{tag}", func(w http.ResponseWriter, r *http.Request) {
+		cs, err := s.TagCategories(r.Context(), r.PathValue("tag"))
+		if errors.Is(err, ErrInvalid) {
+			err = httpx.BadRequest(err.Error())
+		}
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"categories": cs})
+	})
+
+	// GET /api/v1/transactions?month=2026-10&day=2026-10-22&account=<id>&flow=in|out|transfer&category=<id>|none&tag=trip-rio&q=ifood
 	mux.HandleFunc("GET /api/v1/transactions", func(w http.ResponseWriter, r *http.Request) {
 		f, err := parseFilter(r)
 		if err != nil {
@@ -120,6 +344,25 @@ func parseFilter(r *http.Request) (TransactionFilter, error) {
 	if f.Search = strings.TrimSpace(q.Get("q")); len([]rune(f.Search)) > 100 {
 		return TransactionFilter{}, httpx.BadRequest("search is limited to 100 characters")
 	}
+	if t := q.Get("tag"); t != "" {
+		tag, err := NewTag(t)
+		if err != nil {
+			return TransactionFilter{}, httpx.BadRequest(err.Error())
+		}
+		f.Tag = string(tag)
+	}
+	if sc := q.Get("scope"); sc != "" {
+		if sc != "all" || (f.Search == "" && f.Tag == "") {
+			return TransactionFilter{}, httpx.BadRequest(`scope can only be "all", with a search or a tag`)
+		}
+		f.AllMonths = true
+	}
+	if c := q.Get("category"); c != "" {
+		if c != CategoryNone && !uuidRe.MatchString(c) {
+			return TransactionFilter{}, httpx.BadRequest(`category must be a category id or "none"`)
+		}
+		f.Category = c
+	}
 	if d := q.Get("day"); d != "" {
 		day, err := time.Parse(time.DateOnly, d)
 		if err != nil || day.Format("2006-01") != month.Format("2006-01") {
@@ -149,4 +392,45 @@ func writeView(w http.ResponseWriter, r *http.Request, logger *slog.Logger, v an
 		return
 	}
 	httpx.JSON(w, http.StatusOK, v)
+}
+
+func transactionID(w http.ResponseWriter, r *http.Request, logger *slog.Logger) (TransactionID, bool) {
+	id := r.PathValue("id")
+	if !uuidRe.MatchString(id) {
+		httpx.WriteError(w, r, logger, httpx.BadRequest("id must be a transaction id"))
+		return "", false
+	}
+	return TransactionID(id), true
+}
+
+// writeNoContent answers 204, or the error: 400 for an invalid value, 404
+// for an unknown id.
+func writeNoContent(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
+	switch {
+	case errors.Is(err, ErrInvalid):
+		err = httpx.BadRequest(err.Error())
+	case errors.Is(err, ErrNotFound):
+		err = httpx.NotFound("no such account, transaction or balance")
+	}
+	if err != nil {
+		httpx.WriteError(w, r, logger, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decode(w http.ResponseWriter, r *http.Request, v any, shape string) error {
+	return decodeUpTo(w, r, v, shape, 4<<10)
+}
+
+func decodeUpTo(w http.ResponseWriter, r *http.Request, v any, shape string, limit int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return httpx.BadRequest("the body must be a JSON object with " + shape)
+	}
+	if dec.Decode(&struct{}{}) != io.EOF {
+		return httpx.BadRequest("the body must hold a single JSON object")
+	}
+	return nil
 }

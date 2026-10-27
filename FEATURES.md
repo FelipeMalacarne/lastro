@@ -53,10 +53,10 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [x] A visible warning when an item has not synced for more than 2 days or needs re-authentication in Meu Pluggy.
-- [ ] Import of the B3 trade statement for positions that do not come through Open Finance.
+- [ ] Import of the B3 trade statement for positions that do not come through Open Finance. (Not needed while every broker is connected: Nubank sends stocks and ETFs, see `docs/pluggy.md`.)
 
 **P2**
-- [ ] Manual entries for cash or for accounts outside Open Finance (e.g. private pension plans).
+- [x] Manual entries for cash or for accounts outside Open Finance (e.g. private pension plans).
 
 ### F2. Transactions
 
@@ -66,14 +66,14 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want transfers between my own accounts and card bill payments to be recognized automatically, so that they never inflate my spending.
 
 **P0**
-- [ ] One list with every account, filterable by period, account, category and type, and searchable by description. (Done except the category filter, which arrives with categories in M2.)
+- [x] One list with every account, filterable by period, account, category and type, and searchable by description.
 - [x] Transfers between my own accounts (Pix to a savings pot, to the brokerage...) are paired and marked as transfers.
 - [x] Card bill payments are marked as such; the card purchases are what counts as spending.
 - [x] Installment purchases show "n of m" and count in the month of each installment.
 
 **P1**
-- [ ] Split a transaction into several categories.
-- [ ] Notes and tags on a transaction.
+- [x] Split a transaction into several categories.
+- [x] Notes and tags on a transaction.
 
 ### F3. Categorization
 
@@ -83,14 +83,14 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want every correction to teach the app, so that the same mistake does not happen twice.
 
 **P0**
-- [ ] Rules by merchant and description categorize known transactions instantly.
-- [ ] Transactions no rule matches go to the local LLM, which must answer with an existing category.
-- [ ] Anything the LLM cannot classify, or when the LLM is offline, goes to a "to review" queue; nothing gets a guessed category.
-- [ ] A manual correction creates a rule and is never overwritten by automation.
+- [x] Rules by merchant and description categorize known transactions instantly.
+- [x] Transactions no rule matches go to the local LLM, which must answer with an existing category.
+- [x] Anything the LLM cannot classify, or when the LLM is offline, goes to a "to review" queue; nothing gets a guessed category.
+- [x] A manual correction creates a rule and is never overwritten by automation.
 
 **P1**
-- [ ] The review queue suggests a category and accepts it with one click or key.
-- [ ] Rules can be listed, edited and deleted.
+- [x] The review queue suggests a category and accepts it with one click or key.
+- [x] Rules can be listed, edited and deleted.
 
 ### F4. Monthly budget
 
@@ -100,13 +100,13 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to see during the month whether a category is on track, so that I can adjust before it is too late.
 
 **P0**
-- [ ] "Pay yourself first": the monthly contribution is a fixed line set aside on payday and never counted as spending.
-- [ ] A monthly limit per category, with spent, remaining and the percentage of the month elapsed.
-- [ ] Money left in a category can roll over to the next month, configurable per category.
+- [x] "Pay yourself first": the monthly contribution is a fixed line set aside on payday and never counted as spending.
+- [x] A monthly limit per category, with spent, remaining and the percentage of the month elapsed.
+- [x] Money left in a category can roll over to the next month, configurable per category.
 
 **P1**
-- [ ] Copy last month's budget as a starting point.
-- [ ] Monthly summary: income, spending, contribution and savings rate.
+- [x] Copy last month's budget as a starting point (each month inherits the one before it, ADR-0006).
+- [x] Monthly summary: income, spending, contribution and savings rate.
 
 **P2**
 - [ ] A full YNAB-style envelope model ("give every real a job"), if the simpler model proves insufficient. See open questions.
@@ -118,8 +118,8 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want my subscriptions and fixed bills detected automatically, so that I know my fixed cost of living and notice when something new appears or a price goes up.
 
 **P1**
-- [ ] Recurring charges (same merchant, similar amount, regular interval) are detected and listed with their monthly total.
-- [ ] A warning when a recurring charge changes amount or a new one appears.
+- [x] Recurring charges (same merchant, similar amount, regular interval) are detected and listed with their monthly total.
+- [x] A warning when a recurring charge changes amount or a new one appears (on the dashboard's fixed costs; a push channel comes with the alerts in M5).
 
 ### F6. Net worth and positions
 
@@ -129,13 +129,13 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to see how my net worth evolved over time, so that I can tell real progress from market noise.
 
 **P0**
-- [ ] Positions per asset class (CDI, global stocks, IPCA+, Brazilian stocks), valued at the latest available price.
-- [ ] The emergency fund is shown separately and is never part of the allocation.
-- [ ] A net worth snapshot is stored every day, building a history from the first sync onward.
+- [x] Positions per asset class (CDI, global stocks, IPCA+, Brazilian stocks), valued at the latest available price.
+- [x] The emergency fund is shown separately and is never part of the allocation.
+- [x] A net worth snapshot is stored every day, building a history from the first sync onward.
 
 **P1**
-- [ ] Net worth chart over time, split by contributions versus returns.
-- [ ] Return per class, compared with CDI and inflation over the same period.
+- [x] Net worth chart over time, split by contributions versus returns.
+- [x] Return per class, compared with CDI and inflation over the same period.
 
 ### F7. Contribution planning
 
@@ -145,14 +145,14 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want rebalancing to happen through new money, so that I avoid selling and paying tax.
 
 **P0**
-- [ ] A target allocation per class, which must add up to 100%.
-- [ ] Given an amount, the planner returns the split per class; it never suggests selling, and the parts add up to exactly the amount.
-- [ ] Classes outside their tolerance band get priority in the split.
-- [ ] Same answer in the web UI and in `lastro contribute --amount <value>`.
+- [x] A target allocation per class, which must add up to 100%.
+- [x] Given an amount, the planner returns the split per class; it never suggests selling, and the parts add up to exactly the amount.
+- [x] Classes outside their tolerance band get priority in the split.
+- [x] Same answer in the web UI and in `lastro contribute --amount <value>`.
 
 **P1**
-- [ ] A purchase schedule: planned buys with date, amount and condition (e.g. "only after the earnings report"), marked as done or cancelled.
-- [ ] A yearly reminder to review the target allocation.
+- [x] A purchase schedule: planned buys with date, amount and condition (e.g. "only after the earnings report"), marked as done or cancelled.
+- [x] A yearly reminder to review the target allocation.
 
 ### F8. Stock analysis and theses
 
@@ -162,17 +162,17 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to know if my stock picking actually beats the index, so that I can drop it if it does not.
 
 **P0**
-- [ ] Each stock in the satellite has a thesis and a break condition, visible next to the position.
-- [ ] Reminder before each company's earnings report, with the thesis shown alongside.
+- [x] Each stock in the satellite has a thesis and a break condition, visible next to the position.
+- [x] Reminder before each company's earnings report, with the thesis shown alongside.
 
 **P1**
-- [ ] Price history chart per stock and ETF.
-- [ ] Valuation metrics per stock (P/E, P/B, dividend yield), with their history.
-- [ ] Dividends received, per stock and per year.
-- [ ] Yearly scoreboard: the satellite's return against the Ibovespa and against CDI.
+- [x] Price history chart per stock and ETF.
+- [x] Valuation metrics per stock (P/E, P/B, dividend yield), with their history.
+- [x] Dividends received, per stock and per year.
+- [x] Yearly scoreboard: the satellite's return against the Ibovespa and against CDI.
 
 **P2**
-- [ ] Price alerts (e.g. a stock falls more than X% in a day).
+- [x] Price alerts (e.g. a stock falls more than X% in a day).
 
 ### F9. Projections
 
@@ -181,12 +181,12 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to see where my net worth will be in N years with my current contributions, so that I can tell whether I am on track.
 
 **P1**
-- [ ] Projection with monthly contribution, horizon and real interest rate, in pessimistic, base and optimistic scenarios.
-- [ ] Values shown in today's money, with the assumptions listed next to the result.
-- [ ] "How long until X?" for a target amount.
+- [x] Projection with monthly contribution, horizon and real interest rate, in pessimistic, base and optimistic scenarios.
+- [x] Values shown in today's money, with the assumptions listed next to the result.
+- [x] "How long until X?" for a target amount.
 
 **P2**
-- [ ] Monte Carlo simulation using historical return distributions.
+- [x] Monte Carlo simulation using historical return distributions.
 
 ### F10. Insights and questions
 
@@ -197,10 +197,10 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [ ] Natural-language questions answered by the local LLM through read-only SQL over dedicated views, showing the query it used. (Parked: see `docs/PLAN.md`.)
-- [ ] Alerts for unusual spending in a category and for categories about to exceed the budget.
+- [x] Alerts for unusual spending in a category and for categories about to exceed the budget.
 
 **P2**
-- [ ] Monthly report generated automatically at the start of each month.
+- [x] Monthly report generated automatically at the start of each month (the Report screen, and Telegram from the 2nd of the month).
 
 ## Experience
 
@@ -229,11 +229,11 @@ Measured on my own usage, starting two months after each area ships:
 
 | Question | Blocks |
 |---|---|
-| Category limits or YNAB-style envelopes? Start with limits and see if they are enough? | M3 |
+| ~~Category limits or YNAB-style envelopes?~~ Answered in ADR-0006: limits per category, each month inheriting the one before, with rollover per category; envelopes only if limits fall short. | M3 |
 | ~~Which of my investments actually come through Pluggy, and which need the B3 import?~~ Answered in `docs/pluggy.md`: Nubank sends its CDBs, stocks, ETFs and Tesouro; only an unconnected broker would need the B3 import. | M4 |
-| Where do valuation metrics and dividends come from (brapi free tier or another source), and what are the limits? | F8 P1 |
+| ~~Where do valuation metrics and dividends come from?~~ brapi, the same source as the closes: `fundamental=true&dividends=true`, with the key statistics module (P/B) when the plan allows it. lastro keeps a daily copy, so the history starts the first day it reads them. | F8 P1 |
 | ~~How far back does Open Finance return history on the first sync?~~ Answered in `docs/pluggy.md`: about 19 months on my connection, more than the 12 Pluggy promises. | F6 history, F5 detection |
-| Which channel for alerts and reminders: email, Telegram or browser notifications? | F1 P1, F8, F10 |
+| ~~Which channel for alerts and reminders?~~ Answered in ADR-0007: in the app, with Telegram as an opt-in push. | F1 P1, F8, F10 |
 | Is a responsive web app enough on the phone, or is a PWA worth it? | Experience |
 
 ## Parking lot

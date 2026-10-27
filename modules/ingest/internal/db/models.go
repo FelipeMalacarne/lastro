@@ -8,6 +8,31 @@ import (
 	"time"
 )
 
+type BudgetAlertsSent struct {
+	Key    string
+	SentAt time.Time
+}
+
+type BudgetLine struct {
+	Month      time.Time
+	CategoryID string
+	LimitCents int64
+	Rollover   bool
+}
+
+type BudgetMonth struct {
+	Month     time.Time
+	Payday    int16
+	PyfCents  int64
+	Currency  string
+	UpdatedAt time.Time
+}
+
+type BudgetPreference struct {
+	ID          bool
+	RolloverNew bool
+}
+
 type CategorizeCategory struct {
 	ID         string
 	Name       string
@@ -26,6 +51,15 @@ type CategorizeRule struct {
 	CategoryID  string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Origin      string
+}
+
+type CategorizeSuggestion struct {
+	Pattern    string
+	CategoryID *string
+	Confidence int16
+	Model      string
+	AskedAt    time.Time
 }
 
 type IngestItem struct {
@@ -88,6 +122,25 @@ type LedgerBalanceSnapshot struct {
 	TakenAt      time.Time
 }
 
+type LedgerCategoryLine struct {
+	ID          string
+	AccountID   string
+	Date        time.Time
+	Kind        string
+	Currency    string
+	RemovedAt   *time.Time
+	Tags        []string
+	CategoryID  string
+	AmountCents int64
+}
+
+type LedgerSplit struct {
+	TransactionID string
+	Position      int16
+	CategoryID    string
+	AmountCents   int64
+}
+
 type LedgerTransaction struct {
 	ID                string
 	AccountID         string
@@ -105,8 +158,139 @@ type LedgerTransaction struct {
 	CategorySource    *string
 	CounterpartID     *string
 	PairKind          *string
-	Kind              string
 	RemovedAt         *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	Note              string
+	Tags              []string
+	MarkedTransfer    bool
+	Kind              string
+}
+
+type MarketBond struct {
+	Name       string
+	Maturity   time.Time
+	Date       time.Time
+	BuyRateBp  int32
+	PriceCents int64
+	FetchedAt  time.Time
+}
+
+type MarketDividend struct {
+	Symbol      string
+	ComDate     time.Time
+	Label       string
+	RateMicro   int64
+	PaymentDate *time.Time
+	Source      string
+	FetchedAt   time.Time
+}
+
+type MarketFundamental struct {
+	Symbol    string
+	Date      time.Time
+	EpsMicro  *int64
+	BookMicro *int64
+	PeMilli   *int64
+	PbMilli   *int64
+	Source    string
+	FetchedAt time.Time
+}
+
+type MarketQuote struct {
+	Symbol     string
+	Date       time.Time
+	CloseCents int64
+	Currency   string
+	Source     string
+	FetchedAt  time.Time
+}
+
+type MarketRate struct {
+	Series    string
+	Date      time.Time
+	RatePpb   int64
+	Source    string
+	FetchedAt time.Time
+}
+
+type PortfolioHolding struct {
+	Date          time.Time
+	Ticker        string
+	QuantityMicro int64
+}
+
+type PortfolioNetWorth struct {
+	Date           time.Time
+	CashCents      int64
+	CardsCents     int64
+	InvestedCents  int64
+	EmergencyCents int64
+	BasisCents     int64
+	UpdatedAt      time.Time
+	OtherCents     int64
+}
+
+type PortfolioPosition struct {
+	ExternalID    string
+	ItemID        string
+	Institution   string
+	Kind          string
+	Name          string
+	Ticker        *string
+	QuantityMicro int64
+	ValueCents    int64
+	InvestedCents *int64
+	BasisCents    int64
+	Indexer       string
+	RateBps       int32
+	Maturity      *time.Time
+	AsOf          time.Time
+	ClassOverride *string
+	Emergency     bool
+	FirstSeen     time.Time
+	ClosedAt      *time.Time
+	UpdatedAt     time.Time
+	RealizedCents int64
+}
+
+type PortfolioPriceAlert struct {
+	Ticker    string
+	DropBps   int32
+	UpdatedAt time.Time
+}
+
+type PortfolioPurchase struct {
+	ID          string
+	PlannedOn   time.Time
+	What        string
+	Class       string
+	AmountCents int64
+	Condition   string
+	Status      string
+	Note        string
+	CreatedAt   time.Time
+	DecidedAt   *time.Time
+}
+
+type PortfolioSetting struct {
+	ID        int16
+	Targets   []byte
+	BandBps   int32
+	UpdatedAt time.Time
+}
+
+type PortfolioThesis struct {
+	Ticker     string
+	Thesis     string
+	Breaks     string
+	NextReport *time.Time
+	UpdatedAt  time.Time
+}
+
+type PortfolioValuation struct {
+	Date       time.Time
+	Class      string
+	ValueCents int64
+	BasisCents int64
 }

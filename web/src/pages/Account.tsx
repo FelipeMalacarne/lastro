@@ -7,6 +7,7 @@ import { CardMonthBars } from "@/components/charts/CardMonthBars";
 import { MonthBars } from "@/components/charts/MonthBars";
 import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { LimitBar } from "@/components/LimitBar";
+import { ManualAccountView } from "@/components/ManualAccount";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
@@ -24,6 +25,7 @@ import {
   type TransactionList,
 } from "@/lib/api";
 import { addMonths, formatBRL, formatDate, formatDay, formatMonth, todayISO } from "@/lib/format";
+import { useCategories } from "@/lib/categories";
 import { useMonth } from "@/lib/month";
 import { pickNotice } from "@/lib/notice";
 import { Link, navigate } from "@/lib/router";
@@ -40,6 +42,29 @@ export function AccountPage({ id }: { id: string }) {
     return <PageHeader title={loading ? "Loading the account…" : "No such account"} caption={loading ? undefined : "It may have been removed from Meu Pluggy."} />;
   }
   const { a, bank } = found;
+  if (a.manual) {
+    return (
+      <>
+        <PageHeader
+          title={a.name}
+          caption={`${typeName[a.type]} · outside Open Finance, typed in by you`}
+          monthless={a.type === "asset"}
+          actions={
+            a.type === "cash" ? (
+              <Button asChild variant="secondary">
+                <Link to={`/transactions?month=${month}&account=${a.id}`}>
+                  <List aria-hidden />
+                  See its transactions
+                </Link>
+              </Button>
+            ) : undefined
+          }
+        />
+        <ManualAccountView a={a} />
+        {a.type === "cash" && <AccountTransactions a={a} />}
+      </>
+    );
+  }
   const notice = pickNotice([bank]);
   const synced = bank.connection ? bank.connection.detail : "Not synced yet";
   return (
@@ -57,13 +82,19 @@ export function AccountPage({ id }: { id: string }) {
         }
       />
       {all.length > 1 && (
-        <SegmentedControl
-          label="Account"
-          className="lg:hidden"
-          options={all.map((x) => ({ value: x.a.id, label: shortName(x.a, all.map((y) => y.a)) }))}
-          value={a.id}
-          onChange={(v) => navigate(`/accounts/${v}${location.search}`)}
-        />
+        // Many accounts scroll sideways instead of widening the page.
+        <div
+          className="-mx-4 overflow-x-auto px-4 lg:hidden"
+          ref={(el) => el?.querySelector<HTMLElement>('[data-state="on"], [aria-checked="true"]')?.scrollIntoView({ block: "nearest", inline: "center" })}
+        >
+          <SegmentedControl
+            label="Account"
+            className="w-max [&_button]:whitespace-nowrap"
+            options={all.map((x) => ({ value: x.a.id, label: shortName(x.a, all.map((y) => y.a)) }))}
+            value={a.id}
+            onChange={(v) => navigate(`/accounts/${v}${location.search}`)}
+          />
+        </div>
       )}
       {notice && (
         <Notice tone={notice.tone} title={notice.title}>
@@ -78,8 +109,10 @@ export function AccountPage({ id }: { id: string }) {
 
 /** "Checking", "Card", or with the bank when there is more than one. */
 function shortName(a: Account, all: Account[]): string {
+  if (a.manual) return a.name;
   const kind = a.type === "credit_card" ? "Card" : typeName[a.type];
-  return new Set(all.map((x) => x.institution)).size > 1 && a.institution !== all[0].institution ? `${a.institution} ${kind.toLowerCase()}` : kind;
+  // With more than one bank, every account says which.
+  return new Set(all.filter((x) => !x.manual).map((x) => x.institution)).size > 1 ? `${a.institution} ${kind.toLowerCase()}` : kind;
 }
 
 type Range = "3m" | "6m" | "12m" | "all";
@@ -155,7 +188,7 @@ function CheckingView({ a, bank }: { a: Account; bank: Bank }) {
         <Panel
           title="Money in and out, by month"
           className="flex-[7_1_520px]"
-          footer="Transfers between your accounts and card bills are included: this is the account, not your spending. Click a month for its numbers."
+          footer="Transfers between your accounts and card bills are included: this is the account, not your spending. Select a month for its numbers."
         >
           {past.length === 0 ? (
             <p className="m-0 type-body text-ink-muted">{months.loading ? "Loading…" : "No months yet."}</p>
@@ -286,14 +319,22 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
   // Nubank counts future installments against the limit: what it reports as
   // the card's balance is the limit in use, not the open bill.
   const inUse = limit != null && available != null ? limit - available : -a.balanceCents;
-  const future = Math.min(inUse, all.filter((m) => m.future).reduce((s, m) => s + m.spentCents, 0));
+  const live = purchases.data?.purchases ?? [];
+  const left = live.reduce((s, p) => s + p.remainingCents, 0);
+  // Installments not billed yet: the months ahead when the bank lists them,
+  // else what the purchases in progress still have to bill.
+  const futureMonths = all.filter((m) => m.future).reduce((s, m) => s + m.spentCents, 0);
+  const owed = Math.max(futureMonths, left);
+  // The bank's limit in use normally includes the installments to come; when
+  // it is less than what they still owe, the bank is not counting them yet,
+  // and the two figures are shown apart instead of one capping the other.
+  const counted = owed <= inUse;
+  const future = counted ? owed : 0;
   const shown = [...all.filter((m) => !m.future).slice(-12), ...all.filter((m) => m.future)];
   const past = all.filter((m) => !m.future && m.month < current);
   const avg = past.length ? Math.round(past.slice(-11).reduce((s, m) => s + m.spentCents, 0) / Math.min(11, past.length)) : 0;
   const now = all.find((m) => m.month === current);
   const next = all.find((m) => m.month === addMonths(current, 1));
-  const live = purchases.data?.purchases ?? [];
-  const left = live.reduce((s, p) => s + p.remainingCents, 0);
   const bills = all
     .flatMap((m) => m.flows.filter((f) => f.kind === "bill_payment" && f.direction === "in").map((f) => ({ m, f })))
     .reverse()
@@ -318,6 +359,11 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
                   <strong className="font-semibold">{formatBRL(inUse)}</strong> of your {formatBRL(limit)} limit is in use
                   {future > 0 ? `, ${formatBRL(future)} of it in installments not billed yet.` : "."}
                 </p>
+                {!counted && owed > 0 && (
+                  <p className="m-0 type-caption text-ink-muted">
+                    Installments still owe {formatBRL(owed)}, more than the limit in use: the bank takes them from the limit only as each one is billed.
+                  </p>
+                )}
                 <LimitBar limitCents={limit} restCents={Math.max(0, inUse - future)} futureCents={future} availableCents={available} />
               </div>
             ) : (
@@ -328,7 +374,10 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
         <Facts a={a} bank={bank} className="flex-[3_1_260px]" />
       </div>
 
-      <Panel title="Card spending by month" footer="Each installment counts in the month it is billed. Dashed bars are installments already committed to the coming months.">
+      <Panel
+        title="Card spending by month"
+        footer={`Each installment counts in the month it is billed.${futureMonths > 0 ? " Dashed bars are installments already committed to the coming months." : ""}`}
+      >
         <div className="flex flex-col gap-3">
           {now && (
             <p className="m-0 type-body">
@@ -351,9 +400,9 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
           {live.length === 0 ? (
             <p className="m-0 px-5 type-body text-ink-muted">{purchases.loading ? "Loading…" : "No installments in progress."}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[520px]">
-                <div className="grid grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] gap-3 border-y border-rule bg-paper-sunken px-5 py-2 type-label text-ink-muted max-lg:hidden">
+            <div>
+              <div>
+                <div className="hidden grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] gap-3 border-y border-rule bg-paper-sunken px-5 py-2 type-label text-ink-muted lg:grid">
                   <span>Purchase</span>
                   <span>Progress</span>
                   <span className="text-right">Per month</span>
@@ -364,21 +413,24 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
                   <Link
                     key={p.installments[0].id}
                     to={`/transactions?month=${p.installments.find((i) => i.number === p.current)?.date.slice(0, 7) ?? current}&account=${a.id}&tx=${(p.installments.find((i) => i.number === p.current) ?? p.installments[0]).id}`}
-                    className="grid min-h-12 grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] items-center gap-3 border-b border-rule px-5 py-2 text-ink no-underline hover:bg-paper-sunken hover:text-ink"
+                    className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-rule px-5 py-2.5 text-ink no-underline hover:bg-paper-sunken hover:text-ink lg:grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] lg:py-2"
                   >
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate type-body-strong">{p.description}</span>
                       <span className="type-caption text-ink-muted">{formatBRL(p.amountCents * p.total)} in all</span>
                     </span>
-                    <span className="flex flex-col gap-1">
+                    <span className="flex flex-col gap-1 max-lg:col-span-2 max-lg:row-start-2">
                       <InstallmentProgress current={p.current} total={p.total} />
                       <span className="type-figure-sm text-ink-muted">
                         {p.current} of {p.total}
+                        <span className="lg:hidden">
+                          {" "}· {formatBRL(p.remainingCents)} still to pay · last in {formatMonth(p.lastDate.slice(0, 7), true)}
+                        </span>
                       </span>
                     </span>
-                    <Amount cents={p.amountCents} sign="none" className="text-right" />
-                    <Amount cents={p.remainingCents} sign="none" className="text-right" />
-                    <span className="text-right type-figure-sm text-ink-muted">{formatMonth(p.lastDate.slice(0, 7), true)}</span>
+                    <Amount cents={p.amountCents} sign="none" className="text-right max-lg:row-start-1 max-lg:col-start-2" />
+                    <Amount cents={p.remainingCents} sign="none" className="text-right max-lg:hidden" />
+                    <span className="text-right type-figure-sm text-ink-muted max-lg:hidden">{formatMonth(p.lastDate.slice(0, 7), true)}</span>
                   </Link>
                 ))}
               </div>
@@ -425,10 +477,11 @@ function billDays(a: Account, today: string): string {
 /** The month in view, in this account; a row opens its detail on Transactions. */
 function AccountTransactions({ a }: { a: Account }) {
   const { month } = useMonth();
+  const { byId } = useCategories();
   const res = useResource<TransactionList>(`/api/v1/transactions?month=${month}&account=${a.id}`);
   const list = res.data?.transactions ?? [];
   const shown = list.slice(0, 8);
-  const name = `${a.institution} ${typeLabel[a.type]}`;
+  const name = a.manual ? a.name : `${a.institution} ${typeLabel[a.type]}`;
   return (
     <Panel
       title={`${formatMonth(month).split(" ")[0]} in ${a.type === "credit_card" ? `the ${name}` : name}`}
@@ -439,7 +492,7 @@ function AccountTransactions({ a }: { a: Account }) {
             See all {list.length}
           </Link>
         ) : (
-          "Click a transaction to open it."
+          "Select a transaction to open it."
         )
       }
     >
@@ -457,7 +510,7 @@ function AccountTransactions({ a }: { a: Account }) {
             amountCents={t.amountCents}
             pending={t.status === "pending"}
             installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
-            categorized={false}
+            category={t.category && byId.get(t.category.id) ? { name: byId.get(t.category.id)!.name, color: byId.get(t.category.id)!.color } : null}
           />
       ))}
     </Panel>

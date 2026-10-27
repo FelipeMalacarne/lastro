@@ -152,12 +152,15 @@ const (
 	AccountChecking   AccountType = "checking"
 	AccountSavings    AccountType = "savings"
 	AccountCreditCard AccountType = "credit_card"
+	// A wallet and an asset are mine to type in: Open Finance has neither.
+	AccountCash  AccountType = "cash"
+	AccountAsset AccountType = "asset"
 )
 
 // ParseAccountType accepts the spellings above.
 func ParseAccountType(s string) (AccountType, error) {
 	switch t := AccountType(s); t {
-	case AccountChecking, AccountSavings, AccountCreditCard:
+	case AccountChecking, AccountSavings, AccountCreditCard, AccountCash, AccountAsset:
 		return t, nil
 	}
 	return "", fmt.Errorf("%w: account type %q", ErrInvalid, s)
@@ -165,6 +168,9 @@ func ParseAccountType(s string) (AccountType, error) {
 
 func (t AccountType) String() string { return string(t) }
 func (t AccountType) IsCard() bool   { return t == AccountCreditCard }
+
+// IsManual is whether the account is typed in by me, outside Open Finance.
+func (t AccountType) IsManual() bool { return t == AccountCash || t == AccountAsset }
 
 // CardDetails is what the bank says about a card's limit and its bill, as of
 // the balance it came with. Banks share different parts: each one is

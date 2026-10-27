@@ -46,8 +46,8 @@ WHERE t.id = ANY (sqlc.arg(ids)::uuid[]);
 -- name: SaveTransaction :batchexec
 INSERT INTO ledger.transactions (
     id, account_id, external_id, bank_ref, date, description, amount_cents, currency, source_kind, status,
-    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (id) DO UPDATE SET
     external_id = EXCLUDED.external_id,
     bank_ref = EXCLUDED.bank_ref,
@@ -63,6 +63,7 @@ ON CONFLICT (id) DO UPDATE SET
     counterpart_id = EXCLUDED.counterpart_id,
     pair_kind = EXCLUDED.pair_kind,
     removed_at = EXCLUDED.removed_at,
+    marked_transfer = EXCLUDED.marked_transfer,
     updated_at = now();
 
 -- name: SaveBalanceSnapshot :exec
@@ -97,10 +98,15 @@ ORDER BY t.date, t.id;
 -- one's account and, for pairs, the other side and its account. flow is 'in'
 -- or 'out' (money that counts, by direction) or 'transfer' (transfers and
 -- card bill payments). search matches the description ignoring case and
--- accents.
+-- accents. category is a category id, or 'none' for the expenses and income
+-- still without one.
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
+    t.note, t.tags, t.marked_transfer,
+    COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
+    -- What counts under a category filter: a split's part in it, or the whole.
+    COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text), t.amount_cents)::bigint AS counted_cents,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -114,6 +120,13 @@ WHERE t.removed_at IS NULL
   AND (sqlc.narg(date_to)::date IS NULL OR t.date < sqlc.narg(date_to)::date)
   AND (sqlc.narg(account_id)::uuid IS NULL OR t.account_id = sqlc.narg(account_id)::uuid)
   AND (
+      sqlc.narg(category)::text IS NULL
+      OR (sqlc.narg(category)::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+      OR t.category_id = sqlc.narg(category)::text
+      OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text)
+  )
+  AND (sqlc.narg(tag)::text IS NULL OR sqlc.narg(tag)::text = ANY (t.tags))
+  AND (
       sqlc.narg(flow)::text IS NULL
       OR (sqlc.narg(flow)::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
       OR (sqlc.narg(flow)::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
@@ -121,7 +134,7 @@ WHERE t.removed_at IS NULL
   )
   AND (
       sqlc.narg(search)::text IS NULL
-      OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+      OR translate(lower(t.description || ' ' || t.note), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
          LIKE '%' || translate(lower(sqlc.narg(search)::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
   )
 ORDER BY t.date DESC, t.created_at DESC, t.id
@@ -194,7 +207,7 @@ ORDER BY date;
 -- or card bill payments) whose category nobody chose by hand.
 
 -- name: ListCategorizable :many
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE id = ANY (sqlc.arg(ids)::uuid[])
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -202,8 +215,134 @@ WHERE id = ANY (sqlc.arg(ids)::uuid[])
 ORDER BY date, id;
 
 -- name: ListUncategorized :many
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE category_id IS NULL
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
 ORDER BY date, id;
+
+-- name: ListAutomatable :many
+-- Every live expense and income whose category nobody chose by hand: what
+-- rules and the model may (re)categorize.
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
+WHERE removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND category_source IS DISTINCT FROM 'manual'
+ORDER BY date, id;
+
+-- name: ListDescriptionCounts :many
+-- Each description of live expenses and income, by account: how often it
+-- came and when last. What a rule would meet, without loading every row.
+SELECT description, account_id, count(*)::int AS n, max(date)::date AS last_date
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+GROUP BY description, account_id;
+
+-- name: ListCategoryTotals :many
+-- Live expenses and income in a date range by category (null: none yet):
+-- money out, money in and how many.
+SELECT COALESCE(category_id, '')::text AS category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND currency = 'BRL'
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY 1;
+
+-- name: ListCategoryMonths :many
+-- Live expenses and income by month, category (null: none yet) and kind:
+-- money out, money in and how many. What budgets and averages are built on,
+-- in reais only. A split counts each part in its category.
+SELECT date_trunc('month', date)::date AS month, COALESCE(category_id, '')::text AS category_id, kind,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND currency = 'BRL'
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
+
+-- name: ListMonthKinds :many
+-- Every live transaction by month, kind, direction and whether it is paired
+-- with one in another of my accounts: the month's income, and transfers out
+-- to accounts outside lastro (the broker).
+SELECT date_trunc('month', date)::date AS month, kind, amount_cents > 0 AS inflow,
+    (counterpart_id IS NOT NULL)::boolean AS paired,
+    sum(amount_cents)::bigint AS cents, count(*)::int AS n, max(date)::date AS last
+FROM ledger.transactions
+WHERE removed_at IS NULL AND amount_cents <> 0
+  AND currency = 'BRL'
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2, 3, 4;
+
+-- name: ListCharges :many
+-- Live expenses since a day, outside installments: what recurring charges
+-- are found in.
+SELECT t.id, t.description, t.date, t.amount_cents, t.category_id, a.name AS account_name, a.institution
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+WHERE t.removed_at IS NULL AND t.kind = 'expense' AND t.amount_cents < 0
+  AND t.currency = 'BRL'
+  AND t.installment_total IS NULL
+  AND t.date >= sqlc.arg(date_from)::date
+ORDER BY t.date, t.id;
+
+-- name: SetNote :execrows
+UPDATE ledger.transactions SET note = sqlc.arg(note), updated_at = now()
+WHERE id = sqlc.arg(id) AND removed_at IS NULL;
+
+-- name: SetTags :execrows
+UPDATE ledger.transactions SET tags = sqlc.arg(tags)::text[], updated_at = now()
+WHERE id = sqlc.arg(id) AND removed_at IS NULL;
+
+-- name: ListSplit :many
+SELECT category_id, amount_cents FROM ledger.splits
+WHERE transaction_id = sqlc.arg(transaction_id)
+ORDER BY position;
+
+-- name: DeleteSplit :exec
+DELETE FROM ledger.splits WHERE transaction_id = sqlc.arg(transaction_id);
+
+-- name: InsertSplitPart :exec
+INSERT INTO ledger.splits (transaction_id, position, category_id, amount_cents)
+VALUES (sqlc.arg(transaction_id), sqlc.arg(position), sqlc.arg(category_id), sqlc.arg(amount_cents));
+
+-- name: ListTags :many
+-- Every tag in use, with how much money it holds: what the tag picker
+-- offers and the tag filter sums.
+SELECT tag::text AS tag, count(*)::int AS n,
+    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents > 0), 0)::bigint AS in_cents,
+    max(t.date)::date AS last
+FROM ledger.transactions t, unnest(t.tags) AS tag
+WHERE t.removed_at IS NULL
+GROUP BY tag
+ORDER BY max(t.date) DESC, tag;
+
+-- name: ListTagCategories :many
+-- One tag's money by category, every month, a split counted by its parts.
+SELECT COALESCE(category_id, '')::text AS category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND currency = 'BRL' AND sqlc.arg(tag)::text = ANY (tags)
+GROUP BY 1
+ORDER BY 2 DESC;
+
+-- name: DeleteBalanceSnapshot :execrows
+DELETE FROM ledger.balance_snapshots WHERE account_id = $1 AND date = $2;
+
+-- name: ReplaceBalanceSnapshot :exec
+-- A balance I counted replaces that day's, whenever I typed it.
+INSERT INTO ledger.balance_snapshots (account_id, date, balance_cents, currency, taken_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (account_id, date) DO UPDATE SET
+    balance_cents = EXCLUDED.balance_cents,
+    taken_at = EXCLUDED.taken_at;
+

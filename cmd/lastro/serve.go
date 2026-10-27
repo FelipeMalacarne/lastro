@@ -31,6 +31,7 @@ func runServe(ctx context.Context, args []string) error {
 		return err
 	}
 	defer a.Close()
+	a.Version = version
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

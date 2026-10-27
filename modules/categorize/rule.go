@@ -24,17 +24,32 @@ type Rule struct {
 	pattern   Pattern
 	account   ledger.AccountID // empty: every account
 	category  ledger.CategoryID
+	origin    Origin
 	createdAt time.Time
 	updatedAt time.Time
 }
 
+// Origin is who made a rule.
+type Origin string
+
+const (
+	// OriginCorrection is a rule a correction taught, in the review queue or
+	// a transaction's detail.
+	OriginCorrection Origin = "correction"
+	// OriginHand is a rule written on the Categories and rules screen.
+	OriginHand Origin = "hand"
+)
+
 // NewRule creates a rule. The category must be live: a rule never leads to
 // an archived one.
-func NewRule(p Pattern, account ledger.AccountID, c Category, now time.Time) (*Rule, error) {
+func NewRule(p Pattern, account ledger.AccountID, c Category, origin Origin, now time.Time) (*Rule, error) {
 	if p.IsZero() {
 		return nil, fmt.Errorf("%w: rule without a pattern", ErrInvalid)
 	}
-	r := &Rule{id: RuleID(newID()), pattern: p, account: account, createdAt: now}
+	if origin != OriginCorrection && origin != OriginHand {
+		return nil, fmt.Errorf("%w: rule origin %q", ErrInvalid, origin)
+	}
+	r := &Rule{id: RuleID(newID()), pattern: p, account: account, origin: origin, createdAt: now}
 	if _, err := r.Retarget(c, now); err != nil {
 		return nil, err
 	}
@@ -64,3 +79,25 @@ func (r *Rule) Matches(description string, account ledger.AccountID) bool {
 	}
 	return r.pattern.Matches(description)
 }
+
+// Reshape changes what the rule looks for and where. It reports whether
+// anything changed; at most one rule per pattern and account still holds,
+// in the database.
+func (r *Rule) Reshape(p Pattern, account ledger.AccountID, now time.Time) (bool, error) {
+	if p.IsZero() {
+		return false, fmt.Errorf("%w: rule without a pattern", ErrInvalid)
+	}
+	if p == r.pattern && account == r.account {
+		return false, nil
+	}
+	r.pattern, r.account, r.updatedAt = p, account, now
+	return true, nil
+}
+
+func (r *Rule) ID() RuleID                  { return r.id }
+func (r *Rule) Pattern() Pattern            { return r.pattern }
+func (r *Rule) Account() ledger.AccountID   { return r.account }
+func (r *Rule) Category() ledger.CategoryID { return r.category }
+func (r *Rule) Origin() Origin              { return r.origin }
+func (r *Rule) CreatedAt() time.Time        { return r.createdAt }
+func (r *Rule) UpdatedAt() time.Time        { return r.updatedAt }

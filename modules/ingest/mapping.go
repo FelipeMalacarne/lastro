@@ -275,7 +275,9 @@ func fold(s string) string {
 // the same day. A date-only payment without such a twin is the only record
 // of that payment and stays. It returns how many it dropped.
 func withoutBuiltBillPayments(txs []ledger.ImportedTransaction) ([]ledger.ImportedTransaction, int) {
-	dateOnly := func(t time.Time) bool { return t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Nanosecond() == 0 }
+	dateOnly := func(t time.Time) bool {
+		return t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Nanosecond() == 0
+	}
 	sameDay := func(a, b time.Time) bool {
 		ay, am, ad := a.Date()
 		by, bm, bd := b.Date()

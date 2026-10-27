@@ -34,6 +34,9 @@ func NewOllama(baseURL, model string) *Client {
 	}
 }
 
+// Model is the model's name, as configured.
+func (c *Client) Model() string { return c.model }
+
 // Enabled reports whether a URL and a model are configured.
 func (c *Client) Enabled() bool { return c.baseURL != "" && c.model != "" }
 
@@ -93,4 +96,46 @@ func (c *Client) generate(ctx context.Context, system, prompt, format string) (s
 		return "", fmt.Errorf("llm: decode response: %w", err)
 	}
 	return out.Response, nil
+}
+
+// ErrModelMissing means Ollama answers but does not have the configured model.
+var ErrModelMissing = errors.New("llm: the model is not pulled in Ollama")
+
+type tagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
+// Ping checks that Ollama answers and has the configured model, without
+// generating anything.
+func (c *Client) Ping(ctx context.Context) error {
+	if !c.Enabled() {
+		return ErrDisabled
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/tags", nil)
+	if err != nil {
+		return fmt.Errorf("llm: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("llm: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("llm: status %d", resp.StatusCode)
+	}
+	var tags tagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return fmt.Errorf("llm: decode tags: %w", err)
+	}
+	for _, m := range tags.Models {
+		// "llama3.1" is pulled as "llama3.1:latest".
+		if m.Name == c.model || strings.TrimSuffix(m.Name, ":latest") == c.model {
+			return nil
+		}
+	}
+	return ErrModelMissing
 }

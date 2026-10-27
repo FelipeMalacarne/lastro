@@ -5,6 +5,7 @@
 //	lastro contribute   show where this month's contribution should go (M4)
 //	lastro migrate      apply pending migrations
 //	lastro fixtures     download Pluggy responses and anonymize them into test fixtures
+//	lastro seed         fill a dev database with made-up history (dev only)
 //	lastro version      print the version
 //
 // The CLI uses only the standard library. If it ever needs nested
@@ -35,8 +36,10 @@ func commands() []command {
 		{"serve", "start the API and the embedded frontend", runServe},
 		{"sync", "pull accounts and transactions from Pluggy", runSync},
 		{"contribute", "show where this month's contribution should go", runContribute},
+		{"market", "refresh CDI, IPCA, Tesouro Direto and the quotes of what is held", runMarket},
 		{"migrate", "apply pending migrations", runMigrate},
 		{"fixtures", "download Pluggy responses and anonymize them into test fixtures", runFixtures},
+		{"seed", "fill a dev database with fourteen months of made-up money (LASTRO_ENV=dev only)", runSeed},
 		{"version", "print the version", runVersion},
 	}
 }

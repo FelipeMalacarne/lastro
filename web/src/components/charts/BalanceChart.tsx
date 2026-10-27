@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { Amount } from "@/components/Amount";
-import { formatAxis, formatDate, niceStep } from "@/lib/format";
+import { formatAxis, formatBRL, formatDate, niceStep } from "@/lib/format";
 
 export type BalancePoint = { date: string; cents: number };
 
@@ -29,6 +29,13 @@ export function BalanceChart({ points, label, onHover }: Props) {
     onHover?.(i == null ? null : points[i]);
   };
   if (points.length === 0) return null;
+  // One day of history draws no line: say so instead of a ramp from zero.
+  if (points.length === 1)
+    return (
+      <p className="m-0 type-body text-ink-muted">
+        The balance history starts at the first sync. One day so far: {formatBRL(points[0].cents)}.
+      </p>
+    );
 
   const values = points.map((p) => p.cents);
   const max = Math.max(...values, 0);

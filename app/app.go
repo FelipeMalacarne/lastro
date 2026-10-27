@@ -6,21 +6,28 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"lastro/modules/budget"
 	"lastro/modules/categorize"
 	"lastro/modules/ingest"
 	"lastro/modules/ledger"
+	"lastro/modules/market"
+	"lastro/modules/planning"
+	"lastro/modules/portfolio"
 	"lastro/platform/auth"
 	"lastro/platform/config"
 	"lastro/platform/db"
 	"lastro/platform/events"
 	"lastro/platform/httpx"
 	"lastro/platform/llm"
+	"lastro/platform/notify"
 	"lastro/web"
 )
 
@@ -30,13 +37,21 @@ type App struct {
 	DB     *pgxpool.Pool
 	Bus    *events.Bus
 	LLM    *llm.Client
+	Notify *notify.Telegram
+	// Version is the build's, for the Settings screen; the CLI sets it.
+	Version string
 
 	auth func(http.Handler) http.Handler
+	sync syncState
 
 	// One field per module, wired in New in dependency order.
 	Ledger     *ledger.Service
 	Ingest     *ingest.Service
 	Categorize *categorize.Service
+	Budget     *budget.Service
+	Market     *market.Service
+	Portfolio  *portfolio.Service
+	Planning   *planning.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -60,12 +75,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		DB:     pool,
 		Bus:    events.NewBus(logger),
 		LLM:    llm.NewOllama(cfg.Ollama.URL, cfg.Ollama.Model),
+		Notify: notify.NewTelegram(cfg.Telegram.BotToken, cfg.Telegram.ChatID),
 		auth:   authMW,
 	}
 
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
-	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
-	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, logger)
+	series, quotes, bonds := market.Sources(cfg.BrapiToken)
+	a.Market = market.New(market.NewRepository(pool), series, quotes, bonds, logger)
+	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market)
+	a.Planning = planning.New(a.Portfolio)
+	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Portfolio, a.Bus, logger)
+	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
+	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
 
 	// The rules categorize each import as it commits. After every sync they
 	// also reach whatever is still without a category: transactions imported
@@ -82,6 +103,44 @@ func (a *App) categorizeAfterSync(ctx context.Context, _ ingest.SyncCompleted) e
 		a.Logger.InfoContext(ctx, "categorized by rules after the sync", "transactions", n)
 	}
 	return err
+}
+
+// RefreshMarket brings the indices, Tesouro Direto and the quotes of every
+// ticker held up to date, plus any extra symbols, and values the day again
+// at the new prices.
+func (a *App) RefreshMarket(ctx context.Context, extra ...string) (market.Report, error) {
+	held, err := a.Portfolio.Tickers(ctx)
+	if err != nil {
+		return market.Report{}, err
+	}
+	rep, merr := a.Market.Refresh(ctx, append(append(held, portfolio.Ibovespa), extra...))
+	// The day is valued even without new prices: the banks' values stand.
+	if _, err := a.Portfolio.Valuate(ctx, a.Portfolio.Today()); err != nil {
+		return rep, err
+	}
+	return rep, merr
+}
+
+// SendAlerts pushes the alerts no channel has seen yet, in one message, and
+// remembers them. Without a channel it sends nothing and says how many wait.
+func (a *App) SendAlerts(ctx context.Context) (int, error) {
+	all, err := a.Alerts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	fresh, err := a.Budget.Unsent(ctx, all)
+	if err != nil || len(fresh) == 0 || !a.Notify.Enabled() {
+		return 0, err
+	}
+	var b strings.Builder
+	b.WriteString("lastro\n")
+	for _, al := range fresh {
+		fmt.Fprintf(&b, "\n• %s. %s", al.Title, al.Detail)
+	}
+	if err := a.Notify.Send(ctx, b.String()); err != nil {
+		return 0, err
+	}
+	return len(fresh), a.Budget.MarkSent(ctx, fresh)
 }
 
 // NewLogger uses readable text in dev and JSON in prod.
@@ -113,9 +172,18 @@ func (a *App) Close() { a.DB.Close() }
 func (a *App) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
+	api.HandleFunc("GET /api/v1/settings", a.handleSettings)
+	api.HandleFunc("GET /api/v1/alerts", a.handleAlerts)
+	api.HandleFunc("GET /api/v1/report", a.handleReport)
+	api.HandleFunc("GET /api/v1/sync", a.handleSync)
+	api.HandleFunc("POST /api/v1/sync", a.handleSync)
 	a.Ledger.RegisterRoutes(api, a.Logger)
 	a.Ingest.RegisterRoutes(api, a.Logger)
 	a.Categorize.RegisterRoutes(api, a.Logger)
+	a.Budget.RegisterRoutes(api, a.Logger)
+	a.Market.RegisterRoutes(api, a.Logger)
+	a.Portfolio.RegisterRoutes(api, a.Logger)
+	a.Planning.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())
@@ -128,5 +196,5 @@ func (a *App) Handler() http.Handler {
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.IdentityFrom(r.Context())
-	httpx.JSON(w, http.StatusOK, map[string]string{"email": id.Email})
+	httpx.JSON(w, http.StatusOK, map[string]string{"email": id.Email, "version": a.Version, "env": a.Config.Env})
 }

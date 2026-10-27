@@ -26,6 +26,9 @@ type Repository interface {
 	// SaveSnapshot stores the balance of a day, unless a later one is stored.
 	SaveSnapshot(ctx context.Context, s BalanceSnapshot) error
 	Snapshots(ctx context.Context, account AccountID) ([]BalanceSnapshot, error)
+	DeleteSnapshot(ctx context.Context, account AccountID, day time.Time) error
+	// ReplaceSnapshot stores a day's balance whatever the one stored.
+	ReplaceSnapshot(ctx context.Context, s BalanceSnapshot) error
 
 	// TransactionsForImport returns the account's transactions dated on or
 	// after from (none for a zero from) plus any with one of the external
@@ -54,6 +57,20 @@ type Repository interface {
 	// categorize; Uncategorized, every one of those still without a category.
 	Categorizable(ctx context.Context, ids []TransactionID) ([]Categorizable, error)
 	Uncategorized(ctx context.Context) ([]Categorizable, error)
+	Automatable(ctx context.Context) ([]Categorizable, error)
+	DescriptionCounts(ctx context.Context) ([]DescriptionCount, error)
+	CategoryTotals(ctx context.Context, from, to time.Time) ([]CategoryTotal, error)
+	CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error)
+	MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error)
+	Charges(ctx context.Context, from time.Time) ([]Charge, error)
+
+	// What I add to a transaction.
+	SetNote(ctx context.Context, id TransactionID, n Note) error
+	SetTags(ctx context.Context, id TransactionID, tags []Tag) error
+	Split(ctx context.Context, id TransactionID) ([]SplitPartView, error)
+	SaveSplit(ctx context.Context, id TransactionID, s Split) error
+	Tags(ctx context.Context) ([]TagView, error)
+	TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -188,10 +205,176 @@ func (s *Service) Categorize(ctx context.Context, id TransactionID, c CategoryID
 			return err
 		}
 		evs = t.PullEvents()
+		if src == SourceManual {
+			// One category chosen by hand replaces a split.
+			if err := r.SaveSplit(ctx, id, Split{}); err != nil {
+				return err
+			}
+		}
 		return r.SaveTransactions(ctx, txs)
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: categorize %s: %w", id, err)
+	}
+	return s.bus.Publish(ctx, evs...)
+}
+
+// Uncategorize takes back an automation-made category, so the transaction
+// waits in the review queue again.
+func (s *Service) Uncategorize(ctx context.Context, id TransactionID) error {
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, []TransactionID{id})
+		if err != nil {
+			return err
+		}
+		if len(txs) == 0 {
+			return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+		}
+		if err := txs[0].Uncategorize(); err != nil {
+			return err
+		}
+		return r.SaveTransactions(ctx, txs)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: uncategorize %s: %w", id, err)
+	}
+	return nil
+}
+
+// MarkTransfers marks transactions as transfers to accounts lastro does not
+// have (or takes the mark back), together. It returns how many changed.
+func (s *Service) MarkTransfers(ctx context.Context, ids []TransactionID, on bool) (int, error) {
+	n := 0
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, ids)
+		if err != nil {
+			return err
+		}
+		if len(txs) != len(ids) {
+			return fmt.Errorf("%w: %d of %d transactions", ErrNotFound, len(ids)-len(txs), len(ids))
+		}
+		var changed []*Transaction
+		for _, t := range txs {
+			if t.MarkedTransfer() == on {
+				continue
+			}
+			if err := t.MarkTransfer(on); err != nil {
+				return err
+			}
+			changed = append(changed, t)
+		}
+		n = len(changed)
+		return r.SaveTransactions(ctx, changed)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("ledger: mark transfers: %w", err)
+	}
+	return n, nil
+}
+
+// SetNote writes my note on a transaction; an empty one clears it.
+func (s *Service) SetNote(ctx context.Context, id TransactionID, note string) error {
+	n, err := NewNote(note)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetNote(ctx, id, n); err != nil {
+		return fmt.Errorf("ledger: note %s: %w", id, err)
+	}
+	return nil
+}
+
+// SetTags replaces a transaction's tags.
+func (s *Service) SetTags(ctx context.Context, id TransactionID, tags []string) error {
+	ts, err := NewTags(tags)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.SetTags(ctx, id, ts); err != nil {
+		return fmt.Errorf("ledger: tags %s: %w", id, err)
+	}
+	return nil
+}
+
+// Tags lists every tag in use, the most recently used first.
+func (s *Service) Tags(ctx context.Context) ([]TagView, error) {
+	ts, err := s.repo.Tags(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: tags: %w", err)
+	}
+	return ts, nil
+}
+
+// TagCategories is one tag's money by category over every month.
+func (s *Service) TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error) {
+	t, err := NewTag(tag)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.repo.TagCategories(ctx, string(t))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: tag %s: %w", t, err)
+	}
+	return cs, nil
+}
+
+// SplitTransaction divides a transaction across categories (see
+// Transaction.SplitInto); categorize checks the categories are live first.
+func (s *Service) SplitTransaction(ctx context.Context, id TransactionID, parts []SplitPart) error {
+	var evs []events.Event
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, []TransactionID{id})
+		if err != nil {
+			return err
+		}
+		if len(txs) == 0 {
+			return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+		}
+		split, err := txs[0].SplitInto(parts)
+		if err != nil {
+			return err
+		}
+		evs = txs[0].PullEvents()
+		if err := r.SaveSplit(ctx, id, split); err != nil {
+			return err
+		}
+		return r.SaveTransactions(ctx, txs)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: split %s: %w", id, err)
+	}
+	return s.bus.Publish(ctx, evs...)
+}
+
+// Unsplit removes a split; the transaction keeps the largest part's
+// category, still mine.
+func (s *Service) Unsplit(ctx context.Context, id TransactionID) error {
+	if err := s.repo.SaveSplit(ctx, id, Split{}); err != nil {
+		return fmt.Errorf("ledger: unsplit %s: %w", id, err)
+	}
+	return nil
+}
+
+// Restore puts back a transaction's category as it was before a choice
+// that is being undone (see Transaction.Restore).
+func (s *Service) Restore(ctx context.Context, id TransactionID, c CategoryID, src Source) error {
+	var evs []events.Event
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, []TransactionID{id})
+		if err != nil {
+			return err
+		}
+		if len(txs) == 0 {
+			return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+		}
+		if err := txs[0].Restore(c, src); err != nil {
+			return err
+		}
+		evs = txs[0].PullEvents()
+		return r.SaveTransactions(ctx, txs)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: restore %s: %w", id, err)
 	}
 	return s.bus.Publish(ctx, evs...)
 }
@@ -218,6 +401,66 @@ func (s *Service) Uncategorized(ctx context.Context) ([]Categorizable, error) {
 		return nil, fmt.Errorf("ledger: uncategorized: %w", err)
 	}
 	return txs, nil
+}
+
+// Automatable returns every live expense and income whose category nobody
+// chose by hand: what a changed rule may recategorize.
+func (s *Service) Automatable(ctx context.Context) ([]Categorizable, error) {
+	txs, err := s.repo.Automatable(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: automatable: %w", err)
+	}
+	return txs, nil
+}
+
+// DescriptionCounts returns how often each description of live expenses and
+// income came, by account, and when last.
+func (s *Service) DescriptionCounts(ctx context.Context) ([]DescriptionCount, error) {
+	out, err := s.repo.DescriptionCounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: description counts: %w", err)
+	}
+	return out, nil
+}
+
+// CategoryTotals sums a month's live expenses and income by category.
+func (s *Service) CategoryTotals(ctx context.Context, month time.Time) ([]CategoryTotal, error) {
+	from := monthOf(month)
+	out, err := s.repo.CategoryTotals(ctx, from, from.AddDate(0, 1, 0))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: category totals: %w", err)
+	}
+	return out, nil
+}
+
+// CategoryMonths sums live expenses and income by month, category and kind,
+// from the month of from through the month of to.
+func (s *Service) CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error) {
+	out, err := s.repo.CategoryMonths(ctx, monthOf(from), monthOf(to).AddDate(0, 1, 0))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: category months: %w", err)
+	}
+	return out, nil
+}
+
+// MonthKinds sums every live transaction by month, kind, direction and
+// pairing, from the month of from through the month of to.
+func (s *Service) MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error) {
+	out, err := s.repo.MonthKinds(ctx, monthOf(from), monthOf(to).AddDate(0, 1, 0))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: month kinds: %w", err)
+	}
+	return out, nil
+}
+
+// Charges lists live expenses since a day, outside installments, oldest
+// first.
+func (s *Service) Charges(ctx context.Context, from time.Time) ([]Charge, error) {
+	out, err := s.repo.Charges(ctx, from)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: charges: %w", err)
+	}
+	return out, nil
 }
 
 // Accounts lists every account with its latest balance.
@@ -261,6 +504,18 @@ func (s *Service) BalanceHistory(ctx context.Context, id AccountID) (BalanceHist
 	acc, err := s.repo.AccountView(ctx, id)
 	if err != nil {
 		return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+	}
+	if AccountType(acc.Type) == AccountAsset {
+		// An asset has no transactions: its history is the balances I typed.
+		snaps, err := s.repo.Snapshots(ctx, id)
+		if err != nil {
+			return BalanceHistoryView{}, fmt.Errorf("ledger: balance history %s: %w", id, err)
+		}
+		v := BalanceHistoryView{Currency: acc.Currency, AsOf: acc.BalanceAt, Points: make([]BalancePointView, len(snaps))}
+		for i, sn := range snaps {
+			v.Points[i] = BalancePointView{Date: sn.Date.Format(time.DateOnly), BalanceCents: sn.Balance.Cents()}
+		}
+		return v, nil
 	}
 	current, err := money.New(acc.BalanceCents, money.Currency(acc.Currency))
 	if err != nil {
@@ -326,7 +581,12 @@ func (s *Service) Transaction(ctx context.Context, id TransactionID) (Transactio
 	if err != nil {
 		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
 	}
-	d := TransactionDetail{Transaction: v}
+	d := TransactionDetail{Transaction: v, Split: []SplitPartView{}}
+	if len(v.SplitCategories) > 0 {
+		if d.Split, err = s.repo.Split(ctx, id); err != nil {
+			return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+		}
+	}
 	if v.CounterpartID != nil {
 		c, err := s.repo.TransactionView(ctx, *v.CounterpartID)
 		switch {

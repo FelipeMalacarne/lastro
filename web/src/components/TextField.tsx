@@ -27,7 +27,7 @@ export function TextField({ label, hint, error, prefix, suffix, numeric, classNa
       )}
       <div
         className={cn(
-          "flex h-9 items-center gap-2 rounded-sm border bg-paper-raised px-3 focus-within:border-tinta focus-within:focus-ring",
+          "flex h-9 min-w-0 items-center gap-2 rounded-sm border bg-paper-raised px-3 focus-within:border-tinta focus-within:focus-ring",
           error ? "border-danger" : "border-rule-strong",
         )}
       >

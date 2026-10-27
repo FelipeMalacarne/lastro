@@ -21,6 +21,17 @@ type Config struct {
 	Auth        Auth
 	Ollama      Ollama
 	Pluggy      Pluggy
+	// BrapiToken reads B3 quotes from brapi.dev; without one only a few
+	// tickers answer.
+	BrapiToken string
+	// Telegram pushes alerts (ADR-0007); off unless both are set.
+	Telegram Telegram
+}
+
+// Telegram is a bot token and the chat it writes to.
+type Telegram struct {
+	BotToken string
+	ChatID   string
 }
 
 // Auth configures Cloudflare Access verification.
@@ -99,7 +110,9 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 			URL:   get("LASTRO_OLLAMA_URL", ""),
 			Model: get("LASTRO_OLLAMA_MODEL", ""),
 		},
-		Pluggy: pluggyFrom(get),
+		Pluggy:     pluggyFrom(get),
+		BrapiToken: get("LASTRO_BRAPI_TOKEN", ""),
+		Telegram:   Telegram{BotToken: get("LASTRO_TELEGRAM_BOT_TOKEN", ""), ChatID: get("LASTRO_TELEGRAM_CHAT_ID", "")},
 	}
 
 	var errs []error

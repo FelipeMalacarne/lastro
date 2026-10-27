@@ -11,6 +11,7 @@ import (
 
 	"lastro/modules/ingest/internal/pluggy"
 	"lastro/modules/ledger"
+	"lastro/modules/portfolio"
 	"lastro/platform/config"
 	"lastro/platform/events"
 )
@@ -40,27 +41,36 @@ type source interface {
 	Investments(ctx context.Context, itemID string) ([]pluggy.Investment, error)
 }
 
-// Service is ingest's facade: it reads Pluggy and sends the ledger commands.
+// Positions is where investments go: portfolio, through app. Nil in the
+// tests that only look at the ledger.
+type Positions interface {
+	SyncPositions(ctx context.Context, item string, reports []portfolio.Report) (int, error)
+}
+
+// Service is ingest's facade: it reads Pluggy and sends the ledger and
+// portfolio commands.
 type Service struct {
-	repo    *Repository
-	pluggy  source
-	ledger  *ledger.Service
-	itemIDs []string
-	bus     *events.Bus
-	logger  *slog.Logger
-	now     func() time.Time
+	repo      *Repository
+	pluggy    source
+	ledger    *ledger.Service
+	positions Positions
+	itemIDs   []string
+	bus       *events.Bus
+	logger    *slog.Logger
+	now       func() time.Time
 }
 
 // New creates the service for the configured items.
-func New(repo *Repository, cfg config.Pluggy, l *ledger.Service, bus *events.Bus, logger *slog.Logger) *Service {
+func New(repo *Repository, cfg config.Pluggy, l *ledger.Service, positions Positions, bus *events.Bus, logger *slog.Logger) *Service {
 	return &Service{
-		repo:    repo,
-		pluggy:  pluggy.New(cfg.ClientID, cfg.ClientSecret),
-		ledger:  l,
-		itemIDs: cfg.ItemIDs,
-		bus:     cmp.Or(bus, events.NewBus(logger)),
-		logger:  logger,
-		now:     time.Now,
+		repo:      repo,
+		pluggy:    pluggy.New(cfg.ClientID, cfg.ClientSecret),
+		ledger:    l,
+		positions: positions,
+		itemIDs:   cfg.ItemIDs,
+		bus:       cmp.Or(bus, events.NewBus(logger)),
+		logger:    logger,
+		now:       time.Now,
 	}
 }
 
@@ -211,8 +221,8 @@ func (s *Service) syncItem(ctx context.Context, id string, full bool) (rep ItemR
 		}
 	}
 
-	// Positions arrive in M4; until then they are only stored. A failure here
-	// must not fail the accounts that were already imported.
+	// A failure reading investments must not fail the accounts that were
+	// already imported.
 	invs, err := s.pluggy.Investments(ctx, id)
 	if err != nil {
 		s.logger.WarnContext(ctx, "investments not read", "item", id, "err", err)
@@ -226,7 +236,31 @@ func (s *Service) syncItem(ctx context.Context, id string, full bool) (rep ItemR
 		return rep, err
 	}
 	rep.Investments = len(invs)
+	if err := s.syncPositions(ctx, &rep, id, invs, balanceAt); err != nil {
+		return rep, err
+	}
 	return rep, nil
+}
+
+// syncPositions hands the item's investments to portfolio.
+func (s *Service) syncPositions(ctx context.Context, rep *ItemReport, item string, invs []pluggy.Investment, at time.Time) error {
+	if s.positions == nil {
+		return nil
+	}
+	reports := make([]portfolio.Report, 0, len(invs))
+	for _, inv := range invs {
+		r, err := mapInvestment(inv, item, rep.Institution, at)
+		if err != nil {
+			s.logger.WarnContext(ctx, "investment skipped", "item", item, "investment", inv.ID, "err", err)
+			rep.Skipped++
+			continue
+		}
+		reports = append(reports, r)
+	}
+	if _, err := s.positions.SyncPositions(ctx, item, reports); err != nil {
+		return err
+	}
+	return nil
 }
 
 // importAccount maps one account and its transactions into the ledger. With
@@ -318,6 +352,14 @@ func (s *Service) reprocessItem(ctx context.Context, id string) (ItemReport, err
 		if err := s.importAccount(ctx, &rep, id, pa, txs, earliest(txs), balanceAt, false); err != nil {
 			return rep, err
 		}
+	}
+	invs, err := decodeRaw[pluggy.Investment](ctx, s, rawInvestment, id)
+	if err != nil {
+		return rep, err
+	}
+	rep.Investments = len(invs)
+	if err := s.syncPositions(ctx, &rep, id, invs, balanceAt); err != nil {
+		return rep, err
 	}
 	return rep, nil
 }

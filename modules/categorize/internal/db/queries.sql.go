@@ -40,6 +40,18 @@ func (q *Queries) DeleteCategoryRules(ctx context.Context, categoryID string) (i
 	return result.RowsAffected(), nil
 }
 
+const deleteRule = `-- name: DeleteRule :execrows
+DELETE FROM categorize.rules WHERE id = $1
+`
+
+func (q *Queries) DeleteRule(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRule, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getCategory = `-- name: GetCategory :one
 SELECT id, name, color, budgeted, archived_at, created_at, updated_at FROM categorize.categories WHERE id = $1
 `
@@ -59,8 +71,28 @@ func (q *Queries) GetCategory(ctx context.Context, id string) (CategorizeCategor
 	return i, err
 }
 
+const getRule = `-- name: GetRule :one
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin FROM categorize.rules WHERE id = $1
+`
+
+func (q *Queries) GetRule(ctx context.Context, id string) (CategorizeRule, error) {
+	row := q.db.QueryRow(ctx, getRule, id)
+	var i CategorizeRule
+	err := row.Scan(
+		&i.ID,
+		&i.PatternKind,
+		&i.Pattern,
+		&i.AccountID,
+		&i.CategoryID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Origin,
+	)
+	return i, err
+}
+
 const getRuleByPattern = `-- name: GetRuleByPattern :one
-SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at FROM categorize.rules
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin FROM categorize.rules
 WHERE pattern_kind = $1 AND pattern = $2 AND account_id IS NOT DISTINCT FROM $3::uuid
 `
 
@@ -81,6 +113,7 @@ func (q *Queries) GetRuleByPattern(ctx context.Context, arg GetRuleByPatternPara
 		&i.CategoryID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Origin,
 	)
 	return i, err
 }
@@ -140,7 +173,7 @@ func (q *Queries) ListCategories(ctx context.Context) ([]CategorizeCategory, err
 }
 
 const listRules = `-- name: ListRules :many
-SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at FROM categorize.rules ORDER BY pattern_kind, pattern, account_id NULLS FIRST
+SELECT id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin FROM categorize.rules ORDER BY pattern_kind, pattern, account_id NULLS FIRST
 `
 
 func (q *Queries) ListRules(ctx context.Context) ([]CategorizeRule, error) {
@@ -160,6 +193,42 @@ func (q *Queries) ListRules(ctx context.Context) ([]CategorizeRule, error) {
 			&i.CategoryID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Origin,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSuggestions = `-- name: ListSuggestions :many
+SELECT s.pattern, s.category_id, s.confidence, s.model, s.asked_at
+FROM categorize.suggestions s
+LEFT JOIN categorize.categories c ON c.id = s.category_id
+WHERE s.category_id IS NULL OR c.archived_at IS NULL
+`
+
+// What the model said about each merchant, leaving out answers that name a
+// category since archived.
+func (q *Queries) ListSuggestions(ctx context.Context) ([]CategorizeSuggestion, error) {
+	rows, err := q.db.Query(ctx, listSuggestions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CategorizeSuggestion
+	for rows.Next() {
+		var i CategorizeSuggestion
+		if err := rows.Scan(
+			&i.Pattern,
+			&i.CategoryID,
+			&i.Confidence,
+			&i.Model,
+			&i.AskedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -172,9 +241,14 @@ func (q *Queries) ListRules(ctx context.Context) ([]CategorizeRule, error) {
 }
 
 const saveRule = `-- name: SaveRule :exec
-INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (id) DO UPDATE SET category_id = EXCLUDED.category_id, updated_at = EXCLUDED.updated_at
+INSERT INTO categorize.rules (id, pattern_kind, pattern, account_id, category_id, created_at, updated_at, origin)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (id) DO UPDATE SET
+    pattern_kind = EXCLUDED.pattern_kind,
+    pattern = EXCLUDED.pattern,
+    account_id = EXCLUDED.account_id,
+    category_id = EXCLUDED.category_id,
+    updated_at = EXCLUDED.updated_at
 `
 
 type SaveRuleParams struct {
@@ -185,6 +259,7 @@ type SaveRuleParams struct {
 	CategoryID  string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	Origin      string
 }
 
 func (q *Queries) SaveRule(ctx context.Context, arg SaveRuleParams) error {
@@ -196,6 +271,36 @@ func (q *Queries) SaveRule(ctx context.Context, arg SaveRuleParams) error {
 		arg.CategoryID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Origin,
+	)
+	return err
+}
+
+const saveSuggestion = `-- name: SaveSuggestion :exec
+INSERT INTO categorize.suggestions (pattern, category_id, confidence, model, asked_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (pattern) DO UPDATE SET
+    category_id = EXCLUDED.category_id,
+    confidence = EXCLUDED.confidence,
+    model = EXCLUDED.model,
+    asked_at = EXCLUDED.asked_at
+`
+
+type SaveSuggestionParams struct {
+	Pattern    string
+	CategoryID *string
+	Confidence int16
+	Model      string
+	AskedAt    time.Time
+}
+
+func (q *Queries) SaveSuggestion(ctx context.Context, arg SaveSuggestionParams) error {
+	_, err := q.db.Exec(ctx, saveSuggestion,
+		arg.Pattern,
+		arg.CategoryID,
+		arg.Confidence,
+		arg.Model,
+		arg.AskedAt,
 	)
 	return err
 }

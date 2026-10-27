@@ -98,3 +98,43 @@ export function niceStep(max: number, n = 4): number {
   for (const m of [1, 2, 2.5, 5, 10]) if (m * pow >= raw) return m * pow;
   return 10 * pow;
 }
+
+/** parseBRL("1.234,56") → 123456; also "1234.56", "R$ 50". null when it is not an amount. */
+export function parseBRL(s: string): number | null {
+  let t = s.replace(/R\$|\s/g, "");
+  if (!t) return null;
+  if (/,\d{1,2}$/.test(t)) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  return Math.round(Number(t) * 100);
+}
+
+/** 123456 → "1.234,56", for an amount field. */
+export function inputBRL(cents: number): string {
+  const p = splitBRL(cents);
+  return p.units + p.cents;
+}
+
+/** "NETFLIX" → "Netflix", "PAO DE ACUCAR" → "Pao de Acucar": bank text read as a name. */
+export function titleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .split(" ")
+    .map((w, i) => (i > 0 && ["de", "da", "do", "e"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+/** Keeps "R$" with its number in prose the server wrote ("R$ 2.953,78" never breaks after R$). */
+export function keepAmounts(s: string): string {
+  return s.replace(/R\$ /g, "R$\u00a0");
+}
+
+/** formatCompact(150000000) → "1,5 mi"; 50000000 → "500 mil": axis labels on a phone. */
+export function formatCompact(cents: number): string {
+  const v = Math.round(cents / 100);
+  const a = Math.abs(v);
+  const sign = v < 0 ? MINUS : "";
+  if (a >= 1_000_000) return `${sign}${(a / 1_000_000).toFixed(a >= 10_000_000 ? 0 : 1).replace(".", ",").replace(",0", "")} mi`;
+  if (a >= 1_000) return `${sign}${Math.round(a / 1_000)} mil`;
+  return sign + String(a);
+}

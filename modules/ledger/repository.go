@@ -316,6 +316,7 @@ func transactionFromRow(row db.LedgerTransaction, accountType string) (*Transact
 	if row.RemovedAt != nil {
 		t.removedAt = *row.RemovedAt
 	}
+	t.marked = row.MarkedTransfer
 	return t, nil
 }
 
@@ -348,6 +349,7 @@ func transactionParams(t *Transaction) db.SaveTransactionParams {
 		at := t.removedAt
 		p.RemovedAt = &at
 	}
+	p.MarkedTransfer = t.marked
 	return p
 }
 
@@ -384,6 +386,7 @@ func accountView(row db.LedgerAccount) AccountView {
 		Currency:     row.Currency,
 		BalanceCents: row.BalanceCents,
 		BalanceAt:    row.BalanceAt,
+		Manual:       AccountType(row.Type).IsManual(),
 	}
 	if row.CreditLimitCents != nil || row.BillDueDate != nil || row.BillCloseDate != nil {
 		v.Card = &CardView{
@@ -397,8 +400,11 @@ func accountView(row db.LedgerAccount) AccountView {
 }
 
 func (r *PostgresRepository) TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error) {
-	from, to := f.Range()
-	p := db.ListTransactionViewsParams{DateFrom: &from, DateTo: &to, MaxRows: int32(limit)}
+	p := db.ListTransactionViewsParams{MaxRows: int32(limit)}
+	if !f.AllMonths || (f.Search == "" && f.Tag == "") {
+		from, to := f.Range()
+		p.DateFrom, p.DateTo = &from, &to
+	}
 	if f.Account != "" {
 		a := string(f.Account)
 		p.AccountID = &a
@@ -409,6 +415,14 @@ func (r *PostgresRepository) TransactionViews(ctx context.Context, f Transaction
 	}
 	if q := likePattern(f.Search); q != "" {
 		p.Search = &q
+	}
+	if f.Category != "" {
+		c := f.Category
+		p.Category = &c
+	}
+	if f.Tag != "" {
+		t := f.Tag
+		p.Tag = &t
 	}
 	rows, err := r.q.ListTransactionViews(ctx, p)
 	if err != nil {
@@ -435,14 +449,25 @@ func (r *PostgresRepository) TransactionView(ctx context.Context, id Transaction
 
 func transactionView(row db.ListTransactionViewsRow) TransactionView {
 	v := TransactionView{
-		ID:          TransactionID(row.ID),
-		Date:        row.Date.Format(time.DateOnly),
-		Description: row.Description,
-		AmountCents: row.AmountCents,
-		Currency:    row.Currency,
-		Kind:        row.Kind,
-		Status:      row.Status,
-		Account:     AccountRef{ID: AccountID(row.AccountID), Name: row.AccountName, Institution: row.AccountInstitution, Type: row.AccountType},
+		ID:              TransactionID(row.ID),
+		Date:            row.Date.Format(time.DateOnly),
+		Description:     row.Description,
+		AmountCents:     row.AmountCents,
+		Currency:        row.Currency,
+		Kind:            row.Kind,
+		Status:          row.Status,
+		Account:         AccountRef{ID: AccountID(row.AccountID), Name: row.AccountName, Institution: row.AccountInstitution, Type: row.AccountType},
+		Note:            row.Note,
+		Tags:            row.Tags,
+		SplitCategories: row.SplitCategories,
+		CountedCents:    row.CountedCents,
+		MarkedTransfer:  row.MarkedTransfer,
+	}
+	if v.Tags == nil {
+		v.Tags = []string{}
+	}
+	if v.SplitCategories == nil {
+		v.SplitCategories = []string{}
 	}
 	if row.InstallmentNumber != nil && row.InstallmentTotal != nil {
 		v.Installment = &InstallmentView{Number: int(*row.InstallmentNumber), Total: int(*row.InstallmentTotal)}
@@ -582,7 +607,7 @@ func (r *PostgresRepository) Categorizable(ctx context.Context, ids []Transactio
 	}
 	out := make([]Categorizable, len(rows))
 	for i, row := range rows {
-		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description}
+		out[i] = categorizable(db.ListAutomatableRow(row))
 	}
 	return out, nil
 }
@@ -594,7 +619,182 @@ func (r *PostgresRepository) Uncategorized(ctx context.Context) ([]Categorizable
 	}
 	out := make([]Categorizable, len(rows))
 	for i, row := range rows {
-		out[i] = Categorizable{ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description}
+		out[i] = categorizable(db.ListAutomatableRow(row))
 	}
 	return out, nil
+}
+
+func (r *PostgresRepository) Automatable(ctx context.Context) ([]Categorizable, error) {
+	rows, err := r.q.ListAutomatable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Categorizable, len(rows))
+	for i, row := range rows {
+		out[i] = categorizable(row)
+	}
+	return out, nil
+}
+
+func categorizable(row db.ListAutomatableRow) Categorizable {
+	return Categorizable{
+		ID: TransactionID(row.ID), Account: AccountID(row.AccountID), Description: row.Description,
+		Date: row.Date, AmountCents: row.AmountCents, Category: deref(row.CategoryID), Source: Source(deref(row.CategorySource)),
+	}
+}
+
+func (r *PostgresRepository) DescriptionCounts(ctx context.Context) ([]DescriptionCount, error) {
+	rows, err := r.q.ListDescriptionCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DescriptionCount, len(rows))
+	for i, row := range rows {
+		out[i] = DescriptionCount{Description: row.Description, Account: AccountID(row.AccountID), Count: int(row.N), Last: row.LastDate}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error) {
+	rows, err := r.q.ListCategoryMonths(ctx, db.ListCategoryMonthsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CategoryMonth, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryMonth{Month: row.Month, Category: row.CategoryID, Kind: row.Kind, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error) {
+	rows, err := r.q.ListMonthKinds(ctx, db.ListMonthKindsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MonthKind, len(rows))
+	for i, row := range rows {
+		out[i] = MonthKind{Month: row.Month, Kind: row.Kind, Inflow: row.Inflow, Paired: row.Paired, Cents: row.Cents, Count: int(row.N), Last: row.Last}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) Charges(ctx context.Context, from time.Time) ([]Charge, error) {
+	rows, err := r.q.ListCharges(ctx, civilDate(from))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Charge, len(rows))
+	for i, row := range rows {
+		out[i] = Charge{
+			ID: TransactionID(row.ID), Description: row.Description, Date: row.Date, AmountCents: -row.AmountCents,
+			Category: deref(row.CategoryID), Account: row.Institution + " " + row.AccountName,
+		}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) CategoryTotals(ctx context.Context, from, to time.Time) ([]CategoryTotal, error) {
+	rows, err := r.q.ListCategoryTotals(ctx, db.ListCategoryTotalsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CategoryTotal, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryTotal{Category: row.CategoryID, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) SetNote(ctx context.Context, id TransactionID, n Note) error {
+	k, err := r.q.SetNote(ctx, db.SetNoteParams{ID: string(id), Note: string(n)})
+	if err != nil {
+		return err
+	}
+	if k == 0 {
+		return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) SetTags(ctx context.Context, id TransactionID, tags []Tag) error {
+	ss := make([]string, len(tags))
+	for i, t := range tags {
+		ss[i] = string(t)
+	}
+	k, err := r.q.SetTags(ctx, db.SetTagsParams{ID: string(id), Tags: ss})
+	if err != nil {
+		return err
+	}
+	if k == 0 {
+		return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) Split(ctx context.Context, id TransactionID) ([]SplitPartView, error) {
+	rows, err := r.q.ListSplit(ctx, string(id))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SplitPartView, len(rows))
+	for i, row := range rows {
+		out[i] = SplitPartView{Category: row.CategoryID, AmountCents: row.AmountCents}
+	}
+	return out, nil
+}
+
+// SaveSplit replaces a transaction's split; an empty one removes it.
+func (r *PostgresRepository) SaveSplit(ctx context.Context, id TransactionID, s Split) error {
+	if err := r.q.DeleteSplit(ctx, string(id)); err != nil {
+		return err
+	}
+	for i, p := range s.parts {
+		err := r.q.InsertSplitPart(ctx, db.InsertSplitPartParams{TransactionID: string(id), Position: int16(i), CategoryID: p.Category.String(), AmountCents: p.Amount.Cents()})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *PostgresRepository) Tags(ctx context.Context) ([]TagView, error) {
+	rows, err := r.q.ListTags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TagView, len(rows))
+	for i, row := range rows {
+		out[i] = TagView{Tag: row.Tag, Count: int(row.N), OutCents: row.OutCents, InCents: row.InCents, Last: row.Last.Format(time.DateOnly)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error) {
+	rows, err := r.q.ListTagCategories(ctx, tag)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CategoryTotal, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryTotal{Category: row.CategoryID, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) DeleteSnapshot(ctx context.Context, account AccountID, day time.Time) error {
+	n, err := r.q.DeleteBalanceSnapshot(ctx, db.DeleteBalanceSnapshotParams{AccountID: string(account), Date: civilDate(day)})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: no balance on %s", ErrNotFound, day.Format(time.DateOnly))
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ReplaceSnapshot(ctx context.Context, s BalanceSnapshot) error {
+	return r.q.ReplaceBalanceSnapshot(ctx, db.ReplaceBalanceSnapshotParams{
+		AccountID: string(s.AccountID), Date: s.Date, BalanceCents: s.Balance.Cents(), Currency: string(s.Balance.Currency()), TakenAt: s.At,
+	})
 }

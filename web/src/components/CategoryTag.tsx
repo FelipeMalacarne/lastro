@@ -1,9 +1,10 @@
 import type { CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
+import type { NoteColor } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /** The eight note colours; a category's colour is stored with it. */
-export type NoteColor = "note-1" | "note-2" | "note-5" | "note-10" | "note-20" | "note-50" | "note-100" | "note-200";
+export type { NoteColor };
 
 type Props = {
   name?: string;

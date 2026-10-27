@@ -121,7 +121,7 @@ func (r *Repository) ruleByPattern(ctx context.Context, p Pattern, account ledge
 }
 
 func (r *Repository) saveRule(ctx context.Context, rule *Rule) error {
-	return r.q.SaveRule(ctx, db.SaveRuleParams{
+	return ruleTaken(r.q.SaveRule(ctx, db.SaveRuleParams{
 		ID:          string(rule.id),
 		PatternKind: string(rule.pattern.kind),
 		Pattern:     rule.pattern.text,
@@ -129,7 +129,40 @@ func (r *Repository) saveRule(ctx context.Context, rule *Rule) error {
 		CategoryID:  rule.category.String(),
 		CreatedAt:   rule.createdAt,
 		UpdatedAt:   rule.updatedAt,
-	})
+		Origin:      string(rule.origin),
+	}))
+}
+
+// rule returns one rule, or ErrRuleNotFound.
+func (r *Repository) rule(ctx context.Context, id RuleID) (*Rule, error) {
+	row, err := r.q.GetRule(ctx, string(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: %s", ErrRuleNotFound, id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return ruleFromRow(row)
+}
+
+func (r *Repository) deleteRule(ctx context.Context, id RuleID) error {
+	n, err := r.q.DeleteRule(ctx, string(id))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %s", ErrRuleNotFound, id)
+	}
+	return nil
+}
+
+// ruleTaken turns the one-rule-per-pattern-and-account violation into ErrRuleTaken.
+func ruleTaken(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "rules_pattern_kind_pattern_account_id_key" {
+		return fmt.Errorf("%w", ErrRuleTaken)
+	}
+	return err
 }
 
 func categoryFromRow(row db.CategorizeCategory) (Category, error) {
@@ -157,6 +190,7 @@ func ruleFromRow(row db.CategorizeRule) (*Rule, error) {
 		id:        RuleID(row.ID),
 		pattern:   Pattern{kind: kind, text: row.Pattern}, // stored normalized
 		category:  category,
+		origin:    Origin(row.Origin),
 		createdAt: row.CreatedAt,
 		updatedAt: row.UpdatedAt,
 	}
@@ -181,4 +215,34 @@ func nameTaken(err error, name string) error {
 		return fmt.Errorf("%w: %s", ErrNameTaken, name)
 	}
 	return err
+}
+
+// suggestions returns what the model said about each merchant, by pattern.
+func (r *Repository) suggestions(ctx context.Context) (map[string]Suggestion, error) {
+	rows, err := r.q.ListSuggestions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Suggestion, len(rows))
+	for _, row := range rows {
+		s := Suggestion{Pattern: row.Pattern, Confidence: int(row.Confidence), Model: row.Model, AskedAt: row.AskedAt}
+		if row.CategoryID != nil {
+			if s.Category, err = ledger.NewCategoryID(*row.CategoryID); err != nil {
+				return nil, err
+			}
+		}
+		out[row.Pattern] = s
+	}
+	return out, nil
+}
+
+func (r *Repository) saveSuggestion(ctx context.Context, s Suggestion) error {
+	var c *string
+	if !s.Category.IsZero() {
+		id := s.Category.String()
+		c = &id
+	}
+	return r.q.SaveSuggestion(ctx, db.SaveSuggestionParams{
+		Pattern: s.Pattern, CategoryID: c, Confidence: int16(s.Confidence), Model: s.Model, AskedAt: s.AskedAt,
+	})
 }

@@ -4,6 +4,8 @@ package categorize
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +61,20 @@ func categories(t *testing.T, s *Service) map[string]ledger.CategoryView {
 	return out
 }
 
+// ids is each transaction's description by id.
+func ids(t *testing.T, s *Service) map[ledger.TransactionID]string {
+	t.Helper()
+	list, err := s.ledger.Transactions(context.Background(), ledger.TransactionFilter{Month: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[ledger.TransactionID]string{}
+	for _, v := range list.Transactions {
+		out[v.ID] = v.Description
+	}
+	return out
+}
+
 func learn(t *testing.T, s *Service, kind PatternKind, text string, c Category) {
 	t.Helper()
 	if err := s.Learn(context.Background(), pattern(t, kind, text), "", c.ID); err != nil {
@@ -84,6 +100,13 @@ func TestImportsAreCategorizedByTheRules(t *testing.T) {
 	}
 	if c := got["Transferencia IFOOD"]; c.ID != "" {
 		t.Errorf("a transfer never gets a category, got %+v", c)
+	}
+
+	ctx := context.Background()
+	in, _ := s.ledger.Transactions(ctx, ledger.TransactionFilter{Month: t0, Category: cats["Restaurants"].ID.String()})
+	none, _ := s.ledger.Transactions(ctx, ledger.TransactionFilter{Month: t0, Category: ledger.CategoryNone})
+	if len(in.Transactions) != 1 || len(none.Transactions) != 1 || none.Transactions[0].Description != "Netflix.com" {
+		t.Errorf("filter by category, and by none (never a transfer): %+v / %+v", in.Transactions, none.Transactions)
 	}
 }
 
@@ -121,5 +144,268 @@ func TestCategorizeUncategorizedReachesWhatCameBefore(t *testing.T) {
 	}
 	if n, err := s.CategorizeUncategorized(ctx); err != nil || n != 0 {
 		t.Errorf("a second pass has nothing left to do: %d %v", n, err)
+	}
+}
+
+func TestReviewQueue(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	importOctober(t, s, []string{"PAG*IFOOD SP", "PG *IFOOD", "Netflix.com", "DROGASIL 2104 SAO PAULO"}, nil)
+
+	rv, err := s.Review(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rv.Waiting != 4 || len(rv.Groups) != 3 || rv.Groups[0].Pattern.Text() != "IFOOD" || rv.Groups[0].Count != 2 {
+		t.Fatalf("four waiting, iFood's two together first: %+v", rv)
+	}
+
+	ch, err := s.Correct(ctx, rv.Groups[0].Pattern, "", cats["Restaurants"].ID)
+	if err != nil || ch.Categorized != 2 {
+		t.Fatalf("one correction settles the group: %+v %v", ch, err)
+	}
+	var netflix, drogasil ledger.TransactionID
+	for _, g := range mustReview(t, s).Groups {
+		for _, tx := range g.Transactions {
+			switch tx.Description {
+			case "Netflix.com":
+				netflix = tx.ID
+			case "DROGASIL 2104 SAO PAULO":
+				drogasil = tx.ID
+			}
+		}
+	}
+	if ch, err := s.SetCategory(ctx, netflix, cats["Leisure"].ID, nil); err != nil || ch.Categorized != 0 {
+		t.Fatalf("a choice for one transaction: %+v %v", ch, err)
+	}
+	teach := pattern(t, PatternContains, "drogasil")
+	if _, err := s.SetCategory(ctx, drogasil, cats["Health"].ID, &teach); err != nil {
+		t.Fatal(err)
+	}
+	if rv := mustReview(t, s); rv.Waiting != 0 || rv.Groups != nil {
+		t.Errorf("nothing left to review: %+v", rv)
+	}
+	got := categories(t, s)
+	if c := got["Netflix.com"]; c.ID != cats["Leisure"].ID.String() || c.Source != string(ledger.SourceManual) {
+		t.Errorf("my choice is manual: %+v", c)
+	}
+	if c := got["DROGASIL 2104 SAO PAULO"]; c.Source != string(ledger.SourceManual) {
+		t.Errorf("the transaction I corrected stays manual even though it also taught a rule: %+v", c)
+	}
+	if c := got["PG *IFOOD"]; c.ID != cats["Restaurants"].ID.String() || c.Source != string(ledger.SourceRule) {
+		t.Errorf("the group went by the rule: %+v", c)
+	}
+
+	if _, err := s.ArchiveCategory(ctx, cats["Shopping"].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetCategory(ctx, netflix, cats["Shopping"].ID, nil); !errors.Is(err, ErrArchived) {
+		t.Errorf("never an archived category: %v", err)
+	}
+}
+
+func TestUndo(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	importOctober(t, s, []string{"PAG*IFOOD SP", "PG *IFOOD", "Netflix.com"}, nil)
+	ifood := mustReview(t, s).Groups[0].Pattern
+
+	// A new rule: undoing it removes the rule and puts both back in the queue.
+	ch, err := s.Correct(ctx, ifood, "", cats["Restaurants"].ID)
+	if err != nil || ch.Categorized != 2 || len(ch.Undo.Before) != 2 || !ch.Undo.WasRule.IsZero() {
+		t.Fatalf("the correction and what undoes it: %+v %v", ch, err)
+	}
+	if n, err := s.Undo(ctx, ch.Undo); err != nil || n != 2 {
+		t.Fatalf("undo: %d %v", n, err)
+	}
+	if rv := mustReview(t, s); rv.Waiting != 3 {
+		t.Errorf("all three wait again: %+v", rv)
+	}
+	if rules, _ := s.Rules(ctx); len(rules) != 0 {
+		t.Errorf("the rule is gone: %+v", rules)
+	}
+
+	// A retargeted rule goes back to its category, and so do its transactions.
+	if _, err := s.Correct(ctx, ifood, "", cats["Restaurants"].ID); err != nil {
+		t.Fatal(err)
+	}
+	ch, err = s.Correct(ctx, ifood, "", cats["Groceries"].ID)
+	if err != nil || ch.Undo.WasRule != cats["Restaurants"].ID {
+		t.Fatalf("a retarget remembers the old category: %+v %v", ch, err)
+	}
+	if _, err := s.Undo(ctx, ch.Undo); err != nil {
+		t.Fatal(err)
+	}
+	if c := categories(t, s)["PG *IFOOD"]; c.ID != cats["Restaurants"].ID.String() || c.Source != string(ledger.SourceRule) {
+		t.Errorf("back to Restaurants by the rule: %+v", c)
+	}
+
+	// A manual choice over a rule's goes back to the rule's.
+	var pg ledger.TransactionID
+	for id, d := range ids(t, s) {
+		if d == "PG *IFOOD" {
+			pg = id
+		}
+	}
+	ch, err = s.SetCategory(ctx, pg, cats["Leisure"].ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Undo(ctx, ch.Undo); err != nil {
+		t.Fatal(err)
+	}
+	if c := categories(t, s)["PG *IFOOD"]; c.ID != cats["Restaurants"].ID.String() || c.Source != string(ledger.SourceRule) {
+		t.Errorf("a manual choice undone goes back to the rule's: %+v", c)
+	}
+}
+
+func mustReview(t *testing.T, s *Service) Review {
+	t.Helper()
+	rv, err := s.Review(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rv
+}
+
+// fakeLLM answers by the merchant named in the prompt.
+type fakeLLM struct {
+	answers map[string]answer
+	calls   int
+	fail    bool
+}
+
+func (f *fakeLLM) Enabled() bool { return true }
+func (f *fakeLLM) Model() string { return "fake" }
+func (f *fakeLLM) GenerateJSON(_ context.Context, _, prompt string, out any) error {
+	f.calls++
+	if f.fail {
+		return errors.New("zaros is off")
+	}
+	i := strings.Index(prompt, "(merchant ")
+	merchant := prompt[i+len("(merchant ") : i+strings.Index(prompt[i:], ")")]
+	a, ok := f.answers[merchant]
+	if !ok {
+		a = answer{Category: "unknown"}
+	}
+	*(out.(*answer)) = a
+	return nil
+}
+
+func TestTheModelCategorizesWhatNoRuleMeets(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	llm := &fakeLLM{answers: map[string]answer{"DROGASIL": {"Health", 0.95}, "NETFLIX": {"leisure", 0.6}}}
+	s.llm = llm
+	cats := byName(t, s)
+	learn(t, s, PatternContains, "ifood", cats["Restaurants"])
+	importOctober(t, s, []string{"PAG*IFOOD SP", "DROGASIL 2104 SAO PAULO", "Netflix.com", "MYSTERY 99"}, nil)
+
+	n, err := s.CategorizeUncategorized(ctx)
+	if err != nil || n != 1 || llm.calls != 3 {
+		t.Fatalf("only the confident answer categorizes, and iFood never reaches the model: %d %v, %d calls", n, err, llm.calls)
+	}
+	got := categories(t, s)
+	if c := got["DROGASIL 2104 SAO PAULO"]; c.ID != cats["Health"].ID.String() || c.Source != string(ledger.SourceLLM) {
+		t.Errorf("a confident answer categorizes as the model's: %+v", c)
+	}
+	rv := mustReview(t, s)
+	if rv.Waiting != 2 {
+		t.Fatalf("Netflix and the unknown one wait: %+v", rv)
+	}
+	if sug := rv.Suggestions["NETFLIX"]; sug.Category != cats["Leisure"].ID || sug.Confidence != 60 {
+		t.Errorf("the unsure answer is kept as a suggestion: %+v", sug)
+	}
+	if sug := rv.Suggestions["MYSTERY"]; !sug.Category.IsZero() {
+		t.Errorf("an unknown answer suggests nothing: %+v", sug)
+	}
+
+	if n, err := s.CategorizeUncategorized(ctx); err != nil || n != 0 || llm.calls != 3 {
+		t.Errorf("each merchant is asked once: %d %v, %d calls", n, err, llm.calls)
+	}
+
+	down := newService(t)
+	down.llm = &fakeLLM{fail: true}
+	importOctober(t, down, []string{"DROGASIL 2104 SAO PAULO"}, nil)
+	if n, err := down.CategorizeUncategorized(ctx); err != nil || n != 0 {
+		t.Errorf("a model that is down never fails the pass: %d %v", n, err)
+	}
+	if rv := mustReview(t, down); rv.Waiting != 1 {
+		t.Errorf("and the transaction waits: %+v", rv)
+	}
+}
+
+func TestRulesListEditAndDelete(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	learn(t, s, PatternContains, "uber", cats["Transport"])
+	learn(t, s, PatternContains, "uber eats", cats["Restaurants"])
+	importOctober(t, s, []string{"UBER *TRIP", "UBER *EATS", "UBER *EATS PENDING", "NETFLIX.COM"}, nil)
+
+	views, err := s.Rules(ctx)
+	if err != nil || len(views) != 2 {
+		t.Fatalf("two rules: %+v %v", views, err)
+	}
+	eats, uber := views[0], views[1]
+	if eats.Rule.Pattern().Text() != "UBER EATS" || eats.Order != 1 || eats.Meets != 2 || eats.Decides != 2 {
+		t.Errorf("more words first, deciding both Uber Eats: %+v", eats)
+	}
+	if uber.Meets != 3 || uber.Decides != 1 || uber.Last.IsZero() {
+		t.Errorf("Uber meets all three but decides one: %+v", uber)
+	}
+
+	// Pointing Uber Eats at Leisure moves the two it decided.
+	leisure := cats["Leisure"].ID
+	if n, err := s.UpdateRule(ctx, eats.Rule.ID(), RuleChange{Category: &leisure}); err != nil || n != 2 {
+		t.Fatalf("retarget and reapply: %d %v", n, err)
+	}
+	if c := categories(t, s)["UBER *EATS"]; c.ID != leisure.String() {
+		t.Errorf("the transactions follow the rule: %+v", c)
+	}
+	// Reshaping it onto Uber's pattern collides.
+	same := pattern(t, PatternContains, "uber")
+	if _, err := s.UpdateRule(ctx, eats.Rule.ID(), RuleChange{Pattern: &same}); !errors.Is(err, ErrRuleTaken) {
+		t.Errorf("one rule per pattern and account: %v", err)
+	}
+	if err := s.DeleteRule(ctx, eats.Rule.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRule(ctx, eats.Rule.ID()); !errors.Is(err, ErrRuleNotFound) {
+		t.Errorf("deleting twice: %v", err)
+	}
+	if n, err := s.Reapply(ctx); err != nil || n != 2 {
+		t.Errorf("without it, Uber decides the Eats too: %d %v", n, err)
+	}
+}
+
+// A rule narrowed so it no longer meets a transaction gives that
+// transaction back to the review queue.
+func TestANarrowedRuleLetsGo(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	learn(t, s, PatternContains, "uber", cats["Transport"])
+	importOctober(t, s, []string{"UBER *TRIP", "UBER *EATS"}, nil)
+	if got := categories(t, s)["UBER *TRIP"]; got.ID != cats["Transport"].ID.String() {
+		t.Fatalf("before: %+v", got)
+	}
+	rules, err := s.Rules(ctx)
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("rules %v, %v", rules, err)
+	}
+	p := pattern(t, PatternContains, "uber eats")
+	rc := cats["Restaurants"].ID
+	if _, err := s.UpdateRule(ctx, rules[0].Rule.ID(), RuleChange{Pattern: &p, Category: &rc}); err != nil {
+		t.Fatal(err)
+	}
+	got := categories(t, s)
+	if got["UBER *TRIP"].ID != "" {
+		t.Errorf("UBER *TRIP keeps %+v with no rule behind it", got["UBER *TRIP"])
+	}
+	if got["UBER *EATS"].ID != rc.String() {
+		t.Errorf("UBER *EATS: %+v", got["UBER *EATS"])
 	}
 }

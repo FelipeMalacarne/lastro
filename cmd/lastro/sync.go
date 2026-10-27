@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 
 	"lastro/app"
 	"lastro/modules/ingest"
@@ -59,5 +60,31 @@ func runSync(ctx context.Context, args []string) error {
 	if rep.Paired > 0 {
 		fmt.Printf("Paired %d transfers and card bill payments between my accounts\n", rep.Paired)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// Prices and indices after the positions, then the day's valuation. A
+	// market failure is reported; the sync itself already succeeded.
+	mrep, merr := a.RefreshMarket(ctx)
+	fmt.Printf("Market: %d index values, %d quotes, %d Tesouro Direto titles", mrep.Rates, mrep.Quotes, mrep.Bonds)
+	if len(mrep.Failed) > 0 {
+		fmt.Printf("; failed: %s", strings.Join(mrep.Failed, ", "))
+	}
+	fmt.Println()
+	if merr != nil {
+		a.Logger.WarnContext(ctx, "market refresh failed", "err", merr)
+	}
+	// New alerts go out once, if a channel is set (ADR-0007).
+	if n, err := a.SendAlerts(ctx); err != nil {
+		a.Logger.WarnContext(ctx, "alerts not sent", "err", err)
+	} else if n > 0 {
+		fmt.Printf("Sent %d alerts\n", n)
+	}
+	// Last month's report, once, from the 2nd of a month on.
+	if sent, err := a.SendReport(ctx); err != nil {
+		a.Logger.WarnContext(ctx, "monthly report not sent", "err", err)
+	} else if sent {
+		fmt.Println("Sent last month's report")
+	}
+	return nil
 }

@@ -58,40 +58,50 @@ Every transaction has a category or is waiting in the review queue, and every co
 - [x] `categorize`: categories (CRUD, seeded with the eight note colours) and the `Rule` aggregate, with tests
 - [x] Rule engine, from the most specific rule to the most generic
 - [x] `TransactionsImported` handler
-- [ ] Review queue screen, where a manual correction becomes a rule
-- [ ] Transactions: each row shows its category's name and colour, and the list filters by category (the last open item of F2)
-- [ ] `Classifier` via Ollama, validating that the answer is an existing category, with its suggestions in the queue
-- [ ] List, edit and archive categories and rules (the "Categories and rules" screen)
-- [ ] web: the shared sidebar (search, accounts with sync state, Categories and rules, Settings, theme) and the Settings page with Connections, Categorization and Appearance; its Budget and Investments sections arrive with M3 and M4
+- [x] Review queue screen, where a manual correction becomes a rule
+- [x] Transactions: each row shows its category's name and colour, and the list filters by category (the last open item of F2)
+- [x] `Classifier` via Ollama, validating that the answer is an existing category, with its suggestions in the queue
+- [x] List, edit and archive categories and rules (the "Categories and rules" screen)
+- [x] web: the shared sidebar (search, accounts with sync state, Categories and rules, Settings, theme) and the Settings page with Connections, Categorization and Appearance; its Budget and Investments sections arrive with M3 and M4
 
 ## M3: the month at a glance (F4, F5, dashboard)
 
-- [ ] ADR: category limits first, envelopes only if they prove insufficient (closes the open question in `FEATURES.md`)
-- [ ] `budget`: `MonthlyBudget`, pay yourself first and rollover, with tests
-- [ ] Budget screen
-- [ ] Dashboard: the month so far, spending by category against the 6-month average, spending through the month, and the review queue
-- [ ] Recurring charges detection and the fixed costs panel
+- [x] ADR: category limits first, envelopes only if they prove insufficient (closes the open question in `FEATURES.md`)
+- [x] `budget`: `MonthlyBudget`, pay yourself first and rollover, with tests
+- [x] Budget screen
+- [x] Dashboard: the month so far, spending by category against the 6-month average, spending through the month, and the review queue
+- [x] Recurring charges detection and the fixed costs panel
 
 ## M4: invest in a minute (F6, F7, F8)
 
-- [ ] `market`: CDI and IPCA (Banco Central's SGS), quotes (brapi) and Tesouro Direto rates
-- [ ] `portfolio`: `Ticker`, `Quantity` and `Allocation`, with tests
-- [ ] Positions from Pluggy investments, plus the B3 trade statement import if the M1 spike shows it is needed
-- [ ] Daily net worth valuation and the net worth card on the dashboard
-- [ ] `ContributionPlanner`, with tests
-- [ ] `lastro contribute` in the terminal and the "where to contribute" screen
-- [ ] Per-stock theses and earnings-date reminders
+- [x] `market`: CDI and IPCA (Banco Central's SGS), quotes (brapi) and Tesouro Direto rates
+- [x] `portfolio`: `Ticker`, `Quantity` and `Allocation`, with tests
+- [x] Positions from Pluggy investments, plus the B3 trade statement import if the M1 spike shows it is needed
+- [x] Daily net worth valuation and the net worth card on the dashboard
+- [x] `ContributionPlanner`, with tests
+- [x] `lastro contribute` in the terminal and the "where to contribute" screen
+- [x] Per-stock theses and earnings-date reminders
 
 ## M5: planning and insights (F8, F9, F10)
 
-- [ ] Projection with monthly contributions and real interest rate, in pessimistic, base and optimistic scenarios
-- [ ] Yearly scoreboard of the stock picks against the Ibovespa and CDI
-- [ ] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (email or Telegram)
-- [ ] Monte Carlo (optional)
+- [x] Projection with monthly contributions and real interest rate, in pessimistic, base and optimistic scenarios
+- [x] Yearly scoreboard of the stock picks against the Ibovespa and CDI
+- [x] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (ADR-0007: in the app, with Telegram as an optional push)
+- [x] Monte Carlo (optional)
 
-## Out of the way until M4
+## M6: the rest of the features (backlog)
 
-Splitting a transaction across categories, notes and tags on transactions, valuation metrics, and price alerts.
+What `FEATURES.md` still lists, in the order that pays most. Each screen change starts on the canvas.
+
+- [x] Split a transaction across categories (F2 P1)
+- [x] Notes and tags on a transaction (F2 P1)
+- [x] Dividends received, per stock and per year (F8 P1)
+- [x] Valuation metrics per stock (P/E, P/B, dividend yield) and their history, from brapi (F8 P1)
+- [x] Monthly report at the start of each month, through the alerts channel (F10 P2)
+- [x] Price alerts, e.g. a stock down more than X% in a day (F8 P2)
+- [x] Manual entries for cash or accounts outside Open Finance (F1 P2)
+
+After M6, a design audit against the canvas added what the boards drew and the screens lacked: "Sync now" in the sidebar, Dashboard and Settings; marking a transaction as a transfer to an account lastro does not see (in To review and on the transaction); writing a rule by hand and filtering rules by where they came from; copying last month's limits, editing every limit at once and the phone layout on the Budget; the default rollover for new limits in Settings; replacing the contribution plan already on payday; and the target line on the projection.
 
 ## Parked
 

@@ -20,8 +20,8 @@ var (
 const saveTransaction = `-- name: SaveTransaction :batchexec
 INSERT INTO ledger.transactions (
     id, account_id, external_id, bank_ref, date, description, amount_cents, currency, source_kind, status,
-    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (id) DO UPDATE SET
     external_id = EXCLUDED.external_id,
     bank_ref = EXCLUDED.bank_ref,
@@ -37,6 +37,7 @@ ON CONFLICT (id) DO UPDATE SET
     counterpart_id = EXCLUDED.counterpart_id,
     pair_kind = EXCLUDED.pair_kind,
     removed_at = EXCLUDED.removed_at,
+    marked_transfer = EXCLUDED.marked_transfer,
     updated_at = now()
 `
 
@@ -64,6 +65,7 @@ type SaveTransactionParams struct {
 	CounterpartID     *string
 	PairKind          *string
 	RemovedAt         *time.Time
+	MarkedTransfer    bool
 }
 
 func (q *Queries) SaveTransaction(ctx context.Context, arg []SaveTransactionParams) *SaveTransactionBatchResults {
@@ -87,6 +89,7 @@ func (q *Queries) SaveTransaction(ctx context.Context, arg []SaveTransactionPara
 			a.CounterpartID,
 			a.PairKind,
 			a.RemovedAt,
+			a.MarkedTransfer,
 		}
 		batch.Queue(saveTransaction, vals...)
 	}

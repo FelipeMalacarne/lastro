@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 // The API's shapes (see modules/ledger/views.go and modules/ingest/http.go).
 
-export type AccountType = "checking" | "savings" | "credit_card";
+export type AccountType = "checking" | "savings" | "credit_card" | "cash" | "asset";
 
 export type Account = {
   id: string;
@@ -13,6 +13,8 @@ export type Account = {
   currency: string;
   balanceCents: number;
   balanceAt: string;
+  /** Typed in by me, outside Open Finance: a wallet ("cash") or an asset. */
+  manual: boolean;
   /** A card's limit and bill, each part null when the bank does not report it. */
   card: { limitCents: number | null; availableCents: number | null; dueDate: string | null; closeDate: string | null } | null;
 };
@@ -47,7 +49,15 @@ export type Transaction = {
   account: AccountRef;
   counterpart: AccountRef | null;
   counterpartId: string | null;
+  note: string;
+  tags: string[];
+  /** A split's categories, largest part first; empty when not split. */
+  splitCategories: string[];
+  /** A transfer I marked: to an account lastro does not have. */
+  markedTransfer: boolean;
 };
+
+export type TagView = { tag: string; count: number; outCents: number; inCents: number; last: string };
 
 export type TransactionList = {
   transactions: Transaction[];
@@ -94,6 +104,7 @@ export type Purchase = {
 
 export type TransactionDetail = {
   transaction: Transaction;
+  split: { category: string; amountCents: number }[];
   counterpartTransaction: Transaction | null;
   purchase: Purchase | null;
   history: { count: number; totalCents: number; months: { month: string; cents: number; count: number }[] };
@@ -163,10 +174,268 @@ export const typeLabel: Record<AccountType, string> = {
   checking: "checking",
   savings: "savings",
   credit_card: "credit card",
+  cash: "wallet",
+  asset: "asset",
 };
 
 export const typeName: Record<AccountType, string> = {
   checking: "Checking",
   savings: "Savings",
   credit_card: "Credit card",
+  cash: "Wallet",
+  asset: "Asset",
+};
+
+/** Refetches every resource read so far: after a change, whatever shows it is fresh. */
+export function refreshAll() {
+  for (const url of cache.keys()) void load(url);
+}
+
+/** Sends a change and refreshes what the screens show. Throws the API's message. */
+export async function send<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELETE", url: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method,
+    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.message || `HTTP ${r.status}`);
+  refreshAll();
+  return out as T;
+}
+
+// categorize (see modules/categorize/http.go).
+
+export type NoteColor = "note-1" | "note-2" | "note-5" | "note-10" | "note-20" | "note-50" | "note-100" | "note-200";
+
+export type Category = { id: string; name: string; color: NoteColor; budgeted: boolean; archived: boolean };
+
+export type PatternKind = "contains" | "exact";
+export type Pattern = { kind: PatternKind; text: string };
+
+/** What puts a choice back: a choice answers with it and POST /api/v1/undo takes it. */
+export type Undo = { rule?: string; wasRule?: string; before: { transaction: string; category?: string; source?: string }[] };
+export type Change = { categorized: number; undo: Undo };
+
+/** Two undos as one, for a choice made transaction by transaction. */
+export function joinUndo(a: Undo | null, b: Undo): Undo {
+  return a ? { ...b, rule: b.rule ?? a.rule, wasRule: b.wasRule ?? a.wasRule, before: [...a.before, ...b.before] } : b;
+}
+
+export type ReviewGroup = {
+  pattern: Pattern | null;
+  count: number;
+  totalCents: number;
+  latest: string;
+  transactions: { id: string; date: string; description: string; amountCents: number; accountId: string }[];
+  /** The local model's answer for the merchant, when it named a category. */
+  suggestion: { category: string; confidence: number } | null;
+};
+
+export type Review = { waiting: number; groups: ReviewGroup[] };
+
+export type RuleOrigin = "correction" | "hand";
+
+export type Rule = {
+  id: string;
+  order: number;
+  origin: RuleOrigin;
+  pattern: Pattern;
+  account: string | null;
+  category: string;
+  meets: number;
+  decides: number;
+  last: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CategoryTotal = { category: string; outCents: number; inCents: number; count: number };
+
+// budget (see modules/budget/http.go).
+
+export type Pace = "on_pace" | "ahead" | "over";
+
+export type MonthSpend = { month: string; spentCents: number };
+
+export type BudgetCategory = {
+  category: string;
+  limitCents: number;
+  carriedCents: number;
+  availableCents: number;
+  spentCents: number;
+  leftCents: number;
+  rollover: boolean;
+  usedBp: number;
+  pace: Pace;
+  count: number;
+  fixedCents: number;
+  upcomingCents: number;
+  history: MonthSpend[];
+  averageCents: number;
+};
+
+export type BudgetSpend = { category: string | null; spentCents: number; count: number; history: MonthSpend[]; averageCents: number };
+
+export type BudgetMonth = {
+  month: string;
+  hasBudget: boolean;
+  saved: boolean;
+  from: string | null;
+  prevDiffers: boolean;
+  rolloverNew: boolean;
+  days: number;
+  daysLeft: number;
+  elapsedBp: number;
+  payday: number;
+  payYourselfFirst: { plannedCents: number; movedCents: number; due: string; doneOn: string | null };
+  incomeCents: number;
+  incomeCount: number;
+  limitsCents: number;
+  carriedCents: number;
+  availableCents: number;
+  spentCents: number;
+  leftCents: number;
+  notAssignedCents: number;
+  upcomingCents: number;
+  categories: BudgetCategory[];
+  unlimited: BudgetSpend[];
+  summary: { incomeCents: number; spentCents: number; contributionCents: number; savingsRateBp: number };
+};
+
+export type RecurringCharge = {
+  name: string;
+  category: string | null;
+  steadiness: "fixed" | "varies";
+  monthlyCents: number;
+  months: number;
+  first: string;
+  last: string;
+  next: string;
+  paidThisMonth: boolean;
+  new: boolean;
+  change: { fromCents: number; toCents: number; since: string } | null;
+};
+
+export type Recurring = { monthlyCents: number; paidCents: number; upcomingCents: number; new: number; changed: number; charges: RecurringCharge[] };
+
+// portfolio (see modules/portfolio/http.go).
+
+export type AssetClass = "cdi" | "ipca" | "br_stocks" | "global";
+export type BandStatus = "in_band" | "below" | "above";
+
+export const assetClasses: { id: AssetClass; name: string; color: NoteColor }[] = [
+  { id: "cdi", name: "CDI", color: "note-2" },
+  { id: "ipca", name: "IPCA+", color: "note-20" },
+  { id: "br_stocks", name: "Brazilian stocks", color: "note-1" },
+  { id: "global", name: "Global stocks", color: "note-100" },
+];
+
+export type NetWorthPoint = {
+  date: string;
+  cashCents: number;
+  cardsCents: number;
+  investedCents: number;
+  emergencyCents: number;
+  /** Assets outside Open Finance, typed in. */
+  otherCents: number;
+  basisCents: number;
+  totalCents: number;
+};
+
+export type Holding = {
+  id: string;
+  name: string;
+  institution: string;
+  kind: string;
+  ticker: string | null;
+  class: AssetClass;
+  autoClass: AssetClass;
+  emergency: boolean;
+  quantity: string;
+  valueCents: number;
+  basisCents: number;
+  returnBp: number | null;
+  indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
+  rateBp: number;
+  maturity: string | null;
+  asOf: string;
+  priced: boolean;
+};
+
+export type Thesis = {
+  ticker: string;
+  thesis: string;
+  breaks: string;
+  nextReport: string | null;
+  reportInDays: number | null;
+  held: boolean;
+  valueCents: number;
+};
+
+export type PortfolioOverview = {
+  asOf: string | null;
+  positions: number;
+  where: string[] | null;
+  investedCents: number;
+  basisCents: number;
+  monthDeltaCents: number | null;
+  monthFrom: string | null;
+  putIn12mCents: number | null;
+  returns12mCents: number | null;
+  return12mBp: number | null;
+  since: string | null;
+  netWorth: NetWorthPoint;
+  targets: Record<AssetClass, number>;
+  bandBp: number;
+  classes: {
+    class: AssetClass;
+    valueCents: number;
+    basisCents: number;
+    nowBp: number;
+    targetBp: number;
+    status: BandStatus;
+    return12mBp: number | null;
+    holdings: number;
+  }[];
+  growth: { date: string; valueCents: number; basisCents: number }[];
+  benchmarks: { from: string | null; cdiBp: number | null; ipcaBp: number | null; cdiUntil: string | null; ipcaUntil: string | null };
+  holdings: Holding[];
+  theses: Thesis[];
+};
+
+export type ContributionWhy = "below_band" | "gap" | "target" | "above_band" | "at_target";
+
+export type ContributionPlan = {
+  amountCents: number;
+  totalCents: number;
+  bandBp: number;
+  splits: {
+    class: AssetClass;
+    amountCents: number;
+    why: ContributionWhy;
+    valueCents: number;
+    beforeBp: number;
+    afterBp: number;
+    targetBp: number;
+    buy: string | null;
+  }[];
+};
+
+export type PlannedPurchase = {
+  id: string;
+  plannedOn: string;
+  what: string;
+  class: AssetClass;
+  amountCents: number;
+  condition: string;
+  status: "planned" | "done" | "cancelled";
+  note: string;
+  decidedAt: string | null;
+};
+
+export type MarketIndices = {
+  CDI: { last12mBp: number; last: string | null; latestBp: number };
+  IPCA: { last12mBp: number; last: string | null; latestBp: number };
+  bonds: { title: string; name: string; maturity: string; date: string; buyRateBp: number; priceCents: number }[];
 };

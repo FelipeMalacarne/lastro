@@ -10,6 +10,32 @@ import (
 	"time"
 )
 
+const deleteBalanceSnapshot = `-- name: DeleteBalanceSnapshot :execrows
+DELETE FROM ledger.balance_snapshots WHERE account_id = $1 AND date = $2
+`
+
+type DeleteBalanceSnapshotParams struct {
+	AccountID string
+	Date      time.Time
+}
+
+func (q *Queries) DeleteBalanceSnapshot(ctx context.Context, arg DeleteBalanceSnapshotParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBalanceSnapshot, arg.AccountID, arg.Date)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteSplit = `-- name: DeleteSplit :exec
+DELETE FROM ledger.splits WHERE transaction_id = $1
+`
+
+func (q *Queries) DeleteSplit(ctx context.Context, transactionID string) error {
+	_, err := q.db.Exec(ctx, deleteSplit, transactionID)
+	return err
+}
+
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
 
 SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts WHERE external_id = $1
@@ -67,7 +93,7 @@ func (q *Queries) GetAccountView(ctx context.Context, id string) (LedgerAccount,
 }
 
 const getTransactions = `-- name: GetTransactions :many
-SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, t.marked_transfer, t.kind, a.type AS account_type
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.id = ANY ($1::uuid[])
@@ -104,10 +130,13 @@ func (q *Queries) GetTransactions(ctx context.Context, ids []string) ([]GetTrans
 			&i.LedgerTransaction.CategorySource,
 			&i.LedgerTransaction.CounterpartID,
 			&i.LedgerTransaction.PairKind,
-			&i.LedgerTransaction.Kind,
 			&i.LedgerTransaction.RemovedAt,
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
+			&i.LedgerTransaction.Note,
+			&i.LedgerTransaction.Tags,
+			&i.LedgerTransaction.MarkedTransfer,
+			&i.LedgerTransaction.Kind,
 			&i.AccountType,
 		); err != nil {
 			return nil, err
@@ -118,6 +147,28 @@ func (q *Queries) GetTransactions(ctx context.Context, ids []string) ([]GetTrans
 		return nil, err
 	}
 	return items, nil
+}
+
+const insertSplitPart = `-- name: InsertSplitPart :exec
+INSERT INTO ledger.splits (transaction_id, position, category_id, amount_cents)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertSplitPartParams struct {
+	TransactionID string
+	Position      int16
+	CategoryID    string
+	AmountCents   int64
+}
+
+func (q *Queries) InsertSplitPart(ctx context.Context, arg InsertSplitPartParams) error {
+	_, err := q.db.Exec(ctx, insertSplitPart,
+		arg.TransactionID,
+		arg.Position,
+		arg.CategoryID,
+		arg.AmountCents,
+	)
+	return err
 }
 
 const listAccountViews = `-- name: ListAccountViews :many
@@ -201,6 +252,54 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
 	return items, nil
 }
 
+const listAutomatable = `-- name: ListAutomatable :many
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
+WHERE removed_at IS NULL
+  AND kind IN ('expense', 'income')
+  AND category_source IS DISTINCT FROM 'manual'
+ORDER BY date, id
+`
+
+type ListAutomatableRow struct {
+	ID             string
+	AccountID      string
+	Description    string
+	Date           time.Time
+	AmountCents    int64
+	CategoryID     *string
+	CategorySource *string
+}
+
+// Every live expense and income whose category nobody chose by hand: what
+// rules and the model may (re)categorize.
+func (q *Queries) ListAutomatable(ctx context.Context) ([]ListAutomatableRow, error) {
+	rows, err := q.db.Query(ctx, listAutomatable)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAutomatableRow
+	for rows.Next() {
+		var i ListAutomatableRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+			&i.CategoryID,
+			&i.CategorySource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBalanceSnapshots = `-- name: ListBalanceSnapshots :many
 SELECT account_id, date, balance_cents, currency, taken_at FROM ledger.balance_snapshots WHERE account_id = $1 ORDER BY date
 `
@@ -233,7 +332,7 @@ func (q *Queries) ListBalanceSnapshots(ctx context.Context, accountID string) ([
 
 const listCategorizable = `-- name: ListCategorizable :many
 
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE id = ANY ($1::uuid[])
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -242,9 +341,13 @@ ORDER BY date, id
 `
 
 type ListCategorizableRow struct {
-	ID          string
-	AccountID   string
-	Description string
+	ID             string
+	AccountID      string
+	Description    string
+	Date           time.Time
+	AmountCents    int64
+	CategoryID     *string
+	CategorySource *string
 }
 
 // What categorize may categorize: live expenses and income (never transfers
@@ -258,7 +361,174 @@ func (q *Queries) ListCategorizable(ctx context.Context, ids []string) ([]ListCa
 	var items []ListCategorizableRow
 	for rows.Next() {
 		var i ListCategorizableRow
-		if err := rows.Scan(&i.ID, &i.AccountID, &i.Description); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+			&i.CategoryID,
+			&i.CategorySource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoryMonths = `-- name: ListCategoryMonths :many
+SELECT date_trunc('month', date)::date AS month, COALESCE(category_id, '')::text AS category_id, kind,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND currency = 'BRL'
+  AND date >= $1::date AND date < $2::date
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+`
+
+type ListCategoryMonthsParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListCategoryMonthsRow struct {
+	Month      time.Time
+	CategoryID string
+	Kind       string
+	OutCents   int64
+	InCents    int64
+	N          int32
+}
+
+// Live expenses and income by month, category (null: none yet) and kind:
+// money out, money in and how many. What budgets and averages are built on,
+// in reais only. A split counts each part in its category.
+func (q *Queries) ListCategoryMonths(ctx context.Context, arg ListCategoryMonthsParams) ([]ListCategoryMonthsRow, error) {
+	rows, err := q.db.Query(ctx, listCategoryMonths, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategoryMonthsRow
+	for rows.Next() {
+		var i ListCategoryMonthsRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.CategoryID,
+			&i.Kind,
+			&i.OutCents,
+			&i.InCents,
+			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCategoryTotals = `-- name: ListCategoryTotals :many
+SELECT COALESCE(category_id, '')::text AS category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND currency = 'BRL'
+  AND date >= $1::date AND date < $2::date
+GROUP BY 1
+`
+
+type ListCategoryTotalsParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListCategoryTotalsRow struct {
+	CategoryID string
+	OutCents   int64
+	InCents    int64
+	N          int32
+}
+
+// Live expenses and income in a date range by category (null: none yet):
+// money out, money in and how many.
+func (q *Queries) ListCategoryTotals(ctx context.Context, arg ListCategoryTotalsParams) ([]ListCategoryTotalsRow, error) {
+	rows, err := q.db.Query(ctx, listCategoryTotals, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategoryTotalsRow
+	for rows.Next() {
+		var i ListCategoryTotalsRow
+		if err := rows.Scan(
+			&i.CategoryID,
+			&i.OutCents,
+			&i.InCents,
+			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCharges = `-- name: ListCharges :many
+SELECT t.id, t.description, t.date, t.amount_cents, t.category_id, a.name AS account_name, a.institution
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+WHERE t.removed_at IS NULL AND t.kind = 'expense' AND t.amount_cents < 0
+  AND t.currency = 'BRL'
+  AND t.installment_total IS NULL
+  AND t.date >= $1::date
+ORDER BY t.date, t.id
+`
+
+type ListChargesRow struct {
+	ID          string
+	Description string
+	Date        time.Time
+	AmountCents int64
+	CategoryID  *string
+	AccountName string
+	Institution string
+}
+
+// Live expenses since a day, outside installments: what recurring charges
+// are found in.
+func (q *Queries) ListCharges(ctx context.Context, dateFrom time.Time) ([]ListChargesRow, error) {
+	rows, err := q.db.Query(ctx, listCharges, dateFrom)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChargesRow
+	for rows.Next() {
+		var i ListChargesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+			&i.CategoryID,
+			&i.AccountName,
+			&i.Institution,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -351,6 +621,47 @@ func (q *Queries) ListDaySpending(ctx context.Context, arg ListDaySpendingParams
 			&i.Purchases,
 			&i.InCents,
 			&i.MovedCents,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDescriptionCounts = `-- name: ListDescriptionCounts :many
+SELECT description, account_id, count(*)::int AS n, max(date)::date AS last_date
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+GROUP BY description, account_id
+`
+
+type ListDescriptionCountsRow struct {
+	Description string
+	AccountID   string
+	N           int32
+	LastDate    time.Time
+}
+
+// Each description of live expenses and income, by account: how often it
+// came and when last. What a rule would meet, without loading every row.
+func (q *Queries) ListDescriptionCounts(ctx context.Context) ([]ListDescriptionCountsRow, error) {
+	rows, err := q.db.Query(ctx, listDescriptionCounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDescriptionCountsRow
+	for rows.Next() {
+		var i ListDescriptionCountsRow
+		if err := rows.Scan(
+			&i.Description,
+			&i.AccountID,
+			&i.N,
+			&i.LastDate,
 		); err != nil {
 			return nil, err
 		}
@@ -513,8 +824,66 @@ func (q *Queries) ListMonthFlows(ctx context.Context, accountID string) ([]ListM
 	return items, nil
 }
 
+const listMonthKinds = `-- name: ListMonthKinds :many
+SELECT date_trunc('month', date)::date AS month, kind, amount_cents > 0 AS inflow,
+    (counterpart_id IS NOT NULL)::boolean AS paired,
+    sum(amount_cents)::bigint AS cents, count(*)::int AS n, max(date)::date AS last
+FROM ledger.transactions
+WHERE removed_at IS NULL AND amount_cents <> 0
+  AND currency = 'BRL'
+  AND date >= $1::date AND date < $2::date
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2, 3, 4
+`
+
+type ListMonthKindsParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListMonthKindsRow struct {
+	Month  time.Time
+	Kind   string
+	Inflow bool
+	Paired bool
+	Cents  int64
+	N      int32
+	Last   time.Time
+}
+
+// Every live transaction by month, kind, direction and whether it is paired
+// with one in another of my accounts: the month's income, and transfers out
+// to accounts outside lastro (the broker).
+func (q *Queries) ListMonthKinds(ctx context.Context, arg ListMonthKindsParams) ([]ListMonthKindsRow, error) {
+	rows, err := q.db.Query(ctx, listMonthKinds, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMonthKindsRow
+	for rows.Next() {
+		var i ListMonthKindsRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.Kind,
+			&i.Inflow,
+			&i.Paired,
+			&i.Cents,
+			&i.N,
+			&i.Last,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPairCandidates = `-- name: ListPairCandidates :many
-SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, t.marked_transfer, t.kind, a.type AS account_type
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.removed_at IS NULL
@@ -558,11 +927,136 @@ func (q *Queries) ListPairCandidates(ctx context.Context, windowFrom *time.Time)
 			&i.LedgerTransaction.CategorySource,
 			&i.LedgerTransaction.CounterpartID,
 			&i.LedgerTransaction.PairKind,
-			&i.LedgerTransaction.Kind,
 			&i.LedgerTransaction.RemovedAt,
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
+			&i.LedgerTransaction.Note,
+			&i.LedgerTransaction.Tags,
+			&i.LedgerTransaction.MarkedTransfer,
+			&i.LedgerTransaction.Kind,
 			&i.AccountType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSplit = `-- name: ListSplit :many
+SELECT category_id, amount_cents FROM ledger.splits
+WHERE transaction_id = $1
+ORDER BY position
+`
+
+type ListSplitRow struct {
+	CategoryID  string
+	AmountCents int64
+}
+
+func (q *Queries) ListSplit(ctx context.Context, transactionID string) ([]ListSplitRow, error) {
+	rows, err := q.db.Query(ctx, listSplit, transactionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSplitRow
+	for rows.Next() {
+		var i ListSplitRow
+		if err := rows.Scan(&i.CategoryID, &i.AmountCents); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTagCategories = `-- name: ListTagCategories :many
+SELECT COALESCE(category_id, '')::text AS category_id,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.category_lines
+WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND currency = 'BRL' AND $1::text = ANY (tags)
+GROUP BY 1
+ORDER BY 2 DESC
+`
+
+type ListTagCategoriesRow struct {
+	CategoryID string
+	OutCents   int64
+	InCents    int64
+	N          int32
+}
+
+// One tag's money by category, every month, a split counted by its parts.
+func (q *Queries) ListTagCategories(ctx context.Context, tag string) ([]ListTagCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listTagCategories, tag)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTagCategoriesRow
+	for rows.Next() {
+		var i ListTagCategoriesRow
+		if err := rows.Scan(
+			&i.CategoryID,
+			&i.OutCents,
+			&i.InCents,
+			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTags = `-- name: ListTags :many
+SELECT tag::text AS tag, count(*)::int AS n,
+    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents > 0), 0)::bigint AS in_cents,
+    max(t.date)::date AS last
+FROM ledger.transactions t, unnest(t.tags) AS tag
+WHERE t.removed_at IS NULL
+GROUP BY tag
+ORDER BY max(t.date) DESC, tag
+`
+
+type ListTagsRow struct {
+	Tag      string
+	N        int32
+	OutCents int64
+	InCents  int64
+	Last     time.Time
+}
+
+// Every tag in use, with how much money it holds: what the tag picker
+// offers and the tag filter sums.
+func (q *Queries) ListTags(ctx context.Context) ([]ListTagsRow, error) {
+	rows, err := q.db.Query(ctx, listTags)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTagsRow
+	for rows.Next() {
+		var i ListTagsRow
+		if err := rows.Scan(
+			&i.Tag,
+			&i.N,
+			&i.OutCents,
+			&i.InCents,
+			&i.Last,
 		); err != nil {
 			return nil, err
 		}
@@ -579,6 +1073,10 @@ const listTransactionViews = `-- name: ListTransactionViews :many
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
+    t.note, t.tags, t.marked_transfer,
+    COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
+    -- What counts under a category filter: a split's part in it, or the whole.
+    COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text), t.amount_cents)::bigint AS counted_cents,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -587,30 +1085,39 @@ JOIN ledger.accounts a ON a.id = t.account_id
 LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
 LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
 WHERE t.removed_at IS NULL
-  AND ($1::uuid IS NULL OR t.id = $1::uuid)
-  AND ($2::date IS NULL OR t.date >= $2::date)
-  AND ($3::date IS NULL OR t.date < $3::date)
-  AND ($4::uuid IS NULL OR t.account_id = $4::uuid)
+  AND ($2::uuid IS NULL OR t.id = $2::uuid)
+  AND ($3::date IS NULL OR t.date >= $3::date)
+  AND ($4::date IS NULL OR t.date < $4::date)
+  AND ($5::uuid IS NULL OR t.account_id = $5::uuid)
   AND (
-      $5::text IS NULL
-      OR ($5::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
-      OR ($5::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
-      OR ($5::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+      $1::text IS NULL
+      OR ($1::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+      OR t.category_id = $1::text
+      OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text)
+  )
+  AND ($6::text IS NULL OR $6::text = ANY (t.tags))
+  AND (
+      $7::text IS NULL
+      OR ($7::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+      OR ($7::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+      OR ($7::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
   )
   AND (
-      $6::text IS NULL
-      OR translate(lower(t.description), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
-         LIKE '%' || translate(lower($6::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+      $8::text IS NULL
+      OR translate(lower(t.description || ' ' || t.note), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+         LIKE '%' || translate(lower($8::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
   )
 ORDER BY t.date DESC, t.created_at DESC, t.id
-LIMIT $7
+LIMIT $9
 `
 
 type ListTransactionViewsParams struct {
+	Category  *string
 	ID        *string
 	DateFrom  *time.Time
 	DateTo    *time.Time
 	AccountID *string
+	Tag       *string
 	Flow      *string
 	Search    *string
 	MaxRows   int32
@@ -629,6 +1136,11 @@ type ListTransactionViewsRow struct {
 	CategoryID             *string
 	CategorySource         *string
 	CounterpartID          *string
+	Note                   string
+	Tags                   []string
+	MarkedTransfer         bool
+	SplitCategories        []string
+	CountedCents           int64
 	AccountID              string
 	AccountName            string
 	AccountInstitution     string
@@ -644,13 +1156,16 @@ type ListTransactionViewsRow struct {
 // one's account and, for pairs, the other side and its account. flow is 'in'
 // or 'out' (money that counts, by direction) or 'transfer' (transfers and
 // card bill payments). search matches the description ignoring case and
-// accents.
+// accents. category is a category id, or 'none' for the expenses and income
+// still without one.
 func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionViewsParams) ([]ListTransactionViewsRow, error) {
 	rows, err := q.db.Query(ctx, listTransactionViews,
+		arg.Category,
 		arg.ID,
 		arg.DateFrom,
 		arg.DateTo,
 		arg.AccountID,
+		arg.Tag,
 		arg.Flow,
 		arg.Search,
 		arg.MaxRows,
@@ -675,6 +1190,11 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 			&i.CategoryID,
 			&i.CategorySource,
 			&i.CounterpartID,
+			&i.Note,
+			&i.Tags,
+			&i.MarkedTransfer,
+			&i.SplitCategories,
+			&i.CountedCents,
 			&i.AccountID,
 			&i.AccountName,
 			&i.AccountInstitution,
@@ -695,7 +1215,7 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 }
 
 const listTransactionsForImport = `-- name: ListTransactionsForImport :many
-SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
+SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.removed_at, t.created_at, t.updated_at, t.note, t.tags, t.marked_transfer, t.kind, a.type AS account_type
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.account_id = $1
@@ -752,10 +1272,13 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 			&i.LedgerTransaction.CategorySource,
 			&i.LedgerTransaction.CounterpartID,
 			&i.LedgerTransaction.PairKind,
-			&i.LedgerTransaction.Kind,
 			&i.LedgerTransaction.RemovedAt,
 			&i.LedgerTransaction.CreatedAt,
 			&i.LedgerTransaction.UpdatedAt,
+			&i.LedgerTransaction.Note,
+			&i.LedgerTransaction.Tags,
+			&i.LedgerTransaction.MarkedTransfer,
+			&i.LedgerTransaction.Kind,
 			&i.AccountType,
 		); err != nil {
 			return nil, err
@@ -769,7 +1292,7 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 }
 
 const listUncategorized = `-- name: ListUncategorized :many
-SELECT id, account_id, description FROM ledger.transactions
+SELECT id, account_id, description, date, amount_cents, category_id, category_source FROM ledger.transactions
 WHERE category_id IS NULL
   AND removed_at IS NULL
   AND kind IN ('expense', 'income')
@@ -777,9 +1300,13 @@ ORDER BY date, id
 `
 
 type ListUncategorizedRow struct {
-	ID          string
-	AccountID   string
-	Description string
+	ID             string
+	AccountID      string
+	Description    string
+	Date           time.Time
+	AmountCents    int64
+	CategoryID     *string
+	CategorySource *string
 }
 
 func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow, error) {
@@ -791,7 +1318,15 @@ func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow
 	var items []ListUncategorizedRow
 	for rows.Next() {
 		var i ListUncategorizedRow
-		if err := rows.Scan(&i.ID, &i.AccountID, &i.Description); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+			&i.CategoryID,
+			&i.CategorySource,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -800,6 +1335,34 @@ func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow
 		return nil, err
 	}
 	return items, nil
+}
+
+const replaceBalanceSnapshot = `-- name: ReplaceBalanceSnapshot :exec
+INSERT INTO ledger.balance_snapshots (account_id, date, balance_cents, currency, taken_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (account_id, date) DO UPDATE SET
+    balance_cents = EXCLUDED.balance_cents,
+    taken_at = EXCLUDED.taken_at
+`
+
+type ReplaceBalanceSnapshotParams struct {
+	AccountID    string
+	Date         time.Time
+	BalanceCents int64
+	Currency     string
+	TakenAt      time.Time
+}
+
+// A balance I counted replaces that day's, whenever I typed it.
+func (q *Queries) ReplaceBalanceSnapshot(ctx context.Context, arg ReplaceBalanceSnapshotParams) error {
+	_, err := q.db.Exec(ctx, replaceBalanceSnapshot,
+		arg.AccountID,
+		arg.Date,
+		arg.BalanceCents,
+		arg.Currency,
+		arg.TakenAt,
+	)
+	return err
 }
 
 const saveAccount = `-- name: SaveAccount :exec
@@ -882,4 +1445,40 @@ func (q *Queries) SaveBalanceSnapshot(ctx context.Context, arg SaveBalanceSnapsh
 		arg.TakenAt,
 	)
 	return err
+}
+
+const setNote = `-- name: SetNote :execrows
+UPDATE ledger.transactions SET note = $1, updated_at = now()
+WHERE id = $2 AND removed_at IS NULL
+`
+
+type SetNoteParams struct {
+	Note string
+	ID   string
+}
+
+func (q *Queries) SetNote(ctx context.Context, arg SetNoteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNote, arg.Note, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setTags = `-- name: SetTags :execrows
+UPDATE ledger.transactions SET tags = $1::text[], updated_at = now()
+WHERE id = $2 AND removed_at IS NULL
+`
+
+type SetTagsParams struct {
+	Tags []string
+	ID   string
+}
+
+func (q *Queries) SetTags(ctx context.Context, arg SetTagsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setTags, arg.Tags, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

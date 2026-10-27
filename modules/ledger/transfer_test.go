@@ -117,3 +117,17 @@ func TestMatchTransfers(t *testing.T) {
 		}
 	})
 }
+
+func TestWalletIsOnlyTheInflow(t *testing.T) {
+	chk, wallet := account(t, "chk", AccountChecking), account(t, "wallet", AccountCash)
+	feira := tx(t, wallet, "feira", 26, -5000, KindExpense)
+	pix := tx(t, chk, "pix", 26, 5000, KindIncome)
+	if got := MatchTransfers([]*Transaction{feira, pix}); len(got) != 0 {
+		t.Errorf("spending from the wallet is never a transfer, even against income of the same amount: %d paired", len(got))
+	}
+	atm := tx(t, chk, "atm", 26, -30000, KindExpense)
+	in := tx(t, wallet, "in", 26, 30000, KindIncome)
+	if got := MatchTransfers([]*Transaction{atm, in}); len(got) != 2 {
+		t.Errorf("a withdrawal into the wallet pairs: %d paired", len(got))
+	}
+}

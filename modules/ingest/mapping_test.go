@@ -244,7 +244,7 @@ func TestWithoutBuiltBillPayments(t *testing.T) {
 	purchase.Kind = ledger.KindExpense
 	in := []ledger.ImportedTransaction{
 		pay("built", at(1, 0, 0), 101515), pay("bank", at(1, 19, 7), 101515), // Pluggy's copy and the bank's
-		pay("alone", at(3, 0, 0), 128666),                                    // no twin: the only record
+		pay("alone", at(3, 0, 0), 128666), // no twin: the only record
 		pay("other", at(28, 0, 0), 115847), pay("other-bank", at(28, 17, 20), 99999),
 		pay("both-dated-a", at(10, 0, 0), 5000), pay("both-dated-b", at(10, 0, 0), 5000),
 		purchase,

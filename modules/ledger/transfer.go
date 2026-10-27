@@ -23,7 +23,7 @@ const (
 //   - into a card, the inflow must be one the card itself calls a bill
 //     payment, within billPaymentWindow days; refunds never pair;
 //   - between bank accounts, an expense with an income, within
-//     transferWindow days.
+//     transferWindow days; a wallet is only ever the inflow (a withdrawal).
 //
 // Closer dates pair first. When an outflow or an inflow has two equally
 // close candidates in different accounts, it is left alone: guessing would
@@ -37,7 +37,9 @@ func MatchTransfers(candidates []*Transaction) []*Transaction {
 	for _, t := range candidates {
 		switch {
 		case t.IsPaired() || t.IsRemoved() || t.amount.IsZero():
-		case t.amount.IsNegative() && !t.accountType.IsCard() && t.sourceKind == KindExpense:
+		// Money leaving a wallet is spending, never a transfer: only a
+		// withdrawal into it pairs.
+		case t.amount.IsNegative() && !t.accountType.IsCard() && t.accountType != AccountCash && t.sourceKind == KindExpense:
 			outs = append(outs, t)
 		case t.amount.IsPositive() && t.accountType.IsCard() && t.sourceKind == KindBillPayment,
 			t.amount.IsPositive() && !t.accountType.IsCard() && t.sourceKind == KindIncome:

@@ -272,3 +272,49 @@ func TestPairRules(t *testing.T) {
 		t.Errorf("removing one side leaves the pair and reports the other, got %q", broken)
 	}
 }
+
+func TestRestore(t *testing.T) {
+	tx := newTx(t, checking(t), imported(t, "t1", -4890))
+	food, transport := mustCategory(t, "restaurants"), mustCategory(t, "transport")
+	if err := tx.Categorize(food, SourceManual); err != nil {
+		t.Fatal(err)
+	}
+	tx.PullEvents()
+
+	if err := tx.Restore(transport, SourceRule); err != nil {
+		t.Fatalf("an undo puts back a rule's category over a manual one: %v", err)
+	}
+	if c, src := tx.Category(); c != transport || src != SourceRule {
+		t.Errorf("category = %q by %q", c, src)
+	}
+	if len(tx.PullEvents()) != 1 {
+		t.Error("a restored category is published")
+	}
+	if err := tx.Restore(CategoryID{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if c, src := tx.Category(); !c.IsZero() || src != "" {
+		t.Errorf("an empty category leaves it waiting, got %q by %q", c, src)
+	}
+	if err := tx.Restore(food, Source("guess")); err == nil {
+		t.Error("an unknown source is refused")
+	}
+}
+
+func TestMarkTransfer(t *testing.T) {
+	tx := newTx(t, checking(t), imported(t, "t1", -100000))
+	if err := tx.MarkTransfer(true); err != nil || tx.Kind() != KindTransfer || !tx.MarkedTransfer() {
+		t.Fatalf("marked: %v %s", err, tx.Kind())
+	}
+	if tx.Kind().Counts() {
+		t.Error("a marked transfer never counts")
+	}
+	if err := tx.MarkTransfer(false); err != nil || tx.Kind() != KindExpense {
+		t.Fatalf("unmarked: %v %s", err, tx.Kind())
+	}
+	in := imported(t, "t2", 148237)
+	in.Kind = KindBillPayment
+	if err := newTx(t, checking(t), in).MarkTransfer(true); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a card bill is not marked: %v", err)
+	}
+}

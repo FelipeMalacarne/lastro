@@ -13,7 +13,7 @@ import (
 func TestEngineMostSpecificWins(t *testing.T) {
 	cat := func(name string) Category { return category(t, name) }
 	rule := func(id RuleID, kind PatternKind, text string, account ledger.AccountID, c Category, taught time.Time) *Rule {
-		r, err := NewRule(pattern(t, kind, text), account, c, taught)
+		r, err := NewRule(pattern(t, kind, text), account, c, OriginCorrection, taught)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +75,7 @@ func TestEngineMostSpecificWins(t *testing.T) {
 func TestEngineDecide(t *testing.T) {
 	restaurants, leisure := category(t, "Restaurants"), category(t, "Leisure")
 	rule := func(text string, account ledger.AccountID, c Category) *Rule {
-		r, err := NewRule(pattern(t, PatternContains, text), account, c, t0)
+		r, err := NewRule(pattern(t, PatternContains, text), account, c, OriginCorrection, t0)
 		if err != nil {
 			t.Fatal(err)
 		}

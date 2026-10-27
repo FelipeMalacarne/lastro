@@ -132,3 +132,63 @@ func cleanName(s string) (string, error) {
 	}
 	return n, nil
 }
+
+// noise are the words banks put before the merchant ("PAG*IFOOD", "Pix
+// enviado Fulano"); a suggestion skips them.
+var noise = map[string]bool{
+	"PAG": true, "PAGTO": true, "PAGAMENTO": true, "COMPRA": true, "COMPRAS": true, "DEBITO": true, "CREDITO": true,
+	"PIX": true, "ENVIADO": true, "ENVIADA": true, "RECEBIDO": true, "RECEBIDA": true, "TRANSF": true, "TRANSFERENCIA": true,
+	"TED": true, "DOC": true, "ESTORNO": true, "NO": true, "DE": true, "EM": true, "PG": true, "EC": true, "MP": true,
+}
+
+// stop are the words that end a merchant's name: what banks append after it
+// (a city, a store number, a site, a status).
+var stop = map[string]bool{
+	"COM": true, "WWW": true, "HTTP": true, "HTTPS": true, "BR": true, "HELP": true, "PENDING": true, "PENDENTE": true,
+	"LOJA": true, "FILIAL": true, "UNIDADE": true, "LTDA": true, "SA": true, "ME": true, "EIRELI": true,
+	"SAO": true, "PAULO": true, "RIO": true, "JANEIRO": true, "BELO": true, "HORIZONTE": true, "CURITIBA": true,
+	"PORTO": true, "ALEGRE": true, "BRASILIA": true, "SALVADOR": true, "RECIFE": true, "FORTALEZA": true, "CAMPINAS": true,
+	"AC": true, "AL": true, "AM": true, "AP": true, "BA": true, "CE": true, "DF": true, "ES": true, "GO": true, "MA": true,
+	"MG": true, "MS": true, "MT": true, "PA": true, "PB": true, "PE": true, "PI": true, "PR": true, "RJ": true, "RN": true,
+	"RO": true, "RR": true, "RS": true, "SC": true, "SE": true, "SP": true, "TO": true,
+}
+
+const maxSuggestedWords = 3
+
+// SuggestPattern reads the merchant out of a description as the bank sends
+// it, for a correction to teach: "PAG*IFOOD SP" suggests contains IFOOD,
+// "DROGASIL 2104 SAO PAULO" suggests contains DROGASIL. It skips the words
+// banks put before the merchant and stops at what they append after it (a
+// number, a city or state, a site), up to three words. When that leaves too
+// little, it falls back to the description's first words. It reports false
+// when the description has too few letters for any pattern.
+func SuggestPattern(description string) (Pattern, bool) {
+	words := strings.Fields(normalize(description))
+	var picked []string
+	for _, w := range words {
+		if len(picked) == 0 && noise[w] {
+			continue
+		}
+		if len(picked) > 0 && (stop[w] || strings.ContainsFunc(w, unicode.IsDigit)) {
+			break
+		}
+		if len(picked) == 0 && strings.ContainsFunc(w, unicode.IsDigit) {
+			continue
+		}
+		if len(picked) > 0 && picked[len(picked)-1] == w { // "IFOOD *IFOOD"
+			continue
+		}
+		picked = append(picked, w)
+		if len(picked) == maxSuggestedWords {
+			break
+		}
+	}
+	if p, err := NewPattern(PatternContains, strings.Join(picked, " ")); err == nil {
+		return p, true
+	}
+	if len(words) > maxSuggestedWords {
+		words = words[:maxSuggestedWords]
+	}
+	p, err := NewPattern(PatternContains, strings.Join(words, " "))
+	return p, err == nil
+}

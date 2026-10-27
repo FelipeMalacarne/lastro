@@ -19,7 +19,8 @@ type AccountView struct {
 	Currency     string    `json:"currency"`
 	BalanceCents int64     `json:"balanceCents"`
 	BalanceAt    time.Time `json:"balanceAt"`
-	Card         *CardView `json:"card"` // credit cards, when the bank reports any of it
+	Manual       bool      `json:"manual"` // typed in by me, outside Open Finance
+	Card         *CardView `json:"card"`   // credit cards, when the bank reports any of it
 }
 
 // CardView is a card's limit and bill, each part only when the bank reports it.
@@ -46,6 +47,16 @@ type TransactionView struct {
 	// payments, and CounterpartID the other side itself.
 	Counterpart   *AccountRef    `json:"counterpart"`
 	CounterpartID *TransactionID `json:"counterpartId"`
+	Note          string         `json:"note"`
+	Tags          []string       `json:"tags"`
+	// SplitCategories are a split transaction's categories, largest part
+	// first; empty when it is not split.
+	SplitCategories []string `json:"splitCategories"`
+	// CountedCents is what counts in the list's totals: under a category
+	// filter, a split's part in that category; otherwise the amount.
+	CountedCents int64 `json:"countedCents"`
+	// MarkedTransfer is a transfer I marked: to an account lastro does not have.
+	MarkedTransfer bool `json:"markedTransfer"`
 }
 
 type InstallmentView struct {
@@ -64,6 +75,61 @@ type Categorizable struct {
 	ID          TransactionID
 	Account     AccountID
 	Description string
+	Date        time.Time // the calendar day
+	AmountCents int64     // negative when money left the account
+	Category    string    // its category's id, or empty while it has none
+	Source      Source    // who chose it: a rule or the model (never by hand)
+}
+
+// DescriptionCount is how often a description came in an account, and when
+// last: what categorize needs to say how many transactions a rule meets.
+type DescriptionCount struct {
+	Description string
+	Account     AccountID
+	Count       int
+	Last        time.Time
+}
+
+// CategoryTotal is a range's expenses and income in one category (empty:
+// still without one): money out and in, as positive cents, and how many.
+type CategoryTotal struct {
+	Category string `json:"category"` // empty: none yet
+	OutCents int64  `json:"outCents"`
+	InCents  int64  `json:"inCents"`
+	Count    int    `json:"count"`
+}
+
+// CategoryMonth is one month's live expenses or income in one category
+// (empty: none yet) and kind.
+type CategoryMonth struct {
+	Month    time.Time // the month's first day
+	Category string
+	Kind     string // "expense" or "income"
+	OutCents int64  // positive
+	InCents  int64
+	Count    int
+}
+
+// MonthKind is one month's live transactions of one kind and direction,
+// paired with one in another of my accounts or not.
+type MonthKind struct {
+	Month  time.Time // the month's first day
+	Kind   string
+	Inflow bool
+	Paired bool
+	Cents  int64 // negative for outflows
+	Count  int
+	Last   time.Time // the latest day among them
+}
+
+// Charge is a live expense outside installments, for recurring charges.
+type Charge struct {
+	ID          TransactionID
+	Description string
+	Date        time.Time
+	AmountCents int64  // positive
+	Category    string // empty: none yet
+	Account     string // "Nubank Ultravioleta"
 }
 
 // AccountRef names an account inside another view.
@@ -98,14 +164,25 @@ const maxListed = 2000
 
 // TransactionFilter selects a month of transactions.
 type TransactionFilter struct {
-	Month   time.Time // any day in the month
+	Month time.Time // any day in the month
+	// AllMonths searches every month instead of Month; only with a Search
+	// or a Tag.
+	AllMonths bool
+	// Tag keeps the transactions with this tag.
+	Tag     string
 	Account AccountID // empty: every account
 	Flow    Flow
 	// Search matches descriptions, ignoring case and accents.
 	Search string
 	// Day narrows the month to one of its days; zero is the whole month.
 	Day time.Time
+	// Category is a category's id, or CategoryNone for the expenses and
+	// income still without one; empty is every transaction.
+	Category string
 }
+
+// CategoryNone filters the expenses and income still waiting for a category.
+const CategoryNone = "none"
 
 // MonthRange returns the first day of the filter's month and of the next.
 func (f TransactionFilter) MonthRange() (from, to time.Time) {
@@ -157,10 +234,10 @@ func summarize(txs []TransactionView) ListSummary {
 		if !Kind(t.Kind).Counts() {
 			continue
 		}
-		if t.AmountCents > 0 {
-			s.InCents += t.AmountCents
+		if t.CountedCents > 0 {
+			s.InCents += t.CountedCents
 		} else {
-			s.OutCents += t.AmountCents
+			s.OutCents += t.CountedCents
 		}
 	}
 	return s
@@ -284,6 +361,7 @@ func purchaseView(p Purchase, today time.Time) PurchaseView {
 // description came up in the last six months.
 type TransactionDetail struct {
 	Transaction TransactionView  `json:"transaction"`
+	Split       []SplitPartView  `json:"split"`
 	Counterpart *TransactionView `json:"counterpartTransaction"`
 	Purchase    *PurchaseView    `json:"purchase"`
 	History     DescriptionStats `json:"history"`
@@ -344,4 +422,20 @@ func descriptionStats(rows []MonthTotal, from time.Time) DescriptionStats {
 		}
 	}
 	return st
+}
+
+// SplitPartView is one part of a split transaction.
+type SplitPartView struct {
+	Category    string `json:"category"`
+	AmountCents int64  `json:"amountCents"`
+}
+
+// TagView is a tag in use: how many transactions carry it and the money
+// that counts among them.
+type TagView struct {
+	Tag      string `json:"tag"`
+	Count    int    `json:"count"`
+	OutCents int64  `json:"outCents"`
+	InCents  int64  `json:"inCents"`
+	Last     string `json:"last"`
 }

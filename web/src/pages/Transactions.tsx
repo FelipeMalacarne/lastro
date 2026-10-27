@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 
+import { Amount } from "@/components/Amount";
+import { CategoryTag } from "@/components/CategoryTag";
 import { DayBars } from "@/components/charts/DayBars";
-import { Notice } from "@/components/Notice";
+import { Kbd } from "@/components/Kbd";
+import { SyncNotice } from "@/components/SyncNotice";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { Stat } from "@/components/Stat";
@@ -17,12 +20,12 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { typeLabel, useResource, type DaysView, type Transaction, type TransactionList } from "@/lib/api";
+import { typeLabel, useResource, type Category, type DaysView, type TagView, type Transaction, type TransactionList } from "@/lib/api";
+import { useCategories, useWaiting } from "@/lib/categories";
 import { addMonths, dayLabel, formatBRL, formatDay, formatMonth, formatWeekday, todayISO } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
-import { pickNotice } from "@/lib/notice";
-import { hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
+import { Link, hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
 import { AccountsPanel, useBanks } from "@/shell/Accounts";
 import { PageHeader } from "@/shell/AppShell";
 
@@ -46,7 +49,13 @@ export function Transactions() {
   const wide = useWide();
   const flow = (["in", "out", "transfer"].includes(query.get("flow") ?? "") ? query.get("flow") : "all") as Flow;
   const account = query.get("account") ?? "";
+  const category = query.get("category") ?? "";
+  const cats = useCategories();
+  const waiting = useWaiting();
   const q = query.get("q") ?? "";
+  const tag = query.get("tag") ?? "";
+  const everyMonth = Boolean(q || tag) && query.get("scope") === "all";
+  const tags = useResource<{ tags: TagView[] }>("/api/v1/tags").data?.tags ?? [];
   const asked = query.get("day");
   const day = asked && DAY_RE.test(asked) && asked.startsWith(month + "-") ? asked : null;
   const tx = query.get("tx");
@@ -64,10 +73,13 @@ export function Transactions() {
     const p = new URLSearchParams({ month });
     if (day) p.set("day", day);
     if (account) p.set("account", account);
+    if (category) p.set("category", category);
     if (flow !== "all") p.set("flow", flow);
     if (q) p.set("q", q);
+    if (tag) p.set("tag", tag);
+    if (everyMonth) p.set("scope", "all");
     return "/api/v1/transactions?" + p.toString();
-  }, [month, day, account, flow, q]);
+  }, [month, day, account, category, flow, q, tag, everyMonth]);
   const res = useResource<TransactionList>(url);
   const days = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`);
 
@@ -101,48 +113,43 @@ export function Transactions() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tx, prev, next]);
 
-  const filtered = Boolean(account || flow !== "all" || q || day);
+  const filtered = Boolean(account || category || flow !== "all" || q || tag || day);
+  const currentCategory = category === "none" ? null : cats.byId.get(category);
   const monthName = formatMonth(month).split(" ")[0];
   const caption = list
-    ? `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
-      (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
+    ? everyMonth
+      ? `${list.summary.count} ${list.summary.count === 1 ? "match" : "matches"} for ${q ? `“${q}”` : `#${tag}`} in every month · ${formatBRL(-list.summary.outCents)} out` +
+        (list.summary.inCents ? ` · ${formatBRL(list.summary.inCents)} in` : "")
+      : `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
+        (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
     : undefined;
 
-  const notice = pickNotice(banks);
   const accounts = banks.flatMap((b) => b.accounts);
   const currentAccount = accounts.find((a) => a.id === account);
   const noAccounts = !res.loading && accounts.length === 0 && banks.length === 0;
 
   return (
     <>
-      <PageHeader title="Transactions" caption={caption} />
+      <PageHeader
+        title="Transactions"
+        caption={caption}
+        monthless={everyMonth}
+        actions={
+          waiting ? (
+            <Button asChild variant="primary">
+              <Link to="/review">
+                Review {waiting} <Kbd>R</Kbd>
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {notice && (
-        <Notice
-          tone={notice.tone}
-          title={notice.title}
-          action={
-            notice.action && (
-              <Button asChild variant="ghost" size="sm" className="max-lg:hidden">
-                <a href={notice.action.href} target="_blank" rel="noreferrer">
-                  {notice.action.label}
-                </a>
-              </Button>
-            )
-          }
-        >
-          {notice.text}{" "}
-          {notice.action && (
-            <a href={notice.action.href} target="_blank" rel="noreferrer" className="font-semibold lg:hidden">
-              {notice.action.label}
-            </a>
-          )}
-        </Notice>
-      )}
+      <SyncNotice banks={banks} />
 
       <AccountsPanel banks={banks} />
 
-      <MonthOverview month={month} current={current} data={days.data} error={days.error} day={day} />
+      {!everyMonth && <MonthOverview month={month} current={current} data={days.data} error={days.error} day={day} />}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
         <TextField
@@ -156,6 +163,17 @@ export function Transactions() {
           type="search"
           className="lg:min-w-0 lg:flex-[1_1_300px]"
         />
+        {(q || tag) && (
+          <SegmentedControl
+            label="Search in"
+            value={everyMonth ? "all" : "month"}
+            onChange={(v) => setQuery("scope", v === "all" ? "all" : null)}
+            options={[
+              { value: "month", label: `In ${monthName}` },
+              { value: "all", label: "Every month" },
+            ]}
+          />
+        )}
         <div className="flex flex-wrap items-center gap-2 lg:items-end lg:gap-3">
           <div className="hidden flex-col gap-1.5 lg:flex">
             <span className="text-[13px] leading-[18px] font-semibold">Type</span>
@@ -170,7 +188,7 @@ export function Transactions() {
           />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="max-lg:h-7 max-lg:px-3 max-lg:text-[13px]">
+              <Button>
                 {currentAccount ? `${currentAccount.institution} ${typeLabel[currentAccount.type]}` : "All accounts"}
                 <ChevronDown aria-hidden />
               </Button>
@@ -187,8 +205,50 @@ export function Transactions() {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button>
+                {category === "none" ? "To review" : currentCategory ? currentCategory.name : "All categories"}
+                <ChevronDown aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup value={category} onValueChange={(v) => setQuery("category", v || null)}>
+                <DropdownMenuRadioItem value="">All categories</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="none">To review</DropdownMenuRadioItem>
+                {cats.live.map((c) => (
+                  <DropdownMenuRadioItem key={c.id} value={c.id}>
+                    <CategoryTag name={c.name} color={c.color} />
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {(tags.length > 0 || tag) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button>
+                  {tag ? `Tag: ${tag}` : "Any tag"}
+                  <ChevronDown aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup value={tag} onValueChange={(v) => setQuery("tag", v || null)}>
+                  <DropdownMenuRadioItem value="">Any tag</DropdownMenuRadioItem>
+                  {tags.map((t) => (
+                    <DropdownMenuRadioItem key={t.tag} value={t.tag}>
+                      <span className="font-figure text-[13px]">#{t.tag}</span>
+                      <span className="ml-auto type-figure-sm text-ink-muted">{t.count}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
+
+      {tag && <TagSummary tag={tag} info={tags.find((t) => t.tag === tag)} byId={cats.byId} />}
 
       {day && (
         <div className="flex flex-wrap items-center gap-2 text-[14px] leading-5">
@@ -209,7 +269,7 @@ export function Transactions() {
           footer={
             <>
               {list?.truncated && `Showing the newest ${list.transactions.length.toLocaleString("pt-BR")}. `}
-              Transfers and card bill payments are listed but never counted as spending. Click a transaction to open it.
+              Transfers and card bill payments are listed but never counted as spending. Select a transaction to open it.
             </>
           }
         >
@@ -220,7 +280,9 @@ export function Transactions() {
               {noAccounts
                 ? "No accounts yet. They appear after the first sync, which runs within six hours."
                 : q
-                  ? `Nothing matches “${q}” in ${day ? formatDay(day) : monthName}.`
+                  ? everyMonth
+                    ? `Nothing matches “${q}” in any month.`
+                    : `Nothing matches “${q}” in ${day ? formatDay(day) : monthName}.`
                   : day
                     ? `Nothing on ${formatDay(day)}.`
                     : filtered
@@ -228,7 +290,7 @@ export function Transactions() {
                       : `Nothing in ${monthName} yet.`}
             </Empty>
           )}
-          {list && <Days transactions={list.transactions} selected={tx} />}
+          {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} />}
         </Panel>
 
         {tx && wide && (
@@ -246,6 +308,34 @@ export function Transactions() {
   );
 }
 
+/** A tag over every month: its total, by category (canvas: "Split, note and tags"). */
+function TagSummary({ tag, info, byId }: { tag: string; info?: TagView; byId: Map<string, Category> }) {
+  const res = useResource<{ categories: { category: string; outCents: number; inCents: number; count: number }[] }>(`/api/v1/tags/${encodeURIComponent(tag)}`);
+  const rows = (res.data?.categories ?? []).filter((c) => c.outCents > 0);
+  const max = Math.max(1, ...rows.map((c) => c.outCents));
+  const title = info ? `#${tag} · ${formatBRL(info.outCents)} out in ${info.count} ${info.count === 1 ? "transaction" : "transactions"}` : `#${tag}`;
+  return (
+    <Panel title={title} footer="Every month, a split counted by its parts. Choose “Every month” above to list them all.">
+      {rows.length === 0 ? (
+        <p className="m-0 type-body text-ink-muted">{res.data ? "Nothing spent with this tag." : "Loading…"}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {rows.map((c) => {
+            const cat = byId.get(c.category);
+            return (
+              <div key={c.category || "none"} className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_auto] items-center gap-3">
+                <CategoryTag name={cat?.name} color={cat?.color} />
+                <span className="h-2.5 rounded-xs" style={{ width: `${(c.outCents / max) * 100}%`, background: cat ? `var(--${cat.color})` : "var(--rule-strong)" }} />
+                <Amount cents={c.outCents} sign="none" />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 /** The month at a glance: what counts, day by day, against the month before. */
 function MonthOverview({ month, current, data, error, day }: { month: string; current: string; data?: DaysView; error?: string; day: string | null }) {
   const monthName = formatMonth(month).split(" ")[0];
@@ -260,7 +350,7 @@ function MonthOverview({ month, current, data, error, day }: { month: string; cu
   return (
     <Panel
       title={month === current ? `${monthName} so far` : formatMonth(month)}
-      footer="Spending only: transfers between your accounts and card bills never count. A day far above the rest is cut at the dotted line, with its figure on top. Click a day to list it."
+      footer="Spending only: transfers between your accounts and card bills never count. A day far above the rest is cut at the dotted line, with its figure on top. Select a day to list it."
     >
       {error && !data && <p className="m-0 type-body text-ink-muted">Could not load the month: {error}.</p>}
       {!data && !error && <p className="m-0 type-body text-ink-muted">Loading the month…</p>}
@@ -321,7 +411,7 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 /** The list, grouped by day, each day with what it added up to. */
-function Days({ transactions, selected }: { transactions: Transaction[]; selected: string | null }) {
+function Days({ transactions, selected, categories }: { transactions: Transaction[]; selected: string | null; categories: Map<string, Category> }) {
   const today = todayISO();
   const days: { date: string; rows: Transaction[] }[] = [];
   for (const t of transactions) {
@@ -349,7 +439,10 @@ function Days({ transactions, selected }: { transactions: Transaction[]; selecte
                 amountCents={t.amountCents}
                 pending={t.status === "pending"}
                 installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
-                categorized={false}
+                category={categoryOf(t, categories)}
+                moreCategories={Math.max(0, t.splitCategories.length - 1)}
+                tags={t.tags}
+                noted={Boolean(t.note)}
               />
             </div>
           ))}
@@ -382,4 +475,10 @@ function meta(t: Transaction): string {
     return t.amountCents < 0 ? `${here} → ${there}` : `${here} ← ${there}`;
   }
   return `${t.account.institution} · ${typeLabel[t.account.type]}`;
+}
+
+/** The row's category: its name and colour, or null while it waits for one. */
+function categoryOf(t: Transaction, categories: Map<string, Category>) {
+  const c = t.category ? categories.get(t.category.id) : undefined;
+  return c ? { name: c.name, color: c.color } : null;
 }

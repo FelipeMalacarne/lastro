@@ -106,8 +106,13 @@ type Investment struct {
 	Code         string          `json:"code"`
 	ISIN         string          `json:"isin"`
 	CurrencyCode string          `json:"currencyCode"`
-	Balance      json.Number     `json:"balance"`
+	Balance      json.Number     `json:"balance"`        // net of taxes
+	Amount       json.Number     `json:"amount"`         // gross
+	Original     json.Number     `json:"amountOriginal"` // what was put in
 	Quantity     json.Number     `json:"quantity"`
+	UnitValue    json.Number     `json:"value"`
+	Rate         json.Number     `json:"rate"`            // % of the index: 100 is 100% of CDI
+	FixedRate    json.Number     `json:"fixedAnnualRate"` // % a year, over IPCA or on its own
 	Date         string          `json:"date"`
 	DueDate      string          `json:"dueDate"`
 	Status       string          `json:"status"`

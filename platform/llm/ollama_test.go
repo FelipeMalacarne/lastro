@@ -36,3 +36,30 @@ func TestDisabled(t *testing.T) {
 		t.Fatalf("want ErrDisabled, got %v", err)
 	}
 }
+
+func TestPing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]string{{"name": "llama3.1:latest"}, {"name": "qwen2.5:7b"}}})
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		model string
+		want  error
+	}{
+		{"llama3.1", nil},
+		{"qwen2.5:7b", nil},
+		{"mistral", ErrModelMissing},
+	}
+	for _, tt := range tests {
+		if err := NewOllama(srv.URL, tt.model).Ping(context.Background()); !errors.Is(err, tt.want) {
+			t.Errorf("Ping(%s) = %v, want %v", tt.model, err, tt.want)
+		}
+	}
+	if err := NewOllama("", "").Ping(context.Background()); !errors.Is(err, ErrDisabled) {
+		t.Errorf("disabled: %v", err)
+	}
+}

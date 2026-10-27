@@ -62,7 +62,9 @@ export function CardMonthBars({ months, current }: Props) {
           const show = i === 0 || mm === 1 || i % (n > 14 ? 3 : 1) === 0;
           return (
             <span key={mo.month} className="text-center type-figure-sm whitespace-nowrap text-ink-muted">
-              {show ? formatMonth(mo.month, true).slice(0, 3) + (mm === 1 || i === 0 ? ` ${String(y).slice(2)}` : "") : ""}
+              {show && formatMonth(mo.month, true).slice(0, 3)}
+              {/* On a phone the columns have no room for the year. */}
+              {show && (mm === 1 || i === 0) && <span className="max-sm:hidden"> {String(y).slice(2)}</span>}
             </span>
           );
         })}

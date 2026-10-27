@@ -4,16 +4,24 @@ import { navigate, useLocation } from "@/lib/router";
 import { SidebarAccounts } from "@/shell/Accounts";
 import { AppShell } from "@/shell/AppShell";
 import { AccountPage } from "@/pages/Account";
+import { Budget } from "@/pages/Budget";
+import { Categories } from "@/pages/Categories";
+import { Contribute } from "@/pages/Contribute";
+import { Dashboard } from "@/pages/Dashboard";
 import { Gallery } from "@/pages/Gallery";
-import { Soon } from "@/pages/Soon";
+import { Planning } from "@/pages/Planning";
+import { Portfolio } from "@/pages/Portfolio";
+import { Report } from "@/pages/Report";
+import { Review } from "@/pages/Review";
+import { Settings } from "@/pages/Settings";
 import { Transactions } from "@/pages/Transactions";
 
 export function App() {
   const { path } = useLocation();
 
-  // Until the dashboard exists (M3), the app opens on Transactions.
+  // The app opens on the dashboard.
   useEffect(() => {
-    if (path === "/") navigate("/transactions" + location.search, { replace: true });
+    if (path === "/") navigate("/dashboard" + location.search, { replace: true });
   }, [path]);
 
   return <AppShell accounts={<SidebarAccounts />}>{page(path)}</AppShell>;
@@ -24,16 +32,26 @@ function page(path: string) {
   if (account) return <AccountPage key={account[1]} id={account[1]} />;
   switch (path) {
     case "/dashboard":
-      return <Soon title="Dashboard" milestone="M3" what="The month at a glance: spending so far, by category against your 6-month average, and what is left in the budget." />;
+      return <Dashboard />;
+    case "/review":
+      return <Review />;
+    case "/categories":
+      return <Categories />;
+    case "/settings":
+      return <Settings />;
     case "/budget":
-      return <Soon title="Budget" milestone="M3" what="Pay yourself first, then a limit per category, with rollover." />;
+      return <Budget />;
     case "/portfolio":
-      return <Soon title="Portfolio" milestone="M4" what="Positions, net worth and where this month's contribution goes." />;
+      return <Portfolio />;
+    case "/contribute":
+      return <Contribute />;
     case "/_components":
       if (import.meta.env.DEV) return <Gallery />;
       return <Transactions />;
     case "/planning":
-      return <Soon title="Planning" milestone="M5" what="Projections in today's money, and how long until each goal." />;
+      return <Planning />;
+    case "/report":
+      return <Report />;
     default:
       return <Transactions />;
   }

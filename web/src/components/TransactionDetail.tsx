@@ -1,13 +1,17 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ArrowLeftRight, ChevronLeft, ChevronRight, Clock, CreditCard, Search, X } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
+import { CategoryDecision } from "@/components/CategoryDecision";
+import { CategoryTag } from "@/components/CategoryTag";
 import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { Kbd } from "@/components/Kbd";
 import { Sparkline } from "@/components/Sparkline";
+import { NoteSection, SplitSection, TagsSection } from "@/components/TransactionNotes";
 import { Button } from "@/components/ui/button";
-import { typeLabel, useResource, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
+import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail, type Undo } from "@/lib/api";
+import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDate, formatDay, formatMonth, formatWeekday } from "@/lib/format";
 import { Link, hrefWith } from "@/lib/router";
 
@@ -114,16 +118,20 @@ function Body({ d }: { d: Detail }) {
       </dl>
 
       <Section title="Category">
-        {neutral ? (
+        {t.markedTransfer ? (
+          <TransferMark t={t} />
+        ) : neutral ? (
           <p className="m-0 text-[14px] leading-5 text-ink-muted">
             {t.kind === "bill_payment"
               ? "Card bills need no category: the purchases on the card already have theirs."
               : "Money moving between your accounts, or to and from your own investments, needs no category."}
           </p>
+        ) : d.split.length ? (
+          <span className="type-caption text-ink-muted">Split, chosen by you. The budget counts each part in its category.</span>
         ) : (
           <>
-            <span className="text-[14px] leading-5 text-ink-muted">Uncategorized</span>
-            <p className="m-0 type-caption text-ink-muted">Choosing one will teach a rule for every “{t.description}”. It arrives with the review queue.</p>
+            <CategorySection t={t} />
+            {!t.counterpartId && <TransferMark t={t} />}
           </>
         )}
       </Section>
@@ -140,7 +148,7 @@ function Body({ d }: { d: Detail }) {
               [
                 ["Per month", formatBRL(p.amountCents)],
                 ["In all", formatBRL(p.amountCents * p.total)],
-                ["Still to pay", p.remainingCount ? `${formatBRL(p.remainingCents)} in ${p.remainingCount}` : "Nothing"],
+                ["Still to pay", p.remainingCount ? `${formatBRL(p.remainingCents)} in ${p.remainingCount} ${p.remainingCount === 1 ? "installment" : "installments"}` : "Nothing"],
                 ["Last installment", formatDate(p.lastDate)],
               ] as [string, string][]
             ).map(([k, v]) => (
@@ -174,6 +182,20 @@ function Body({ d }: { d: Detail }) {
         </Section>
       )}
 
+      {!neutral && (
+        <Section title={d.split.length ? `Split in ${d.split.length}` : "Split"}>
+          <SplitSection t={t} split={d.split} />
+        </Section>
+      )}
+
+      <Section title="Note">
+        <NoteSection t={t} />
+      </Section>
+
+      <Section title="Tags">
+        <TagsSection t={t} />
+      </Section>
+
       {!neutral && d.history.count > 1 && (
         <Section title="The last 6 months">
           <div className="flex items-center justify-between gap-4">
@@ -195,8 +217,66 @@ function Body({ d }: { d: Detail }) {
         <Button asChild variant="ghost" size="sm">
           <Link to={`/accounts/${t.account.id}`}>Open {accountName(t)}</Link>
         </Button>
+        {t.account.type === "cash" && <RemoveEntry id={t.id} />}
       </div>
     </>
+  );
+}
+
+/** "A transfer between my accounts", for money to or from one lastro does not have. */
+function TransferMark({ t }: { t: Transaction }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function set(on: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      await send("PUT", "/api/v1/transactions/transfer", { ids: [t.id], transfer: on });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      {t.markedTransfer && (
+        <p className="m-0 text-[14px] leading-5 text-ink-muted">Marked by you as a transfer to or from an account of yours that lastro does not have. It counts neither as spending nor as income.</p>
+      )}
+      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void set(!t.markedTransfer)}>
+        <ArrowLeftRight aria-hidden />
+        {t.markedTransfer ? "Not a transfer: count it again" : "A transfer between my accounts"}
+      </Button>
+      {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
+    </div>
+  );
+}
+
+/** A wallet entry I added can be taken back; a synced transaction never. */
+function RemoveEntry({ id }: { id: string }) {
+  const [sure, setSure] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!sure)
+    return (
+      <Button variant="ghost" size="sm" onClick={() => setSure(true)}>
+        Remove this entry
+      </Button>
+    );
+  return (
+    <span className="flex flex-wrap items-center gap-2 type-caption text-ink-muted">
+      Its amount goes back to the wallet.
+      <Button
+        size="sm"
+        onClick={() =>
+          void send("DELETE", `/api/v1/transactions/${id}`).catch((e: Error) => {
+            setError(e.message);
+          })
+        }
+      >
+        Remove
+      </Button>
+      {error && <span className="text-danger">Could not remove: {error}.</span>}
+    </span>
   );
 }
 
@@ -206,5 +286,81 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <span className="type-label text-ink-muted">{title}</span>
       {children}
     </div>
+  );
+}
+
+const sourceLabel: Record<string, string> = { rule: "by a rule", llm: "suggested by the local model", manual: "chosen by you" };
+
+/** The category, who chose it, and the choice that changes it (and teaches a rule). */
+function CategorySection({ t }: { t: Transaction }) {
+  const { live, byId } = useCategories();
+  const suggestion = useResource<{ pattern: Pattern | null }>(`/api/v1/patterns/suggest?description=${encodeURIComponent(t.description)}`);
+  const [open, setOpen] = useState(!t.category);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [undo, setUndo] = useState<Undo | null>(null);
+  const current = t.category ? byId.get(t.category.id) : undefined;
+  useEffect(() => setOpen(!t.category), [t.id, t.category]);
+  // A choice's message and its Undo stay until another transaction opens,
+  // even as the saved category comes back from the server.
+  useEffect(() => {
+    setMsg(null);
+    setUndo(null);
+  }, [t.id]);
+
+  async function takeBack() {
+    if (!undo) return;
+    setBusy(true);
+    try {
+      await send("POST", "/api/v1/undo", undo);
+      setUndo(null);
+      setMsg("Undone.");
+    } catch (e) {
+      setMsg(`Could not undo: ${(e as Error).message}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function choose(category: string, teach: Pattern | null) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await send<Change>("PUT", `/api/v1/transactions/${t.id}/category`, { category, teach });
+      setOpen(false);
+      setUndo(r.undo);
+      setMsg(r.categorized ? `And ${r.categorized} more like it.` : "Saved.");
+    } catch (e) {
+      setMsg(`Could not save: ${(e as Error).message}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex flex-col gap-0.5">
+          <CategoryTag name={current?.name} color={current?.color} />
+          {t.category && <span className="type-caption text-ink-muted">{sourceLabel[t.category.source] ?? ""}</span>}
+        </span>
+        {t.category && (
+          <Button size="sm" variant={open ? "ghost" : "secondary"} onClick={() => setOpen((o) => !o)}>
+            {open ? "Cancel" : "Change"}
+          </Button>
+        )}
+      </div>
+      {msg && (
+        <p className="m-0 flex flex-wrap items-center gap-x-2 type-caption text-ink-muted">
+          {msg}
+          {undo && (
+            <Button variant="ghost" size="sm" onClick={() => void takeBack()} disabled={busy}>
+              Undo
+            </Button>
+          )}
+        </p>
+      )}
+      {open && <CategoryDecision categories={live} current={t.category?.id} suggested={suggestion.data?.pattern ?? null} onChoose={choose} busy={busy} />}
+    </>
   );
 }

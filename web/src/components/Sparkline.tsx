@@ -1,11 +1,18 @@
-type Props = { values: number[]; width?: number; height?: number; label: string };
+type Props = {
+  values: number[];
+  width?: number;
+  height?: number;
+  label: string;
+  /** Start the scale at zero (the default); off, the line spans its own range. */
+  zero?: boolean;
+};
 
 /** A small line of a few values, with the last one marked. */
-export function Sparkline({ values, width = 120, height = 32, label }: Props) {
+export function Sparkline({ values, width = 120, height = 32, label, zero = true }: Props) {
   if (values.length < 2) return null;
   const pad = 3;
   const max = Math.max(...values);
-  const min = Math.min(...values, 0);
+  const min = zero ? Math.min(...values, 0) : Math.min(...values);
   const span = max - min || 1;
   const x = (i: number) => pad + (i * (width - pad * 2)) / (values.length - 1);
   const y = (v: number) => height - pad - ((v - min) / span) * (height - pad * 2);
