@@ -103,6 +103,12 @@ What `FEATURES.md` still lists, in the order that pays most. Each screen change 
 
 After M6, a design audit against the canvas added what the boards drew and the screens lacked: "Sync now" in the sidebar, Dashboard and Settings; marking a transaction as a transfer to an account lastro does not see (in To review and on the transaction); writing a rule by hand and filtering rules by where they came from; copying last month's limits, editing every limit at once and the phone layout on the Budget; the default rollover for new limits in Settings; replacing the contribution plan already on payday; and the target line on the projection.
 
+## From use
+
+What living with the app asked for. Each screen change starts on the canvas.
+
+- [x] Caixinha contributions grouped: lots of the same product are one row in Positions, classified together, and the emergency fund is an amount set apart from a group (canvas: "Positions: contributions grouped, the emergency fund as an amount")
+
 ## Parked
 
 Natural-language questions turned into read-only SQL (F10): the "Ask" card was dropped from the Planning design; it comes back only with a better interaction than a chat box.

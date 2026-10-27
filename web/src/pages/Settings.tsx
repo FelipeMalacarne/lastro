@@ -9,7 +9,7 @@ import { SyncStatus } from "@/components/SyncStatus";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
-import { formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
+import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { SyncButton, nextSync, useSync } from "@/lib/sync";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
@@ -413,7 +413,7 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
   const sum = parts.reduce<number>((s, p) => s + (p ?? 0), 0);
   const bandBps = bps(band);
   const valid = parts.every((p) => p !== null) && sum === 10000 && bandBps !== null && bandBps <= 1000;
-  const emergency = v.holdings.filter((h) => h.emergency);
+  const emergency = v.groups.filter((g) => g.reserve !== "none");
 
   async function save() {
     setState("busy");
@@ -461,11 +461,15 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
         label="Emergency fund"
         hint={
           <>
-            Shown apart and never part of a contribution split. Choose its positions on the <Link to="/portfolio">Portfolio</Link>, by clicking one.
+            Shown apart and never part of a contribution split. Set an amount, or all of a position, on the <Link to="/portfolio">Portfolio</Link>, by opening the position.
           </>
         }
       >
-        <span className="text-right text-[14px] leading-5">{emergency.length ? emergency.map((h) => h.name).join(", ") : <span className="text-ink-muted">None set</span>}</span>
+        <span className="text-right text-[14px] leading-5">{emergency.length ? (
+            emergency.map((g) => `${g.name}: ${g.reserve === "all" ? "all of it" : formatBRL(g.reserveCents)}`).join("; ")
+          ) : (
+            <span className="text-ink-muted">None set</span>
+          )}</span>
       </Row>
       <Row label="Review the targets" hint="Each January the Portfolio asks you to look at the allocation again, before the year's first contribution.">
         <span className="text-[14px] text-ink-muted">Every January</span>
