@@ -169,6 +169,27 @@ type MarketBond struct {
 	FetchedAt  time.Time
 }
 
+type MarketDividend struct {
+	Symbol      string
+	ComDate     time.Time
+	Label       string
+	RateMicro   int64
+	PaymentDate *time.Time
+	Source      string
+	FetchedAt   time.Time
+}
+
+type MarketFundamental struct {
+	Symbol    string
+	Date      time.Time
+	EpsMicro  *int64
+	BookMicro *int64
+	PeMilli   *int64
+	PbMilli   *int64
+	Source    string
+	FetchedAt time.Time
+}
+
 type MarketQuote struct {
 	Symbol     string
 	Date       time.Time
@@ -184,6 +205,12 @@ type MarketRate struct {
 	RatePpb   int64
 	Source    string
 	FetchedAt time.Time
+}
+
+type PortfolioHolding struct {
+	Date          time.Time
+	Ticker        string
+	QuantityMicro int64
 }
 
 type PortfolioNetWorth struct {
@@ -217,6 +244,12 @@ type PortfolioPosition struct {
 	ClosedAt      *time.Time
 	UpdatedAt     time.Time
 	RealizedCents int64
+}
+
+type PortfolioPriceAlert struct {
+	Ticker    string
+	DropBps   int32
+	UpdatedAt time.Time
 }
 
 type PortfolioPurchase struct {

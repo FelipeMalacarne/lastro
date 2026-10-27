@@ -145,7 +145,7 @@ func (s *Service) netWorth(ctx context.Context, v Valuation) (NetWorth, error) {
 // Valuate stores the day's valuation and net worth, replacing an earlier
 // one of the same day: the history the charts read (F6).
 func (s *Service) Valuate(ctx context.Context, day time.Time) (NetWorth, error) {
-	v, _, err := s.value(ctx, day)
+	v, ps, err := s.value(ctx, day)
 	if err != nil {
 		return NetWorth{}, fmt.Errorf("portfolio: valuate: %w", err)
 	}
@@ -153,7 +153,7 @@ func (s *Service) Valuate(ctx context.Context, day time.Time) (NetWorth, error) 
 	if err != nil {
 		return NetWorth{}, fmt.Errorf("portfolio: valuate: %w", err)
 	}
-	if err := s.repo.saveValuation(ctx, v, nw, s.now()); err != nil {
+	if err := s.repo.saveValuation(ctx, v, nw, heldOf(ps, day), s.now()); err != nil {
 		return NetWorth{}, fmt.Errorf("portfolio: valuate: %w", err)
 	}
 	return nw, nil
@@ -299,4 +299,20 @@ func (s *Service) Invested(ctx context.Context) (money.Money, map[Class]money.Pe
 		return money.Money{}, nil, fmt.Errorf("portfolio: invested: %w", err)
 	}
 	return v.Invested().Value, t.Allocation.Weights(), nil
+}
+
+// heldOf sums the shares of each ticker in the open positions.
+func heldOf(ps []*Position, day time.Time) []Held {
+	by := map[string]int64{}
+	for _, p := range ps {
+		if p.Open() && !p.Ticker.IsZero() && p.Quantity.Micro() > 0 {
+			by[p.Ticker.String()] += p.Quantity.Micro()
+		}
+	}
+	out := make([]Held, 0, len(by))
+	for t, q := range by {
+		out = append(out, Held{Date: day, Ticker: t, Quantity: QuantityFromMicro(q)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ticker < out[j].Ticker })
+	return out
 }

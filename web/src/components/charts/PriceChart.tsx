@@ -28,7 +28,7 @@ export function PriceChart({ ticker, closes, width = 560 }: { ticker: string; cl
           <span>
             <strong className="font-figure font-medium text-ink">{formatBRL(last.closeCents)}</strong> on {formatDay(last.date)}
           </span>
-          <span className={up ? "text-inflow" : "text-danger"}>{formatPercent(change, { sign: "always" })}</span>
+          <span className={up ? "text-inflow" : "text-ink"}>{formatPercent(change, { sign: "always" })}</span>
           <span>
             low {formatBRL(lo)} · high {formatBRL(hi)}
           </span>
@@ -41,8 +41,8 @@ export function PriceChart({ ticker, closes, width = 560 }: { ticker: string; cl
         aria-label={`${ticker} went from ${formatBRL(first.closeCents)} to ${formatBRL(last.closeCents)} (${formatPercent(change, { sign: "always" })}), between ${formatBRL(lo)} and ${formatBRL(hi)}.`}
       >
         <line x1={pad} x2={width - pad} y1={y(first.closeCents)} y2={y(first.closeCents)} className="stroke-rule-strong" strokeDasharray="3 3" />
-        <path d={d} fill="none" stroke={up ? "var(--inflow)" : "var(--danger)"} strokeWidth={1.75} strokeLinejoin="round" />
-        <circle cx={x(closes.length - 1)} cy={y(last.closeCents)} r={3} fill={up ? "var(--inflow)" : "var(--danger)"} />
+        <path d={d} fill="none" stroke="var(--tinta)" strokeWidth={1.75} strokeLinejoin="round" />
+        <circle cx={x(closes.length - 1)} cy={y(last.closeCents)} r={3} fill="var(--tinta)" />
       </svg>
     </figure>
   );

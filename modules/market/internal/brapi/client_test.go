@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQuote(t *testing.T) {
@@ -29,5 +30,40 @@ func TestQuote(t *testing.T) {
 	}
 	if _, err := c.Quote(context.Background(), "XXXX3", ""); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("an unknown ticker fails, without the token: %v", err)
+	}
+}
+
+func TestFundamentals(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.RawQuery)
+		if r.URL.Query().Get("modules") != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":true,"message":"O seu plano não permite o módulo"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[{"symbol":"WEGE3","regularMarketPrice":38.2,"priceEarnings":28.4,"earningsPerShare":1.345,
+			"dividendsData":{"cashDividends":[
+				{"label":"JCP","rate":0.157843,"lastDatePrior":"2026-09-30T00:00:00.000Z","paymentDate":"2026-12-12T00:00:00.000Z"},
+				{"label":"DIVIDENDO","rate":0.08,"lastDatePrior":"2026-03-02T00:00:00.000Z","paymentDate":null},
+				{"label":"DIVIDENDO","rate":0.1,"lastDatePrior":"","paymentDate":""}]}}]}`))
+	}))
+	defer srv.Close()
+	f, err := New(srv.URL, "").Fundamentals(context.Background(), "WEGE3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 {
+		t.Errorf("without the module after a refusal: %v", asked)
+	}
+	if f.PE.String() != "28.4" || f.EPS.String() != "1.345" || f.PB != "" || len(f.Dividends) != 2 {
+		t.Fatalf("got %+v", f)
+	}
+	d := f.Dividends[0]
+	if d.Label != "JCP" || d.Rate.String() != "0.157843" || d.ComDate.Format(time.DateOnly) != "2026-09-30" || d.PaymentDate.Format(time.DateOnly) != "2026-12-12" {
+		t.Errorf("JCP: %+v", d)
+	}
+	if !f.Dividends[1].PaymentDate.IsZero() {
+		t.Errorf("no payment date yet: %+v", f.Dividends[1])
 	}
 }

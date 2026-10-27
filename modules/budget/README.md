@@ -31,7 +31,7 @@ Decision: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), c
 - `PUT /api/v1/budget/{month}/limits/{category}` `{"limitCents", "rollover"}`: from that month on. 400 for a category that does not count toward the budget.
 - `DELETE /api/v1/budget/{month}/limits/{category}`: from that month on.
 - `PUT /api/v1/budget/{month}/pay-yourself-first` `{"amountCents", "payday"}`: from that month on.
-- `GET /api/v1/alerts`: this month's alerts, each with a severity, a title, a detail and where to look.
+- `Alerts` is this month's alerts, each with a severity, a title, a detail and where to look. `app` serves them at `GET /api/v1/alerts`, together with the portfolio's price alerts.
 - `GET /api/v1/recurring`: the recurring charges, most expensive first, with what they cost a month, what was already charged this month and what is still to come, the new ones and the price changes.
 
 ## Events

@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+const deleteHoldings = `-- name: DeleteHoldings :exec
+DELETE FROM portfolio.holdings WHERE date = $1
+`
+
+func (q *Queries) DeleteHoldings(ctx context.Context, date time.Time) error {
+	_, err := q.db.Exec(ctx, deleteHoldings, date)
+	return err
+}
+
+const deletePriceAlert = `-- name: DeletePriceAlert :exec
+DELETE FROM portfolio.price_alerts WHERE ticker = $1
+`
+
+func (q *Queries) DeletePriceAlert(ctx context.Context, ticker string) error {
+	_, err := q.db.Exec(ctx, deletePriceAlert, ticker)
+	return err
+}
+
 const deleteThesis = `-- name: DeleteThesis :exec
 DELETE FROM portfolio.theses WHERE ticker = $1
 `
@@ -65,6 +83,30 @@ func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
 	var i GetSettingsRow
 	err := row.Scan(&i.Targets, &i.BandBps)
 	return i, err
+}
+
+const listHoldings = `-- name: ListHoldings :many
+SELECT date, ticker, quantity_micro FROM portfolio.holdings ORDER BY ticker, date
+`
+
+func (q *Queries) ListHoldings(ctx context.Context) ([]PortfolioHolding, error) {
+	rows, err := q.db.Query(ctx, listHoldings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PortfolioHolding
+	for rows.Next() {
+		var i PortfolioHolding
+		if err := rows.Scan(&i.Date, &i.Ticker, &i.QuantityMicro); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listNetWorth = `-- name: ListNetWorth :many
@@ -143,6 +185,35 @@ func (q *Queries) ListPositions(ctx context.Context) ([]PortfolioPosition, error
 			&i.UpdatedAt,
 			&i.RealizedCents,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPriceAlerts = `-- name: ListPriceAlerts :many
+SELECT ticker, drop_bps FROM portfolio.price_alerts ORDER BY ticker
+`
+
+type ListPriceAlertsRow struct {
+	Ticker  string
+	DropBps int32
+}
+
+func (q *Queries) ListPriceAlerts(ctx context.Context) ([]ListPriceAlertsRow, error) {
+	rows, err := q.db.Query(ctx, listPriceAlerts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPriceAlertsRow
+	for rows.Next() {
+		var i ListPriceAlertsRow
+		if err := rows.Scan(&i.Ticker, &i.DropBps); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -249,6 +320,21 @@ func (q *Queries) ListValuations(ctx context.Context, dateFrom time.Time) ([]Por
 	return items, nil
 }
 
+const saveHolding = `-- name: SaveHolding :exec
+INSERT INTO portfolio.holdings (date, ticker, quantity_micro) VALUES ($1, $2, $3)
+`
+
+type SaveHoldingParams struct {
+	Date          time.Time
+	Ticker        string
+	QuantityMicro int64
+}
+
+func (q *Queries) SaveHolding(ctx context.Context, arg SaveHoldingParams) error {
+	_, err := q.db.Exec(ctx, saveHolding, arg.Date, arg.Ticker, arg.QuantityMicro)
+	return err
+}
+
 const saveNetWorth = `-- name: SaveNetWorth :exec
 INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, emergency_cents, basis_cents, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -340,6 +426,22 @@ func (q *Queries) SavePosition(ctx context.Context, arg SavePositionParams) erro
 		arg.UpdatedAt,
 		arg.RealizedCents,
 	)
+	return err
+}
+
+const savePriceAlert = `-- name: SavePriceAlert :exec
+INSERT INTO portfolio.price_alerts (ticker, drop_bps, updated_at) VALUES ($1, $2, $3)
+ON CONFLICT (ticker) DO UPDATE SET drop_bps = excluded.drop_bps, updated_at = excluded.updated_at
+`
+
+type SavePriceAlertParams struct {
+	Ticker    string
+	DropBps   int32
+	UpdatedAt time.Time
+}
+
+func (q *Queries) SavePriceAlert(ctx context.Context, arg SavePriceAlertParams) error {
+	_, err := q.db.Exec(ctx, savePriceAlert, arg.Ticker, arg.DropBps, arg.UpdatedAt)
 	return err
 }
 

@@ -54,6 +54,36 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		httpx.JSON(w, http.StatusOK, map[string]any{"closes": out})
 	})
 
+	// GET /api/v1/valuation/{symbol}?months=24: P/E, P/B and dividend yield
+	// on each day lastro read the company's fundamentals.
+	mux.HandleFunc("GET /api/v1/valuation/{symbol}", func(w http.ResponseWriter, r *http.Request) {
+		months := 24
+		if q := r.URL.Query().Get("months"); q != "" {
+			n, err := strconv.Atoi(q)
+			if err != nil || n < 1 || n > 120 {
+				httpx.WriteError(w, r, logger, httpx.BadRequest("months must be 1 to 120"))
+				return
+			}
+			months = n
+		}
+		vs, err := s.Valuations(r.Context(), strings.ToUpper(r.PathValue("symbol")), s.today().AddDate(0, -months, 0))
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		type point struct {
+			Date     string `json:"date"`
+			PEMilli  *int64 `json:"peMilli"`
+			PBMilli  *int64 `json:"pbMilli"`
+			YieldBps int64  `json:"yieldBps"`
+		}
+		out := make([]point, len(vs))
+		for i, v := range vs {
+			out[i] = point{Date: v.Date.Format(time.DateOnly), PEMilli: v.PEMilli, PBMilli: v.PBMilli, YieldBps: v.YieldBps}
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"points": out})
+	})
+
 	// GET /api/v1/market: CDI and IPCA over twelve months, and Tesouro Direto's titles.
 	mux.HandleFunc("GET /api/v1/market", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

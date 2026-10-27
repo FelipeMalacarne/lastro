@@ -143,6 +143,50 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// GET /api/v1/dividends: what the shares held earned, by year and ticker.
+	mux.HandleFunc("GET /api/v1/dividends", func(w http.ResponseWriter, r *http.Request) {
+		v, err := s.Dividends(r.Context())
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, v)
+	})
+
+	// GET /api/v1/price-alerts: {"alerts": {"WEGE3": 500}}, a fall in a day in basis points.
+	mux.HandleFunc("GET /api/v1/price-alerts", func(w http.ResponseWriter, r *http.Request) {
+		a, err := s.PriceAlerts(r.Context())
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"alerts": a})
+	})
+
+	// PUT /api/v1/price-alerts/{ticker} {"dropBps": 500}.
+	mux.HandleFunc("PUT /api/v1/price-alerts/{ticker}", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			DropBps int64 `json:"dropBps"`
+		}
+		if err := decode(w, r, &in, "dropBps"); err != nil {
+			fail(w, r, err)
+			return
+		}
+		if err := s.SetPriceAlert(r.Context(), r.PathValue("ticker"), in.DropBps); err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("DELETE /api/v1/price-alerts/{ticker}", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.DeletePriceAlert(r.Context(), r.PathValue("ticker")); err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// GET /api/v1/reminders: earnings reports in the next week for stocks held.
 	mux.HandleFunc("GET /api/v1/reminders", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Reminders(r.Context(), 7)

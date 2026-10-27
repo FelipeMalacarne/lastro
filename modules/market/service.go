@@ -24,6 +24,7 @@ type (
 	}
 	QuoteSource interface {
 		Quote(ctx context.Context, symbol, rng string) (brapi.Quote, error)
+		Fundamentals(ctx context.Context, symbol string) (brapi.Fundamentals, error)
 	}
 	BondSource interface {
 		Latest(ctx context.Context) ([]tesouro.Row, error)
@@ -97,6 +98,12 @@ func (s *Service) Refresh(ctx context.Context, symbols []string) (Report, error)
 		rep.Quotes += n
 		if err != nil {
 			fail(sym, err)
+			continue
+		}
+		// Fundamentals and dividends are a bonus: a plan without them
+		// never fails the refresh.
+		if err := s.refreshFundamentals(ctx, sym); err != nil {
+			s.logger.WarnContext(ctx, "fundamentals not read", "symbol", sym, "err", err)
 		}
 	}
 	n, err := s.refreshBonds(ctx)
@@ -181,6 +188,122 @@ func (s *Service) refreshQuote(ctx context.Context, symbol string) (int, error) 
 		}
 	}
 	return saved, nil
+}
+
+// refreshFundamentals reads a company's per-share figures and dividends
+// once a day. Indices (^BVSP) have none.
+func (s *Service) refreshFundamentals(ctx context.Context, symbol string) error {
+	if strings.HasPrefix(symbol, "^") {
+		return nil
+	}
+	today, now := s.today(), s.now()
+	if done, err := s.repo.hasFundamental(ctx, symbol, today); err != nil || done {
+		return err
+	}
+	f, err := s.quotes.Fundamentals(ctx, symbol)
+	if err != nil {
+		return err
+	}
+	row := Fundamental{Symbol: symbol, Date: today}
+	for _, x := range []struct {
+		dst **int64
+		s   string
+		by  int64
+	}{{&row.EPSMicro, f.EPS.String(), 1_000_000}, {&row.BookMicro, f.BookValue.String(), 1_000_000}, {&row.PEMilli, f.PE.String(), 1000}, {&row.PBMilli, f.PB.String(), 1000}} {
+		if *x.dst, err = optional(x.s, x.by); err != nil {
+			return err
+		}
+	}
+	for _, d := range f.Dividends {
+		rate, err := scaled(d.Rate.String(), 1_000_000)
+		if err != nil || rate <= 0 {
+			continue
+		}
+		label := d.Label
+		if label == "" {
+			label = "DIVIDENDO"
+		}
+		if err := s.repo.saveDividend(ctx, Dividend{Symbol: symbol, ComDate: d.ComDate, Label: label, RateMicro: rate, PaymentDate: d.PaymentDate}, "brapi", now); err != nil {
+			return err
+		}
+	}
+	return s.repo.saveFundamental(ctx, row, "brapi", now)
+}
+
+// Record stores market data that did not come from a source's refresh:
+// the dev seed's, or figures typed in. Closes are kept as given.
+func (s *Service) Record(ctx context.Context, quotes []Quote, divs []Dividend, funds []Fundamental) error {
+	now := s.now()
+	for _, q := range quotes {
+		if err := s.repo.saveQuote(ctx, q, now, q.Date); err != nil {
+			return fmt.Errorf("market: record: %w", err)
+		}
+	}
+	for _, d := range divs {
+		if d.RateMicro <= 0 || d.ComDate.IsZero() {
+			return fmt.Errorf("%w: a dividend needs a com date and a rate", ErrInvalid)
+		}
+		if err := s.repo.saveDividend(ctx, d, "manual", now); err != nil {
+			return fmt.Errorf("market: record: %w", err)
+		}
+	}
+	for _, f := range funds {
+		if err := s.repo.saveFundamental(ctx, f, "manual", now); err != nil {
+			return fmt.Errorf("market: record: %w", err)
+		}
+	}
+	return nil
+}
+
+// Dividends is every cash dividend known for these symbols, by symbol,
+// oldest com date first.
+func (s *Service) Dividends(ctx context.Context, symbols []string) (map[string][]Dividend, error) {
+	out := map[string][]Dividend{}
+	if len(symbols) == 0 {
+		return out, nil
+	}
+	ds, err := s.repo.dividends(ctx, symbols)
+	if err != nil {
+		return nil, fmt.Errorf("market: dividends: %w", err)
+	}
+	for _, d := range ds {
+		out[d.Symbol] = append(out[d.Symbol], d)
+	}
+	return out, nil
+}
+
+// Valuations is a company's multiples on each day lastro read its
+// fundamentals since from, at that day's close (or the latest before it).
+func (s *Service) Valuations(ctx context.Context, symbol string, from time.Time) ([]Valuation, error) {
+	fs, err := s.repo.fundamentals(ctx, symbol, from)
+	if err != nil {
+		return nil, fmt.Errorf("market: valuations: %w", err)
+	}
+	if len(fs) == 0 {
+		return nil, nil
+	}
+	qs, err := s.repo.quotes(ctx, symbol, fs[0].Date.AddDate(0, 0, -10))
+	if err != nil {
+		return nil, fmt.Errorf("market: valuations: %w", err)
+	}
+	divs, err := s.repo.dividends(ctx, []string{symbol})
+	if err != nil {
+		return nil, fmt.Errorf("market: valuations: %w", err)
+	}
+	var out []Valuation
+	i := 0
+	var close int64
+	for _, f := range fs {
+		for i < len(qs) && !qs[i].Date.After(f.Date) {
+			close = qs[i].Close.Cents()
+			i++
+		}
+		if close == 0 {
+			continue
+		}
+		out = append(out, ValueOn(f, close, divs))
+	}
+	return out, nil
 }
 
 func (s *Service) refreshBonds(ctx context.Context) (int, error) {

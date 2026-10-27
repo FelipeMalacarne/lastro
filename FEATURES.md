@@ -167,12 +167,12 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [x] Price history chart per stock and ETF.
-- [ ] Valuation metrics per stock (P/E, P/B, dividend yield), with their history.
-- [ ] Dividends received, per stock and per year.
+- [x] Valuation metrics per stock (P/E, P/B, dividend yield), with their history.
+- [x] Dividends received, per stock and per year.
 - [x] Yearly scoreboard: the satellite's return against the Ibovespa and against CDI.
 
 **P2**
-- [ ] Price alerts (e.g. a stock falls more than X% in a day).
+- [x] Price alerts (e.g. a stock falls more than X% in a day).
 
 ### F9. Projections
 
@@ -231,9 +231,9 @@ Measured on my own usage, starting two months after each area ships:
 |---|---|
 | ~~Category limits or YNAB-style envelopes?~~ Answered in ADR-0006: limits per category, each month inheriting the one before, with rollover per category; envelopes only if limits fall short. | M3 |
 | ~~Which of my investments actually come through Pluggy, and which need the B3 import?~~ Answered in `docs/pluggy.md`: Nubank sends its CDBs, stocks, ETFs and Tesouro; only an unconnected broker would need the B3 import. | M4 |
-| Where do valuation metrics and dividends come from (brapi free tier or another source), and what are the limits? | F8 P1 |
+| ~~Where do valuation metrics and dividends come from?~~ brapi, the same source as the closes: `fundamental=true&dividends=true`, with the key statistics module (P/B) when the plan allows it. lastro keeps a daily copy, so the history starts the first day it reads them. | F8 P1 |
 | ~~How far back does Open Finance return history on the first sync?~~ Answered in `docs/pluggy.md`: about 19 months on my connection, more than the 12 Pluggy promises. | F6 history, F5 detection |
-| Which channel for alerts and reminders: email, Telegram or browser notifications? | F1 P1, F8, F10 |
+| ~~Which channel for alerts and reminders?~~ Answered in ADR-0007: in the app, with Telegram as an opt-in push. | F1 P1, F8, F10 |
 | Is a responsive web app enough on the phone, or is a PWA worth it? | Experience |
 
 ## Parking lot

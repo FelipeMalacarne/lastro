@@ -44,6 +44,16 @@ func (f *fakeBrapi) Quote(_ context.Context, symbol, rng string) (brapi.Quote, e
 	}, nil
 }
 
+func (f *fakeBrapi) Fundamentals(_ context.Context, symbol string) (brapi.Fundamentals, error) {
+	return brapi.Fundamentals{
+		Symbol: symbol, EPS: json.Number("1.345"), PE: json.Number("40"),
+		Dividends: []brapi.CashDividend{
+			{Label: "JCP", Rate: json.Number("0.157843"), ComDate: time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC), PaymentDate: time.Date(2026, 12, 12, 0, 0, 0, 0, time.UTC)},
+			{Label: "DIVIDENDO", Rate: json.Number("0.08"), ComDate: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)},
+		},
+	}, nil
+}
+
 type fakeTesouro struct{}
 
 func (fakeTesouro) Latest(context.Context) ([]tesouro.Row, error) {
@@ -81,6 +91,21 @@ func TestRefresh(t *testing.T) {
 	// CDI is current, so only IPCA is asked again, from the day after its last value.
 	if len(f.calls) != 3 || f.calls[2].Format(time.DateOnly) != "2026-09-02" {
 		t.Errorf("calls %v", f.calls)
+	}
+
+	// Fundamentals and dividends came with the first refresh, once that day.
+	divs, err := s.Dividends(ctx, []string{"PETR4"})
+	if err != nil || len(divs["PETR4"]) != 2 || divs["PETR4"][1].RateMicro != 157_843 || divs["PETR4"][1].PaymentDate.Day() != 12 {
+		t.Errorf("dividends %+v %v", divs, err)
+	}
+	vs, err := s.Valuations(ctx, "PETR4", time.Time{})
+	if err != nil || len(vs) != 1 {
+		t.Fatalf("valuations %+v %v", vs, err)
+	}
+	// R$ 53,88 over R$ 1,345 of earnings (not the source's 40), and
+	// R$ 0,237843 of dividends in twelve months over R$ 53,88.
+	if v := vs[0]; v.PEMilli == nil || *v.PEMilli != 40_059 || v.PBMilli != nil || v.YieldBps != 44 {
+		t.Errorf("valuation %+v", v)
 	}
 
 	acc, last, err := s.Accumulated(ctx, CDI, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))

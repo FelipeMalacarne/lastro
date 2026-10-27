@@ -21,6 +21,22 @@ func (q *Queries) CountQuotes(ctx context.Context, symbol string) (int32, error)
 	return column_1, err
 }
 
+const hasFundamentals = `-- name: HasFundamentals :one
+SELECT EXISTS (SELECT 1 FROM market.fundamentals WHERE symbol = $1 AND date = $2::date)::boolean
+`
+
+type HasFundamentalsParams struct {
+	Symbol string
+	Day    time.Time
+}
+
+func (q *Queries) HasFundamentals(ctx context.Context, arg HasFundamentalsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasFundamentals, arg.Symbol, arg.Day)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const insertBond = `-- name: InsertBond :exec
 INSERT INTO market.bonds (name, maturity, date, buy_rate_bp, price_cents, fetched_at)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -163,6 +179,93 @@ func (q *Queries) LatestQuotes(ctx context.Context, symbols []string) ([]LatestQ
 	return items, nil
 }
 
+const listDividends = `-- name: ListDividends :many
+SELECT symbol, com_date, label, rate_micro, payment_date FROM market.dividends
+WHERE symbol = ANY($1::text[])
+ORDER BY symbol, com_date, label
+`
+
+type ListDividendsRow struct {
+	Symbol      string
+	ComDate     time.Time
+	Label       string
+	RateMicro   int64
+	PaymentDate *time.Time
+}
+
+func (q *Queries) ListDividends(ctx context.Context, symbols []string) ([]ListDividendsRow, error) {
+	rows, err := q.db.Query(ctx, listDividends, symbols)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDividendsRow
+	for rows.Next() {
+		var i ListDividendsRow
+		if err := rows.Scan(
+			&i.Symbol,
+			&i.ComDate,
+			&i.Label,
+			&i.RateMicro,
+			&i.PaymentDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFundamentals = `-- name: ListFundamentals :many
+SELECT symbol, date, eps_micro, book_micro, pe_milli, pb_milli FROM market.fundamentals
+WHERE symbol = $1 AND date >= $2::date
+ORDER BY date
+`
+
+type ListFundamentalsParams struct {
+	Symbol   string
+	DateFrom time.Time
+}
+
+type ListFundamentalsRow struct {
+	Symbol    string
+	Date      time.Time
+	EpsMicro  *int64
+	BookMicro *int64
+	PeMilli   *int64
+	PbMilli   *int64
+}
+
+func (q *Queries) ListFundamentals(ctx context.Context, arg ListFundamentalsParams) ([]ListFundamentalsRow, error) {
+	rows, err := q.db.Query(ctx, listFundamentals, arg.Symbol, arg.DateFrom)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFundamentalsRow
+	for rows.Next() {
+		var i ListFundamentalsRow
+		if err := rows.Scan(
+			&i.Symbol,
+			&i.Date,
+			&i.EpsMicro,
+			&i.BookMicro,
+			&i.PeMilli,
+			&i.PbMilli,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQuotes = `-- name: ListQuotes :many
 SELECT symbol, date, close_cents, source FROM market.quotes
 WHERE symbol = $1 AND date >= $2::date
@@ -242,6 +345,69 @@ func (q *Queries) ListRates(ctx context.Context, arg ListRatesParams) ([]ListRat
 		return nil, err
 	}
 	return items, nil
+}
+
+const saveDividend = `-- name: SaveDividend :exec
+INSERT INTO market.dividends (symbol, com_date, label, rate_micro, payment_date, source, fetched_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (symbol, com_date, label, rate_micro) DO UPDATE
+SET payment_date = excluded.payment_date, fetched_at = excluded.fetched_at
+`
+
+type SaveDividendParams struct {
+	Symbol      string
+	ComDate     time.Time
+	Label       string
+	RateMicro   int64
+	PaymentDate *time.Time
+	Source      string
+	FetchedAt   time.Time
+}
+
+func (q *Queries) SaveDividend(ctx context.Context, arg SaveDividendParams) error {
+	_, err := q.db.Exec(ctx, saveDividend,
+		arg.Symbol,
+		arg.ComDate,
+		arg.Label,
+		arg.RateMicro,
+		arg.PaymentDate,
+		arg.Source,
+		arg.FetchedAt,
+	)
+	return err
+}
+
+const saveFundamentals = `-- name: SaveFundamentals :exec
+INSERT INTO market.fundamentals (symbol, date, eps_micro, book_micro, pe_milli, pb_milli, source, fetched_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (symbol, date) DO UPDATE
+SET eps_micro = excluded.eps_micro, book_micro = excluded.book_micro, pe_milli = excluded.pe_milli,
+    pb_milli = excluded.pb_milli, fetched_at = excluded.fetched_at
+`
+
+type SaveFundamentalsParams struct {
+	Symbol    string
+	Date      time.Time
+	EpsMicro  *int64
+	BookMicro *int64
+	PeMilli   *int64
+	PbMilli   *int64
+	Source    string
+	FetchedAt time.Time
+}
+
+func (q *Queries) SaveFundamentals(ctx context.Context, arg SaveFundamentalsParams) error {
+	_, err := q.db.Exec(ctx, saveFundamentals,
+		arg.Symbol,
+		arg.Date,
+		arg.EpsMicro,
+		arg.BookMicro,
+		arg.PeMilli,
+		arg.PbMilli,
+		arg.Source,
+		arg.FetchedAt,
+	)
+	return err
 }
 
 const saveQuote = `-- name: SaveQuote :exec

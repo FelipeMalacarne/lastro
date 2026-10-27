@@ -134,3 +134,67 @@ func TestPortfolio(t *testing.T) {
 		t.Errorf("targets at 50%%: %v", err)
 	}
 }
+
+func TestDividendsAndPriceDrops(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	l := ledger.New(ledger.NewRepository(pool), nil)
+	m := market.New(market.NewRepository(pool), nil, nil, nil, nil)
+	s := New(NewRepository(pool), l, m)
+	date := func(s string) time.Time { d, _ := time.Parse(time.DateOnly, s); return d }
+	at := func(day string) { s.now = func() time.Time { return date(day).Add(15 * time.Hour) } }
+	wege := func(qty string, asOf time.Time) []Report {
+		tk, _ := NewTicker("WEGE3")
+		q, _ := ParseQuantity(qty)
+		return []Report{{ExternalID: "wege", Item: "it", Institution: "Nubank", Kind: KindStock, Ticker: tk, Name: "WEG", Quantity: q, Value: money.BRLCents(400000), AsOf: asOf, Active: true}}
+	}
+	for _, x := range []struct{ day, qty string }{{"2026-03-01", "100"}, {"2026-06-01", "150"}} {
+		at(x.day)
+		if _, err := s.SyncPositions(ctx, "it", wege(x.qty, date(x.day))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Valuate(ctx, s.Today()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at("2026-10-27")
+	err := m.Record(ctx,
+		[]market.Quote{
+			{Symbol: "WEGE3", Date: date("2026-10-26"), Close: money.BRLCents(4070), Source: "test"},
+			{Symbol: "WEGE3", Date: date("2026-10-27"), Close: money.BRLCents(3822), Source: "test"},
+		},
+		[]market.Dividend{
+			{Symbol: "WEGE3", ComDate: date("2026-02-10"), Label: "JCP", RateMicro: 100_000, PaymentDate: date("2026-03-01")}, // before lastro knew
+			{Symbol: "WEGE3", ComDate: date("2026-04-10"), Label: "JCP", RateMicro: 100_000, PaymentDate: date("2026-05-01")}, // 100 shares
+			{Symbol: "WEGE3", ComDate: date("2026-09-30"), Label: "JCP", RateMicro: 157_843, PaymentDate: date("2026-12-12")}, // 150, not paid yet
+			{Symbol: "WEGE3", ComDate: date("2026-11-20"), Label: "DIVIDENDO", RateMicro: 50_000},                              // not earned yet
+		}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := s.Dividends(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Since == nil || *v.Since != "2026-03-01" || v.YearCents != 1000 || len(v.Upcoming) != 1 || v.Upcoming[0].Cents != 2368 {
+		t.Errorf("R$ 0,10 × 100 paid, R$ 0,157843 × 150 to come: %+v", v)
+	}
+	if len(v.Tickers) != 1 || v.Tickers[0].TrailingMicro != 357_843 || v.Tickers[0].YieldBps != 94 {
+		t.Errorf("trailing and yield: %+v", v.Tickers)
+	}
+
+	if drops, err := s.PriceDrops(ctx); err != nil || len(drops) != 0 {
+		t.Fatalf("no alert, no drop: %+v %v", drops, err)
+	}
+	if err := s.SetPriceAlert(ctx, "WEGE3", 500); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPriceAlert(ctx, "WEGE3", 10); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a threshold under 0,5%%: %v", err)
+	}
+	drops, err := s.PriceDrops(ctx)
+	if err != nil || len(drops) != 1 || drops[0].ChangeBps != -609 || drops[0].CloseCents != 3822 {
+		t.Errorf("a 6,1%% fall over a 5%% alert: %+v %v", drops, err)
+	}
+}

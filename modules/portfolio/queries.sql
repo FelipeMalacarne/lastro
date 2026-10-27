@@ -68,3 +68,22 @@ ON CONFLICT (id) DO UPDATE SET planned_on = excluded.planned_on, what = excluded
 -- name: GetPurchase :one
 SELECT id, planned_on, what, class, amount_cents, condition, status, note, created_at, decided_at
 FROM portfolio.purchases WHERE id = $1;
+
+-- name: DeleteHoldings :exec
+DELETE FROM portfolio.holdings WHERE date = $1;
+
+-- name: SaveHolding :exec
+INSERT INTO portfolio.holdings (date, ticker, quantity_micro) VALUES ($1, $2, $3);
+
+-- name: ListHoldings :many
+SELECT date, ticker, quantity_micro FROM portfolio.holdings ORDER BY ticker, date;
+
+-- name: ListPriceAlerts :many
+SELECT ticker, drop_bps FROM portfolio.price_alerts ORDER BY ticker;
+
+-- name: SavePriceAlert :exec
+INSERT INTO portfolio.price_alerts (ticker, drop_bps, updated_at) VALUES ($1, $2, $3)
+ON CONFLICT (ticker) DO UPDATE SET drop_bps = excluded.drop_bps, updated_at = excluded.updated_at;
+
+-- name: DeletePriceAlert :exec
+DELETE FROM portfolio.price_alerts WHERE ticker = $1;

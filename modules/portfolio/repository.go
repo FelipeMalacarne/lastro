@@ -129,11 +129,19 @@ func (r *PostgresRepository) saveTargets(ctx context.Context, t Targets, now tim
 }
 
 // saveValuation replaces a day's valuation and its net worth.
-func (r *PostgresRepository) saveValuation(ctx context.Context, v Valuation, nw NetWorth, now time.Time) error {
+func (r *PostgresRepository) saveValuation(ctx context.Context, v Valuation, nw NetWorth, held []Held, now time.Time) error {
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
 		if err := q.DeleteValuations(ctx, v.Date); err != nil {
 			return err
+		}
+		if err := q.DeleteHoldings(ctx, v.Date); err != nil {
+			return err
+		}
+		for _, h := range held {
+			if err := q.SaveHolding(ctx, db.SaveHoldingParams{Date: v.Date, Ticker: h.Ticker, QuantityMicro: h.Quantity.Micro()}); err != nil {
+				return err
+			}
 		}
 		rows := map[string]Amounts{"emergency": v.Emergency}
 		for c, a := range v.Classes {
@@ -244,4 +252,36 @@ func (r *PostgresRepository) savePurchase(ctx context.Context, p Purchase) error
 		ID: p.ID, PlannedOn: p.PlannedOn, What: p.What, Class: string(p.Class), AmountCents: p.Amount.Cents(),
 		Condition: p.Condition, Status: string(p.Status), Note: p.Note, CreatedAt: p.CreatedAt, DecidedAt: p.DecidedAt,
 	})
+}
+
+func (r *PostgresRepository) held(ctx context.Context) ([]Held, error) {
+	rows, err := r.q.ListHoldings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Held, len(rows))
+	for i, row := range rows {
+		out[i] = Held{Date: row.Date, Ticker: row.Ticker, Quantity: QuantityFromMicro(row.QuantityMicro)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) priceAlerts(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.q.ListPriceAlerts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		out[row.Ticker] = int64(row.DropBps)
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) savePriceAlert(ctx context.Context, t Ticker, bps int64, now time.Time) error {
+	return r.q.SavePriceAlert(ctx, db.SavePriceAlertParams{Ticker: t.String(), DropBps: int32(bps), UpdatedAt: now})
+}
+
+func (r *PostgresRepository) deletePriceAlert(ctx context.Context, t Ticker) error {
+	return r.q.DeletePriceAlert(ctx, t.String())
 }

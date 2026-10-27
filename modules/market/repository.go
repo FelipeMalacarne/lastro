@@ -90,3 +90,46 @@ func (r *PostgresRepository) latestBonds(ctx context.Context) ([]Bond, error) {
 	}
 	return out, nil
 }
+
+func (r *PostgresRepository) saveDividend(ctx context.Context, d Dividend, source string, now time.Time) error {
+	var pay *time.Time
+	if !d.PaymentDate.IsZero() {
+		pay = &d.PaymentDate
+	}
+	return r.q.SaveDividend(ctx, db.SaveDividendParams{Symbol: d.Symbol, ComDate: d.ComDate, Label: d.Label, RateMicro: d.RateMicro, PaymentDate: pay, Source: source, FetchedAt: now})
+}
+
+func (r *PostgresRepository) dividends(ctx context.Context, symbols []string) ([]Dividend, error) {
+	rows, err := r.q.ListDividends(ctx, symbols)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Dividend, len(rows))
+	for i, row := range rows {
+		out[i] = Dividend{Symbol: row.Symbol, ComDate: row.ComDate, Label: row.Label, RateMicro: row.RateMicro}
+		if row.PaymentDate != nil {
+			out[i].PaymentDate = *row.PaymentDate
+		}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) saveFundamental(ctx context.Context, f Fundamental, source string, now time.Time) error {
+	return r.q.SaveFundamentals(ctx, db.SaveFundamentalsParams{Symbol: f.Symbol, Date: f.Date, EpsMicro: f.EPSMicro, BookMicro: f.BookMicro, PeMilli: f.PEMilli, PbMilli: f.PBMilli, Source: source, FetchedAt: now})
+}
+
+func (r *PostgresRepository) hasFundamental(ctx context.Context, symbol string, day time.Time) (bool, error) {
+	return r.q.HasFundamentals(ctx, db.HasFundamentalsParams{Symbol: symbol, Day: day})
+}
+
+func (r *PostgresRepository) fundamentals(ctx context.Context, symbol string, from time.Time) ([]Fundamental, error) {
+	rows, err := r.q.ListFundamentals(ctx, db.ListFundamentalsParams{Symbol: symbol, DateFrom: from})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Fundamental, len(rows))
+	for i, row := range rows {
+		out[i] = Fundamental{Symbol: row.Symbol, Date: row.Date, EPSMicro: row.EpsMicro, BookMicro: row.BookMicro, PEMilli: row.PeMilli, PBMilli: row.PbMilli}
+	}
+	return out, nil
+}

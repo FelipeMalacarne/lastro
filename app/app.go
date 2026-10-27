@@ -123,7 +123,7 @@ func (a *App) RefreshMarket(ctx context.Context, extra ...string) (market.Report
 // SendAlerts pushes the alerts no channel has seen yet, in one message, and
 // remembers them. Without a channel it sends nothing and says how many wait.
 func (a *App) SendAlerts(ctx context.Context) (int, error) {
-	all, err := a.Budget.Alerts(ctx)
+	all, err := a.Alerts(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -172,6 +172,7 @@ func (a *App) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
 	api.HandleFunc("GET /api/v1/settings", a.handleSettings)
+	api.HandleFunc("GET /api/v1/alerts", a.handleAlerts)
 	a.Ledger.RegisterRoutes(api, a.Logger)
 	a.Ingest.RegisterRoutes(api, a.Logger)
 	a.Categorize.RegisterRoutes(api, a.Logger)

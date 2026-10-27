@@ -32,16 +32,6 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		httpx.JSON(w, http.StatusOK, v)
 	})
 
-	// GET /api/v1/alerts: what is worth telling this month.
-	mux.HandleFunc("GET /api/v1/alerts", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.Alerts(r.Context())
-		if err != nil {
-			httpx.WriteError(w, r, logger, err)
-			return
-		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"alerts": v})
-	})
-
 	// GET /api/v1/recurring: the fixed costs panel.
 	mux.HandleFunc("GET /api/v1/recurring", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Recurring(r.Context())

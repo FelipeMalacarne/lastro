@@ -6,12 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"time"
 
 	"lastro/app"
 	"lastro/modules/budget"
 	"lastro/modules/categorize"
 	"lastro/modules/ledger"
+	"lastro/modules/market"
 	"lastro/modules/portfolio"
 	"lastro/money"
 	"lastro/platform/config"
@@ -191,6 +193,15 @@ func seedPortfolio(ctx context.Context, a *app.App, start, now time.Time) error 
 	}
 
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	prices := map[string]float64{}
+	for _, h := range hs {
+		if h.ticker != "" {
+			prices[h.ticker] = h.price
+		}
+	}
+	if err := seedMarket(ctx, a, today, prices); err != nil {
+		return err
+	}
 	wege, itub := today.AddDate(0, 0, 2), today.AddDate(0, 0, 9)
 	if err := a.Portfolio.SaveThesis(ctx, "WEGE3", "Compounds at high returns on capital as electrification spreads, at home and abroad.", "Return on capital below 20% for two years, or a large acquisition paid in debt.", &wege); err != nil {
 		return err
@@ -461,4 +472,78 @@ func (s *seeder) installments(description string, totalCents int64, n int, first
 		d := time.Date(first.Year(), first.Month(), 14, 0, 0, 0, 0, time.UTC).AddDate(0, k-1, 0)
 		s.add(s.card, d, description, -each, ledger.KindExpense, inst)
 	}
+}
+
+// seedMarket makes up a year of closes ending at each ticker's price (WEGE3
+// falls 6% on the last day, so its price alert fires), dividends as each
+// company pays them, and a monthly copy of earnings and book value per
+// share. Brapi needs a token for these tickers; the dev data should not.
+func seedMarket(ctx context.Context, a *app.App, today time.Time, prices map[string]float64) error {
+	r := rand.New(rand.NewPCG(11, 2026))
+	var quotes []market.Quote
+	tickers := make([]string, 0, len(prices))
+	for t := range prices {
+		tickers = append(tickers, t)
+	}
+	slices.Sort(tickers)
+	for _, ticker := range tickers {
+		end := prices[ticker]
+		var days []time.Time
+		for d := today.AddDate(-1, 0, -10); !d.After(today); d = d.AddDate(0, 0, 1) {
+			if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+				days = append(days, d)
+			}
+		}
+		closes := make([]float64, len(days))
+		p := end
+		if ticker == "WEGE3" {
+			p = end / 0.939 // the day before the fall
+		}
+		for i := len(days) - 1; i >= 0; i-- {
+			closes[i] = p
+			if i == len(days)-1 && ticker == "WEGE3" {
+				closes[i] = end
+				continue
+			}
+			p /= 1 + (r.Float64()*2-1)*0.018 + 0.0003
+		}
+		for i, d := range days {
+			quotes = append(quotes, market.Quote{Symbol: ticker, Date: d, Close: money.BRLCents(int64(closes[i]*100 + 0.5)), Source: "seed"})
+		}
+	}
+	var divs []market.Dividend
+	var funds []market.Fundamental
+	month := func(n int) time.Time { return time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, n, 0) }
+	for n := -15; n <= 1; n++ {
+		m := month(n)
+		divs = append(divs, market.Dividend{Symbol: "ITUB4", Label: "JCP", ComDate: m.AddDate(0, 0, -1), PaymentDate: m.AddDate(0, 1, 0), RateMicro: 17_600})
+		if n%6 == 0 {
+			divs = append(divs, market.Dividend{Symbol: "ITUB4", Label: "DIVIDENDO", ComDate: m.AddDate(0, 0, 14), PaymentDate: m.AddDate(0, 2, 0), RateMicro: 1_250_000})
+		}
+		if n%3 == 0 {
+			divs = append(divs, market.Dividend{Symbol: "WEGE3", Label: "JCP", ComDate: m.AddDate(0, 0, 20), PaymentDate: m.AddDate(0, 2, 10), RateMicro: 157_843})
+		}
+	}
+	for n := -12; n <= 0; n++ {
+		d := month(n).AddDate(0, 0, 14)
+		if n == 0 {
+			d = today
+		}
+		if d.After(today) {
+			continue
+		}
+		g := float64(n+12) / 12
+		funds = append(funds,
+			market.Fundamental{Symbol: "WEGE3", Date: d, EPSMicro: ptrTo(int64(1_150_000 + 195_000*g)), BookMicro: ptrTo(int64(4_400_000 + 435_000*g))},
+			market.Fundamental{Symbol: "ITUB4", Date: d, EPSMicro: ptrTo(int64(3_700_000 + 420_000*g)), BookMicro: ptrTo(int64(17_200_000 + 1_300_000*g))},
+		)
+	}
+	if err := a.Market.Record(ctx, quotes, divs, funds); err != nil {
+		return err
+	}
+	if err := a.Portfolio.SetPriceAlert(ctx, "WEGE3", 500); err != nil {
+		return err
+	}
+	_, err := a.Portfolio.Valuate(ctx, today)
+	return err
 }

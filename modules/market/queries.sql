@@ -43,3 +43,29 @@ ON CONFLICT (name, maturity, date) DO NOTHING;
 SELECT name, maturity, date, buy_rate_bp, price_cents FROM market.bonds
 WHERE date = (SELECT max(date) FROM market.bonds)
 ORDER BY name, maturity;
+
+-- name: SaveDividend :exec
+INSERT INTO market.dividends (symbol, com_date, label, rate_micro, payment_date, source, fetched_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (symbol, com_date, label, rate_micro) DO UPDATE
+SET payment_date = excluded.payment_date, fetched_at = excluded.fetched_at;
+
+-- name: ListDividends :many
+SELECT symbol, com_date, label, rate_micro, payment_date FROM market.dividends
+WHERE symbol = ANY(sqlc.arg(symbols)::text[])
+ORDER BY symbol, com_date, label;
+
+-- name: SaveFundamentals :exec
+INSERT INTO market.fundamentals (symbol, date, eps_micro, book_micro, pe_milli, pb_milli, source, fetched_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (symbol, date) DO UPDATE
+SET eps_micro = excluded.eps_micro, book_micro = excluded.book_micro, pe_milli = excluded.pe_milli,
+    pb_milli = excluded.pb_milli, fetched_at = excluded.fetched_at;
+
+-- name: HasFundamentals :one
+SELECT EXISTS (SELECT 1 FROM market.fundamentals WHERE symbol = $1 AND date = sqlc.arg(day)::date)::boolean;
+
+-- name: ListFundamentals :many
+SELECT symbol, date, eps_micro, book_micro, pe_milli, pb_milli FROM market.fundamentals
+WHERE symbol = $1 AND date >= sqlc.arg(date_from)::date
+ORDER BY date;

@@ -6,6 +6,7 @@ import { Badge } from "@/components/Badge";
 import { CategoryTag } from "@/components/CategoryTag";
 import { GrowthChart } from "@/components/charts/GrowthChart";
 import { PriceChart } from "@/components/charts/PriceChart";
+import { Dividends, PriceAlert, Valuation, ValuationLine } from "@/components/PortfolioIncome";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
 import { TextField } from "@/components/TextField";
@@ -88,6 +89,7 @@ export function Portfolio() {
         <Growth v={v} />
         <Returns v={v} />
       </div>
+      <Dividends />
       <Positions v={v} />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-6">
         <Picks v={v} />
@@ -128,7 +130,7 @@ function Hero({ v }: { v: PortfolioOverview }) {
                 <Amount cents={v.returns12mCents ?? 0} sign="always" />
               </Mini>
               <Mini label="Return">
-                <span className={cn("type-figure", (v.return12mBp ?? 0) >= 0 ? "text-inflow" : "text-danger")}>
+                <span className={cn("type-figure", (v.return12mBp ?? 0) >= 0 ? "text-inflow" : "text-ink")}>
                   {v.return12mBp !== null ? formatPercent(v.return12mBp, { sign: "always" }) : "—"}
                 </span>
                 {v.benchmarks.cdiBp !== null && <span className="type-caption text-ink-muted">CDI {formatPercent(v.benchmarks.cdiBp)}</span>}
@@ -365,13 +367,13 @@ function Returns({ v }: { v: PortfolioOverview }) {
               <span role="cell">
                 <CategoryTag name={k.name} color={k.color} />
               </span>
-              <span role="cell" className={cn("text-right type-figure", r < 0 && "text-danger")}>
+              <span role="cell" className={cn("text-right type-figure", r < 0 && "text-ink")}>
                 {formatPercent(r, { sign: "always" })}
               </span>
               <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", cdiBp !== null && r >= cdiBp ? "text-inflow" : "text-ink-muted")}>
                 {cdiBp !== null ? pp(r - cdiBp) : "—"}
               </span>
-              <span role="cell" className={cn("text-right type-figure-sm", ipcaBp !== null && real(r, ipcaBp) < 0 ? "text-danger" : "text-ink-muted")}>
+              <span role="cell" className={cn("text-right type-figure-sm", ipcaBp !== null && real(r, ipcaBp) < 0 ? "text-ink" : "text-ink-muted")}>
                 {ipcaBp !== null ? formatPercent(real(r, ipcaBp), { sign: "always" }) : "—"}
               </span>
             </div>
@@ -495,10 +497,10 @@ function Positions({ v }: { v: PortfolioOverview }) {
                     <span role="cell" className="flex flex-col items-end">
                       <Amount cents={h.valueCents} sign="none" />
                       {h.returnBp !== null && (
-                        <span className={cn("type-figure-sm sm:hidden", h.returnBp < 0 ? "text-danger" : "text-ink-muted")}>{formatPercent(h.returnBp, { sign: "always" })}</span>
+                        <span className="type-figure-sm text-ink-muted sm:hidden">{formatPercent(h.returnBp, { sign: "always" })}</span>
                       )}
                     </span>
-                    <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", h.returnBp !== null && h.returnBp < 0 ? "text-danger" : "text-ink-muted")}>
+                    <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", h.returnBp !== null && h.returnBp < 0 ? "text-ink" : "text-ink-muted")}>
                       {h.returnBp !== null ? formatPercent(h.returnBp, { sign: "always" }) : "—"}
                     </span>
                   </button>
@@ -568,6 +570,8 @@ function PositionEditor({ h, onDone }: { h: Holding; onDone: () => void }) {
       </div>
       {error && <p className="m-0 type-caption text-danger">Could not save: {error}.</p>}
       <span className="type-caption text-ink-muted">The emergency fund is shown apart and never gets a share of a contribution.</span>
+      {h.ticker && (h.kind === "stock" || h.kind === "bdr" || h.kind === "fii") && <Valuation ticker={h.ticker} />}
+      {h.ticker && <PriceAlert ticker={h.ticker} />}
       {h.ticker && <Prices ticker={h.ticker} />}
     </div>
   );
@@ -645,6 +649,7 @@ function ThesisCard({ t, name, onEdit }: { t: Thesis; name?: string; onEdit: () 
         )}
         <span className="ml-auto">{t.held ? <Amount cents={t.valueCents} sign="none" size="sm" /> : <Badge>Not held</Badge>}</span>
       </div>
+      {t.held && <ValuationLine ticker={t.ticker} />}
       <dl className="m-0 grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[14px] leading-5">
         <dt className="type-label text-ink-muted">Thesis</dt>
         <dd className="m-0">{t.thesis}</dd>
@@ -758,14 +763,14 @@ function Scoreboard() {
                       <span
                         className="absolute inset-y-0.5 rounded-xs"
                         style={{
-                          background: bp < 0 ? "var(--danger)" : b.color,
+                          background: b.color,
                           left: bp >= 0 ? "50%" : `${50 - (Math.abs(bp) / max) * 50}%`,
                           width: `${(Math.abs(bp) / max) * 50}%`,
                         }}
                       />
                     )}
                   </span>
-                  <span className={cn("text-right type-figure-sm", bp !== null && bp < 0 ? "text-danger" : "text-ink")}>
+                  <span className="text-right type-figure-sm text-ink">
                     {bp === null ? "—" : formatPercent(bp, { sign: "always" })}
                   </span>
                 </div>
