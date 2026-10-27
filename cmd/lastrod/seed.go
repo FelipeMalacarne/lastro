@@ -108,7 +108,9 @@ func seedPortfolio(ctx context.Context, a *app.App, start, now time.Time) error 
 		}
 		h.basis = h.value
 	}
-	reserve := &holding{id: "seed-reserva", item: "seed-nubank", inst: "Nubank", name: "Caixinha Reserva", kind: portfolio.KindFixedIncome, class: portfolio.ClassCDI, idx: portfolio.IndexerCDI, rate: 10000, value: 1500000, basis: 1500000}
+	// Another lot of the same CDB, as each Caixinha contribution is: one
+	// group, with R$ 15.000 of it set apart as the emergency fund.
+	reserve := &holding{id: "seed-reserva", item: "seed-nubank", inst: "Nubank", name: "CDB Nubank 100% CDI", kind: portfolio.KindFixedIncome, class: portfolio.ClassCDI, idx: portfolio.IndexerCDI, rate: 10000, value: 1500000, basis: 1500000}
 	monthly := map[portfolio.Class][2]float64{ // mean and spread of a month's return
 		portfolio.ClassCDI: {0.0095, 0}, portfolio.ClassIPCA: {0.009, 0.006}, portfolio.ClassGlobal: {0.013, 0.035}, portfolio.ClassBR: {0.008, 0.05},
 	}
@@ -184,7 +186,11 @@ func seedPortfolio(ctx context.Context, a *app.App, start, now time.Time) error 
 				return err
 			}
 		}
-		if err := a.Portfolio.UpdatePosition(ctx, reserve.id, nil, ptrTo(true)); err != nil {
+		fund, err := portfolio.AmountReserve(money.BRLCents(1500000))
+		if err != nil {
+			return err
+		}
+		if err := a.Portfolio.UpdateGroup(ctx, portfolio.GroupID(report(reserve, day)), nil, &fund); err != nil {
 			return err
 		}
 		if _, err := a.Portfolio.Valuate(ctx, day); err != nil {

@@ -11,7 +11,7 @@ import (
 )
 
 // runMarket refreshes CDI, IPCA, Tesouro Direto and the quotes of the
-// tickers held, plus any named on the command line. lastro sync does the
+// tickers held, plus any named on the command line. lastrod sync does the
 // same after every sync.
 func runMarket(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("market", flag.ContinueOnError)

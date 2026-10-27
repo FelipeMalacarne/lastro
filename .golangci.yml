@@ -37,3 +37,22 @@ linters:
             - "**/money/*.go"
           allow:
             - $gostd
+        # The lastro CLI is a client: everything goes through the HTTP API (ADR-0010).
+        # It knows no module, no database and nothing the server is configured with.
+        client:
+          list-mode: lax
+          files:
+            - "**/cmd/lastro/**"
+            # Tests may reach the server: they check the client against it.
+            - "!$test"
+          deny:
+            - pkg: "lastro/app"
+              desc: "the client talks to the server through the API, never in process"
+            - pkg: "lastro/modules"
+              desc: "the client knows no module: give it its own wire types"
+            - pkg: "lastro/platform"
+              desc: "platform is the server's infrastructure"
+            - pkg: "lastro/web"
+              desc: "the frontend is embedded in lastrod, not in the client"
+            - pkg: "github.com/jackc/pgx"
+              desc: "the client never talks to the database"

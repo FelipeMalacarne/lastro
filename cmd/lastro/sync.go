@@ -5,86 +5,58 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"strings"
+	"time"
 
-	"lastro/app"
-	"lastro/modules/ingest"
-	"lastro/platform/config"
+	"lastro/cmd/lastro/internal/client"
 )
 
+// runSync starts a sync on the server and follows it until it ends. If one
+// is already running, it follows that one.
 func runSync(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
-	full := fs.Bool("full", false, "read every item's whole history instead of the last 90 days")
-	reprocess := fs.Bool("reprocess", false, "rebuild the ledger from the stored raw records, without calling Pluggy")
+	detach := fs.Bool("detach", false, "start the sync and return without waiting")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	cfg, err := config.Load()
+	c, err := connected(ctx)
 	if err != nil {
 		return err
 	}
-	// A reprocess needs no Pluggy credentials, but without item ids it would
-	// quietly do nothing.
-	if *reprocess && len(cfg.Pluggy.ItemIDs) == 0 {
-		return errors.New("config: set LASTRO_PLUGGY_ITEM_IDS (the items to reprocess)")
+	st, err := c.StartSync(ctx)
+	switch {
+	case errors.Is(err, client.ErrSyncRunning):
+		fmt.Println("A sync is already running on the server; following it.")
+	case err != nil:
+		return fmt.Errorf("sync: %w", err)
+	default:
+		fmt.Println("Sync started on the server.")
 	}
-	if !*reprocess {
-		if err := cfg.Pluggy.Validate(); err != nil {
-			return err
-		}
+	if *detach {
+		return nil
 	}
-	a, err := app.New(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer a.Close()
+	return follow(ctx, c, st, 2*time.Second)
+}
 
-	rep, err := a.Ingest.Sync(ctx, ingest.SyncOptions{Full: *full, Reprocess: *reprocess})
-	for _, it := range rep.Items {
-		name := it.Institution
-		if name == "" {
-			name = it.ItemID
+func follow(ctx context.Context, c *client.Client, st client.SyncStatus, every time.Duration) error {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
 		}
-		if it.Err != nil {
-			fmt.Printf("%s: failed: %v\n", name, it.Err)
+		var err error
+		if st, err = c.SyncStatus(ctx); err != nil {
+			return fmt.Errorf("sync: %w", err)
+		}
+		if st.Running {
 			continue
 		}
-		fmt.Printf("%s: %d accounts; %d new, %d updated, %d removed, %d unchanged transactions; %d investments stored",
-			name, it.Accounts, it.Created, it.Updated, it.Removed, it.Unchanged, it.Investments)
-		if it.Skipped > 0 {
-			fmt.Printf("; %d skipped (see the log)", it.Skipped)
+		if !st.OK {
+			return fmt.Errorf("sync failed: %s", st.Message)
 		}
-		fmt.Println()
+		fmt.Println(st.Message)
+		return nil
 	}
-	if rep.Paired > 0 {
-		fmt.Printf("Paired %d transfers and card bill payments between my accounts\n", rep.Paired)
-	}
-	if err != nil {
-		return err
-	}
-	// Prices and indices after the positions, then the day's valuation. A
-	// market failure is reported; the sync itself already succeeded.
-	mrep, merr := a.RefreshMarket(ctx)
-	fmt.Printf("Market: %d index values, %d quotes, %d Tesouro Direto titles", mrep.Rates, mrep.Quotes, mrep.Bonds)
-	if len(mrep.Failed) > 0 {
-		fmt.Printf("; failed: %s", strings.Join(mrep.Failed, ", "))
-	}
-	fmt.Println()
-	if merr != nil {
-		a.Logger.WarnContext(ctx, "market refresh failed", "err", merr)
-	}
-	// New alerts go out once, if a channel is set (ADR-0007).
-	if n, err := a.SendAlerts(ctx); err != nil {
-		a.Logger.WarnContext(ctx, "alerts not sent", "err", err)
-	} else if n > 0 {
-		fmt.Printf("Sent %d alerts\n", n)
-	}
-	// Last month's report, once, from the 2nd of a month on.
-	if sent, err := a.SendReport(ctx); err != nil {
-		a.Logger.WarnContext(ctx, "monthly report not sent", "err", err)
-	} else if sent {
-		fmt.Println("Sent last month's report")
-	}
-	return nil
 }

@@ -9,12 +9,12 @@
 - Pluggy client in `internal/pluggy/`. No other module sees Pluggy types.
 - Sync state per item (`ingest.items`): Pluggy's status for the connection, when Pluggy last refreshed it from the bank, when the Meu Pluggy authorization ends, and how lastro's own last read went.
 - `Connection` (`connection.go`): the health the screens show, in the `SyncStatus` states: `ok`, `syncing`, `stale` (the bank's data is more than 2 days old) and `reauth` (Meu Pluggy needs me to log in again, or the authorization ended).
-- Raw payloads (`ingest.raw_records`): every record as Pluggy sent it, rewritten only when it changes, and marked gone when Pluggy stops returning it. `lastro sync --reprocess` rebuilds the ledger from them without calling the API, matching each account from its first stored transaction on, so what the records no longer hold is removed whatever its date.
+- Raw payloads (`ingest.raw_records`): every record as Pluggy sent it, rewritten only when it changes, and marked gone when Pluggy stops returning it. `lastrod sync --reprocess` rebuilds the ledger from them without calling the API, matching each account from its first stored transaction on, so what the records no longer hold is removed whatever its date.
 - Which ledger account each Pluggy account became (`ingest.item_accounts`).
 
 ## Sync
 
-`lastro sync` (the CronJob, four times a day) reads each item in `LASTRO_PLUGGY_ITEM_IDS`: the item, its accounts, every transaction of each account dated in the window, and its investments, which go to `portfolio` as positions (`mapInvestment`: Pluggy's type, rate type, net balance, amount originally invested and due date; fully withdrawn ones close). After the sync, `market` refreshes the quotes of the tickers held and `portfolio` values the day. The window is everything on an item's first sync or with `--full`, and otherwise the last 90 days, stretched to a week before the last good sync. One item failing does not stop the others; an advisory lock keeps two syncs from running at once.
+`lastrod sync` (the CronJob, four times a day) reads each item in `LASTRO_PLUGGY_ITEM_IDS`: the item, its accounts, every transaction of each account dated in the window, and its investments, which go to `portfolio` as positions (`mapInvestment`: Pluggy's type, rate type, net balance, amount originally invested and due date; fully withdrawn ones close). After the sync, `market` refreshes the quotes of the tickers held and `portfolio` values the day. The window is everything on an item's first sync or with `--full`, and otherwise the last 90 days, stretched to a week before the last good sync. One item failing does not stop the others; an advisory lock keeps two syncs from running at once.
 
 ## Mapping (`mapping.go`)
 
@@ -43,7 +43,7 @@ Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains
 
 ## Tests
 
-Fixtures in `testdata/pluggy/` hold Pluggy API responses. Today they are synthetic; `lastro fixtures` downloads the real ones, prints a report safe to share and writes an anonymized copy (names, documents, account numbers, ids and free-text words replaced, amounts scaled) to review before committing. Never commit the raw dump. What Pluggy sends and why ingest reads it the way it does is in `docs/pluggy.md`.
+Fixtures in `testdata/pluggy/` hold Pluggy API responses. Today they are synthetic; `lastrod fixtures` downloads the real ones, prints a report safe to share and writes an anonymized copy (names, documents, account numbers, ids and free-text words replaced, amounts scaled) to review before committing. Never commit the raw dump. What Pluggy sends and why ingest reads it the way it does is in `docs/pluggy.md`.
 
 ## Events
 

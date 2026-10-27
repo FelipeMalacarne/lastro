@@ -1,6 +1,6 @@
 # Pluggy fixtures
 
-Responses from the Pluggy API, in the layout `lastro fixtures` writes:
+Responses from the Pluggy API, in the layout `lastrod fixtures` writes:
 
 ```
 items/<item id>.json           GET /items/{id}
@@ -19,7 +19,7 @@ Two sets live in `testdata`:
 To replace them with real responses, anonymized:
 
 ```sh
-lastro fixtures --out tmp/pluggy     # downloads, prints the report, anonymizes into tmp/pluggy/anonymized
+lastrod fixtures --out tmp/pluggy     # downloads, prints the report, anonymizes into tmp/pluggy/anonymized
 ```
 
 Review `tmp/pluggy/anonymized` before copying it over `../meupluggy`: names, documents, account numbers, ids and free-text words are replaced and amounts are scaled, investment names, codes and prices are scrambled too; banking vocabulary and the bank code at the start of a transfer number are kept. `tmp/` is in `.gitignore`; the raw dump never leaves it.

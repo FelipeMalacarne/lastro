@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -41,7 +42,7 @@ type App struct {
 	// Version is the build's, for the Settings screen; the CLI sets it.
 	Version string
 
-	auth func(http.Handler) http.Handler
+	auth authWiring
 	sync syncState
 
 	// One field per module, wired in New in dependency order.
@@ -152,23 +153,62 @@ func NewLogger(cfg config.Config) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stdout, opts))
 }
 
-func newAuth(cfg config.Config, logger *slog.Logger) (func(http.Handler) http.Handler, error) {
+// authWiring is what Handler needs from authentication: the guards, and the
+// web login and the provider when they are configured.
+type authWiring struct {
+	require func(http.Handler) http.Handler
+	bearer  func(resource string) func(http.Handler) http.Handler
+	web     *auth.Web
+	oidc    *auth.Provider
+}
+
+func newAuth(cfg config.Config, logger *slog.Logger) (authWiring, error) {
 	if cfg.Auth.Disabled {
 		logger.Warn("authentication disabled: dev only")
-		return auth.Disabled(), nil
+		return authWiring{require: auth.Disabled(), bearer: func(string) func(http.Handler) http.Handler { return auth.Disabled() }}, nil
 	}
-	v, err := auth.NewVerifier(cfg.Auth.TeamDomain, cfg.Auth.Audience)
+	o := cfg.Auth.OIDC
+	if !o.Enabled() {
+		return authWiring{}, errors.New("auth: no sign-in provider: set LASTRO_OIDC_ISSUER")
+	}
+	p, err := auth.NewProvider(auth.OIDCConfig{Issuer: o.Issuer, Audience: o.Audience, OwnerSubject: o.OwnerSubject, WriteClients: o.Writers()})
 	if err != nil {
-		return nil, err
+		return authWiring{}, err
 	}
-	return v.Middleware(logger), nil
+	a := &auth.Authenticator{Logger: logger, OIDC: p, PublicURL: cfg.Auth.PublicURL}
+	if o.WebClientID != "" {
+		sealer, err := auth.NewSealer(cfg.Auth.SessionKey)
+		if err != nil {
+			return authWiring{}, err
+		}
+		if a.Web, err = auth.NewWeb(p, auth.WebConfig{PublicURL: cfg.Auth.PublicURL, ClientID: o.WebClientID, ClientSecret: o.WebClientSecret, Scopes: o.Scopes}, sealer, logger); err != nil {
+			return authWiring{}, err
+		}
+	}
+	return authWiring{require: a.Require, bearer: a.RequireBearer, web: a.Web, oidc: a.OIDC}, nil
+}
+
+// resourceMetadata describes lastro, or one of its resources, to OAuth
+// clients (RFC 9728). Only the root names the CLI's client.
+func (a *App) resourceMetadata(resource string) auth.ResourceMetadata {
+	m := auth.ResourceMetadata{
+		Resource:             a.Config.Auth.PublicURL + resource,
+		AuthorizationServers: []string{a.auth.oidc.Issuer()},
+		ScopesSupported:      a.Config.Auth.OIDC.Scopes,
+		ResourceName:         "lastro",
+	}
+	if resource == "" {
+		m.CLIClientID = a.Config.Auth.OIDC.CLIClientID
+	}
+	return m
 }
 
 // Close releases the app resources.
 func (a *App) Close() { a.DB.Close() }
 
 // Handler builds the HTTP routes. Probes stay outside authentication because
-// the kubelet calls them directly, without going through Cloudflare Access.
+// the kubelet calls them directly; so do the login and the metadata that tell
+// a client where to sign in.
 func (a *App) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
@@ -188,13 +228,30 @@ func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())
 	mux.Handle("GET /readyz", httpx.Readyz(a.DB.Ping))
-	mux.Handle("/api/", a.auth(api))
-	mux.Handle("/", a.auth(web.Handler()))
+	if w := a.auth.web; w != nil {
+		mux.HandleFunc("GET "+auth.LoginPath, w.Login)
+		mux.HandleFunc("GET "+auth.CallbackPath, w.Callback)
+		mux.HandleFunc("POST "+auth.LogoutPath, w.Logout)
+	}
+	if a.auth.oidc != nil {
+		mux.Handle("GET "+auth.MetadataPath, auth.ProtectedResource(a.resourceMetadata("")))
+		mux.Handle("GET "+auth.MetadataPath+"/mcp", auth.ProtectedResource(a.resourceMetadata("/mcp")))
+	}
+	// Without OIDC there is no metadata: behind auth like everything else, but a
+	// 404 and not the SPA's index.html, so `lastro connect` to a dev server sees
+	// that sign-in is off.
+	mux.Handle("/.well-known/", a.auth.require(http.NotFoundHandler()))
+	mux.Handle("/api/", a.auth.require(api))
+	mux.Handle("/mcp", a.auth.bearer("/mcp")(a.MCPHandler()))
+	mux.Handle("/", a.auth.require(web.Handler()))
 
 	return httpx.Recover(a.Logger, mux)
 }
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.IdentityFrom(r.Context())
-	httpx.JSON(w, http.StatusOK, map[string]string{"email": id.Email, "version": a.Version, "env": a.Config.Env})
+	httpx.JSON(w, http.StatusOK, map[string]string{
+		"email": id.Email, "subject": id.Subject, "client": id.ClientID, "permission": id.Permission.String(),
+		"version": a.Version, "env": a.Config.Env,
+	})
 }

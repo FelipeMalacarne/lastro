@@ -18,13 +18,13 @@ tasks:
   migrate:
     desc: Apply migrations to the database in .env
     cmds:
-      - go run ./cmd/lastro migrate
+      - go run ./cmd/lastrod migrate
 
   dev:
     desc: Start the API on :8080 (run `task web:dev` in another terminal)
     deps: [db]
     cmds:
-      - go run ./cmd/lastro serve
+      - go run ./cmd/lastrod serve
 
   app:
     desc: Run the whole app in Docker (Postgres, migrations, API with the embedded frontend) on :8080
@@ -70,9 +70,10 @@ tasks:
       - go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 
   build:
-    desc: Local binary at bin/lastro
+    desc: Local binaries at bin/lastrod (server) and bin/lastro (client)
     deps: [web:build]
     cmds:
+      - CGO_ENABLED=0 go build -o bin/lastrod ./cmd/lastrod
       - CGO_ENABLED=0 go build -o bin/lastro ./cmd/lastro
 
   image:

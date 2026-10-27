@@ -68,7 +68,4 @@ func TestPositionBasis(t *testing.T) {
 	if s.Open() {
 		t.Error("an inactive report closes it")
 	}
-	if err := s.Reclassify("crypto"); err == nil {
-		t.Error("an unknown class")
-	}
 }

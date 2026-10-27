@@ -103,11 +103,34 @@ What `FEATURES.md` still lists, in the order that pays most. Each screen change 
 
 After M6, a design audit against the canvas added what the boards drew and the screens lacked: "Sync now" in the sidebar, Dashboard and Settings; marking a transaction as a transfer to an account lastro does not see (in To review and on the transaction); writing a rule by hand and filtering rules by where they came from; copying last month's limits, editing every limit at once and the phone layout on the Budget; the default rollover for new limits in Settings; replacing the contribution plan already on payday; and the target line on the projection.
 
-After the audit, two fixes from real use:
+## From use
 
+What living with the app asked for. Each screen change starts on the canvas.
+
+- [x] Caixinha contributions grouped: lots of the same product are one row in Positions, classified together, and the emergency fund is an amount set apart from a group (canvas: "Positions: contributions grouped, the emergency fund as an amount")
 - [x] Pay yourself first counts what went to investments net of what came back, so redeeming an RDB to buy stocks puts nothing aside
-- [x] A transaction the bank never sent (a Pix Meu Pluggy missed) can be added by hand to a synced account; when the bank sends it later, lastro asks whether the two are the same instead of merging on its own
+- [x] A transaction the bank never sent (a Pix Meu Pluggy missed) can be added by hand to a synced account; when the bank sends it later, lastro asks whether the two are the same instead of merging on its own (canvas: "A transaction the bank never sent")
+
+## M7: my own identity (ADR-0008, ADR-0009, ADR-0010)
+
+lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clients that are not a browser: the CLI on my laptop, Claude through MCP and, later, a phone app. Boxes marked "gielinor" are done in that repository.
+
+- [x] Split the binaries (ADR-0010): `cmd/lastrod` with `serve`, `sync`, `market`, `migrate`, `fixtures` and `seed`; `cmd/lastro` as a client, kept out of `app`, the modules and `platform` by depguard; Dockerfile, Taskfile, `AGENTS.md` and the READMEs follow
+- [x] `platform/auth`: generic OIDC verifier (discovery on first use, JWKS, RS256 and ES256, issuer, audience, the owner by `sub`), `Identity` with the client and its permission, `read` for `GET` and `write` for the rest, writers listed in config
+- [x] `/.well-known/oauth-protected-resource` (and `/mcp`'s), naming the CLI's client, and `WWW-Authenticate` on `401`
+- [x] Web login through a BFF: `/auth/login`, `/auth/callback`, `/auth/logout`, with PKCE, `state` and `nonce`, the session in a sealed cookie (`LASTRO_SESSION_KEY`), and the web app sent to the login on a `401`
+- [x] `lastro connect <url>`: discovery from the protected resource metadata, the device flow, tokens in `~/.config/lastro` (0600) with refresh, plus `lastro disconnect` and `lastro whoami`
+- [x] Client commands: `lastro sync` (starts a sync on the server and follows it) and `lastro contribute`, which left `lastrod`, with the integration test that runs the client against `app.Handler()`
+- [x] `/mcp`, read-only (ADR-0009): monthly report, budget, transactions with filters, accounts without numbers, categories, portfolio and contribution plan, through the official Go SDK
+- [x] Spike, against the Zitadel on saradomin instead of one in the dev compose: the project ID in `aud` of JWT access tokens, the device flow with `lastro connect` and the web login, with the `lastro` project and its applications as in `docs/zitadel.md` (what it found is there too). ADR-0008 is accepted
+- [x] gielinor: Zitadel on saradomin (namespace, a database on `postgres-main` inside its backup, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off, recovery codes in Vaultwarden. How it is set up is in gielinor's `clusters/saradomin/apps/zitadel/README.md`
+- [ ] Sign out in Settings, and the screen for a signed-out or expired session (on the canvas first)
+- [x] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed (lastro does not start without a provider outside dev) and ADR-0004 superseded
+- [ ] The Claude connector in use from the phone, with the pre-registered `lastro-claude` (and whether Zitadel needs it on Basic or POST)
 
 ## Parked
 
-Natural-language questions turned into read-only SQL (F10): the "Ask" card was dropped from the Planning design; it comes back only with a better interaction than a chat box.
+- A phone app (Native client with PKCE in Zitadel, the API already accepts its tokens).
+- MCP write tools (recategorize, notes), each one asking for `write`.
+- Dynamic registration or CIMD for MCP clients, once Zitadel ships them and a second client needs it.
+- Natural-language questions turned into read-only SQL (F10): the "Ask" card was dropped from the Planning design; it comes back only with a better interaction than a chat box.

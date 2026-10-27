@@ -36,7 +36,7 @@ type SyncStatus struct {
 }
 
 // SyncNow reads every item from Pluggy, then the market, values the day and
-// sends what is due, as `lastro sync` does on its schedule. It runs in the
+// sends what is due, as `lastrod sync` does on its schedule. It runs in the
 // background and returns at once; ErrSyncRunning when one already runs.
 func (a *App) SyncNow() error {
 	if err := a.Config.Pluggy.Validate(); err != nil {

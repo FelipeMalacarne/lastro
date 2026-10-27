@@ -136,6 +136,16 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
+/**
+ * When the session is gone, the API answers 401 with where to sign in
+ * (ADR-0008). The page goes there and comes back to where it was.
+ */
+function signInIfAsked(r: Response, body: { login?: string }): boolean {
+  if (r.status !== 401 || !body.login || !body.login.startsWith("/")) return false;
+  window.location.assign(`${body.login}?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+  return true;
+}
+
 async function load(url: string) {
   inflight.get(url)?.abort();
   const ctrl = new AbortController();
@@ -146,6 +156,7 @@ async function load(url: string) {
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
     const body = await r.json().catch(() => ({}));
+    if (signInIfAsked(r, body)) return;
     if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
     cache.set(url, { data: body, loading: false, at: Date.now() });
   } catch (e) {
@@ -203,6 +214,7 @@ export async function send<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELE
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const out = await r.json().catch(() => ({}));
+  if (signInIfAsked(r, out)) throw new Error("Signing in again…");
   if (!r.ok) throw new Error(out.message || `HTTP ${r.status}`);
   refreshAll();
   return out as T;
@@ -347,7 +359,22 @@ export type NetWorthPoint = {
   totalCents: number;
 };
 
-export type Holding = {
+/** One lot of a group: a single purchase or contribution, as the bank reports it. */
+export type Lot = {
+  id: string;
+  quantity: string;
+  valueCents: number;
+  basisCents: number;
+  returnBp: number | null;
+  maturity: string | null;
+  asOf: string;
+  priced: boolean;
+};
+
+export type Reserve = "none" | "amount" | "all";
+
+/** A product held, in one or more lots (each Nubank Caixinha contribution is a CDB of its own). */
+export type PositionGroup = {
   id: string;
   name: string;
   institution: string;
@@ -355,16 +382,22 @@ export type Holding = {
   ticker: string | null;
   class: AssetClass;
   autoClass: AssetClass;
-  emergency: boolean;
-  quantity: string;
+  indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
+  rateBp: number;
+  /** How much of it is the emergency fund: none, reserveCents, or all of it. */
+  reserve: Reserve;
+  reserveCents: number;
+  /** What of it is the emergency fund today, and what it lacks to cover reserveCents. */
+  emergencyCents: number;
+  shortCents: number;
   valueCents: number;
   basisCents: number;
   returnBp: number | null;
-  indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
-  rateBp: number;
-  maturity: string | null;
+  firstMaturity: string | null;
+  lastMaturity: string | null;
   asOf: string;
   priced: boolean;
+  lots: Lot[];
 };
 
 export type Thesis = {
@@ -404,7 +437,7 @@ export type PortfolioOverview = {
   }[];
   growth: { date: string; valueCents: number; basisCents: number }[];
   benchmarks: { from: string | null; cdiBp: number | null; ipcaBp: number | null; cdiUntil: string | null; ipcaUntil: string | null };
-  holdings: Holding[];
+  groups: PositionGroup[];
   theses: Thesis[];
 };
 
