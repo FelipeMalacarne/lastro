@@ -13,11 +13,13 @@
 
 ## Refresh
 
-`Refresh(symbols)` reads only what is new: CDI and IPCA from the day after the last stored (two years back the first time), each symbol's closes (two years the first time, the last days after), and Tesouro Direto's latest day. A source that fails is logged and named in the report; it never stops the others. `lastro sync` refreshes after every sync with the tickers held, and `lastro market --symbols PETR4,IVVB11` does it by hand.
+`Refresh(symbols)` reads only what is new: CDI and IPCA from the day after the last stored (two years back the first time), each symbol's closes (two years the first time, the last days after), and Tesouro Direto's latest day. A source that fails is logged and named in the report; it never stops the others.
+
+Everything read is stored, so history grows with each refresh. brapi's free plan goes back three months at most (`range` always counts from today, so it cannot be paged back): when it refuses two years for a new ticker, the ticker starts with three months. SGS sometimes answers "nothing in the range" as an `{"erro":{"statusCode":404}}` object with a 200, which is an empty answer like the 404. Tesouro Direto's file (every day since 2002) is read only when the titles stored are older than the last weekday. `lastro sync` refreshes after every sync with the tickers held, and `lastro market --symbols PETR4,IVVB11` does it by hand.
 
 After each symbol's closes, its fundamentals and dividends are read once a day (`fundamental=true&dividends=true`, with the key statistics module when the plan has it; brapi refuses it on the free plan, so the request is made again without it). A failure there is logged and never fails the refresh. `Record` stores closes, dividends and fundamentals that did not come from a refresh (the dev seed's).
 
-`LASTRO_BRAPI_TOKEN` is optional: without it brapi answers only a few tickers (PETR4 does; most return 401). Tesouro Transparente rate-limits often; Pluggy's own valuation of the titles held still stands.
+`LASTRO_BRAPI_TOKEN` is optional: without it brapi answers only a few tickers (PETR4 does; most return 401). Tesouro Transparente rate-limits often (a 429 is logged and the titles stored stand); Pluggy's own valuation of the titles held still stands.
 
 ## Invariants
 

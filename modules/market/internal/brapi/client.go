@@ -5,6 +5,7 @@ package brapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,10 @@ import (
 )
 
 const DefaultURL = "https://brapi.dev"
+
+// ErrRange is brapi refusing a range the plan does not have (the free plan
+// goes back three months at most).
+var ErrRange = errors.New("brapi: range not in the plan")
 
 type Client struct {
 	base  string
@@ -82,7 +87,16 @@ func (c *Client) Quote(ctx context.Context, symbol, rng string) (Quote, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var refusal struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(msg, &refusal) == nil && refusal.Code == "INVALID_RANGE" {
+			return Quote{}, fmt.Errorf("%w: %s: %q", ErrRange, symbol, rng)
+		}
+		if len(msg) > 512 {
+			msg = msg[:512]
+		}
 		return Quote{}, fmt.Errorf("brapi: %s: status %d: %s", symbol, resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	var w wire
