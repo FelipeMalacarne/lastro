@@ -8,6 +8,40 @@ import (
 	"time"
 )
 
+type IngestItem struct {
+	ID               string
+	Institution      string
+	Status           string
+	ExecutionStatus  string
+	ErrorCode        string
+	DataUpdatedAt    *time.Time
+	ConsentExpiresAt *time.Time
+	SyncStartedAt    *time.Time
+	SyncFinishedAt   *time.Time
+	SyncedAt         *time.Time
+	SyncError        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type IngestItemAccount struct {
+	ItemID          string
+	ExternalID      string
+	LedgerAccountID string
+}
+
+type IngestRawRecord struct {
+	Kind        string
+	ExternalID  string
+	ParentID    string
+	RecordDate  *time.Time
+	Payload     []byte
+	Sha256      []byte
+	FirstSeenAt time.Time
+	UpdatedAt   time.Time
+	GoneAt      *time.Time
+}
+
 type LedgerAccount struct {
 	ID           string
 	ExternalID   string
