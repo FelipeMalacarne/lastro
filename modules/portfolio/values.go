@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
-	"sort"
 	"strings"
 
 	"lastro/money"
@@ -142,17 +141,3 @@ func NewBand(bps int64) (Band, error) {
 }
 
 func (b Band) Bps() int64 { return b.bps }
-
-// sortedClasses is the classes of a map in display order.
-func sortedClasses[V any](m map[Class]V) []Class {
-	out := make([]Class, 0, len(m))
-	for c := range m {
-		out = append(out, c)
-	}
-	rank := map[Class]int{}
-	for i, c := range Classes {
-		rank[c] = i
-	}
-	sort.Slice(out, func(i, j int) bool { return rank[out[i]] < rank[out[j]] })
-	return out
-}

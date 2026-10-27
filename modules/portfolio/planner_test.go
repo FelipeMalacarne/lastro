@@ -111,9 +111,9 @@ func TestPlanContributionReachesTheBand(t *testing.T) {
 }
 
 func TestTickerAndQuantity(t *testing.T) {
-	for in, want := range map[string]string{"itub4f": "ITUB4", "IVVB11": "IVVB11", " petr4 ": "PETR4", "AAPL34": "AAPL34"} {
-		if got, err := NewTicker(in); err != nil || got.String() != want {
-			t.Errorf("%q = %q, %v", in, got, err)
+	for _, tt := range []struct{ in, want string }{{"itub4f", "ITUB4"}, {"IVVB11", "IVVB11"}, {" petr4 ", "PETR4"}, {"AAPL34", "AAPL34"}} {
+		if got, err := NewTicker(tt.in); err != nil || got.String() != tt.want {
+			t.Errorf("%q = %q, %v", tt.in, got, err)
 		}
 	}
 	for _, bad := range []string{"PETR", "PETR123", "4PETR", ""} {
