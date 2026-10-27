@@ -102,6 +102,10 @@ func (s *Service) value(ctx context.Context, day time.Time) (Valuation, []*Posit
 	if err != nil {
 		return Valuation{}, nil, err
 	}
+	settings, err := s.repo.groupSettings(ctx)
+	if err != nil {
+		return Valuation{}, nil, err
+	}
 	var tickers []string
 	for _, p := range ps {
 		if p.Open() && !p.Ticker.IsZero() {
@@ -116,7 +120,7 @@ func (s *Service) value(ctx context.Context, day time.Time) (Valuation, []*Posit
 	for t, q := range qs {
 		prices[t] = Price{Date: q.Date, Price: q.Close}
 	}
-	return Value(ps, prices, day), ps, nil
+	return Value(GroupPositions(ps, settings), prices, day), ps, nil
 }
 
 // netWorth adds the accounts to a valuation.
@@ -187,26 +191,34 @@ func (s *Service) SetTargets(ctx context.Context, weights map[Class]money.Percen
 	return nil
 }
 
-// UpdatePosition moves a position to another class (nil leaves it, "" goes
-// back to the automatic one) or in and out of the emergency fund.
-func (s *Service) UpdatePosition(ctx context.Context, id string, class *string, emergency *bool) error {
+// UpdateGroup moves every lot of a product to another class (nil leaves
+// it, "" goes back to the automatic one) or changes how much of it is the
+// emergency fund (nil leaves it).
+func (s *Service) UpdateGroup(ctx context.Context, id string, class *string, reserve *Reserve) error {
 	ps, err := s.repo.positions(ctx)
 	if err != nil {
-		return fmt.Errorf("portfolio: update position: %w", err)
+		return fmt.Errorf("portfolio: update group: %w", err)
 	}
-	for _, p := range ps {
-		if p.ExternalID != id {
+	settings, err := s.repo.groupSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("portfolio: update group: %w", err)
+	}
+	for _, g := range GroupPositions(ps, settings) {
+		if g.ID != id {
 			continue
 		}
 		if class != nil {
-			if err := p.Reclassify(Class(*class)); err != nil {
+			if err := g.Reclassify(Class(*class)); err != nil {
 				return err
 			}
 		}
-		if emergency != nil {
-			p.MarkEmergency(*emergency)
+		if reserve != nil {
+			g.SetReserve(*reserve)
 		}
-		return s.repo.savePositions(ctx, []*Position{p}, s.now())
+		if err := s.repo.saveGroupSetting(ctx, g.ID, g.GroupSetting, s.now()); err != nil {
+			return fmt.Errorf("portfolio: update group: %w", err)
+		}
+		return nil
 	}
 	return ErrNotFound
 }
@@ -217,7 +229,7 @@ func (s *Service) Plan(ctx context.Context, amount money.Money) (PlanView, error
 	if err != nil {
 		return PlanView{}, err
 	}
-	v, ps, err := s.value(ctx, s.Today())
+	v, _, err := s.value(ctx, s.Today())
 	if err != nil {
 		return PlanView{}, fmt.Errorf("portfolio: plan: %w", err)
 	}
@@ -233,7 +245,7 @@ func (s *Service) Plan(ctx context.Context, amount money.Money) (PlanView, error
 	for _, sp := range p.Splits {
 		out.Splits = append(out.Splits, SplitView{
 			Class: sp.Class, AmountCents: sp.Amount.Cents(), Why: sp.Why, ValueCents: sp.Value.Cents(),
-			BeforeBp: sp.Before.Bps(), AfterBp: sp.After.Bps(), TargetBp: sp.Target.Bps(), Buy: suggest(sp.Class, v, ps, bonds, s.Today()),
+			BeforeBp: sp.Before.Bps(), AfterBp: sp.After.Bps(), TargetBp: sp.Target.Bps(), Buy: suggest(sp.Class, v, bonds, s.Today()),
 		})
 	}
 	return out, nil
@@ -241,7 +253,7 @@ func (s *Service) Plan(ctx context.Context, amount money.Money) (PlanView, error
 
 // suggest names something to buy in a class: for IPCA+, the Tesouro IPCA+
 // paying the most over inflation; otherwise the class's biggest holding.
-func suggest(c Class, v Valuation, ps []*Position, bonds []market.Bond, today time.Time) *string {
+func suggest(c Class, v Valuation, bonds []market.Bond, today time.Time) *string {
 	if c == ClassIPCA {
 		var best *market.Bond
 		for i, b := range bonds {
@@ -254,20 +266,23 @@ func suggest(c Class, v Valuation, ps []*Position, bonds []market.Bond, today ti
 			return &s
 		}
 	}
-	var top *Holding
-	for i, h := range v.Holdings {
-		if !h.Position.Emergency() && h.Position.Class() == c && (top == nil || h.Value.Cents() > top.Value.Cents()) {
-			top = &v.Holdings[i]
+	var top *GroupValue
+	var most int64
+	for i, g := range v.Groups {
+		in := g.Amounts.Value.Cents() - g.Emergency.Value.Cents()
+		if g.Group.Class() == c && in > 0 && (top == nil || in > most) {
+			top, most = &v.Groups[i], in
 		}
 	}
 	if top == nil {
 		return nil
 	}
-	name := top.Position.Name
-	if !top.Position.Ticker.IsZero() {
-		name = top.Position.Ticker.String()
-	} else if top.Position.Indexer == IndexerCDI && top.Position.Rate.Bps() > 0 {
-		name = fmt.Sprintf("%s, %s of CDI", top.Position.Institution+" "+kindName(top.Position.Kind), fmtPercent(top.Position.Rate))
+	p := top.Holdings[0].Position
+	name := p.Name
+	if !p.Ticker.IsZero() {
+		name = p.Ticker.String()
+	} else if p.Indexer == IndexerCDI && p.Rate.Bps() > 0 {
+		name = fmt.Sprintf("%s, %s of CDI", p.Institution+" "+kindName(p.Kind), fmtPercent(p.Rate))
 	}
 	return &name
 }

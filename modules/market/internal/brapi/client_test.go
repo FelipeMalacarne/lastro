@@ -2,6 +2,7 @@ package brapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,12 @@ func TestQuote(t *testing.T) {
 		if r.URL.Path == "/api/quote/XXXX3" {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":true,"message":"Não encontramos a ação XXXX3"}`))
+			return
+		}
+		if r.URL.Query().Get("range") == "2y" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":true,"message":"O range \"2y\" não está disponível no seu plano.","code":"INVALID_RANGE",
+				"details":{"limit":{"current":["1d","5d","1mo","3mo"],"requested":"2y"}}}`))
 			return
 		}
 		if r.URL.Path != "/api/quote/PETR4" || r.URL.Query().Get("range") != "5d" || r.URL.Query().Get("token") != "secret" {
@@ -30,6 +37,9 @@ func TestQuote(t *testing.T) {
 	}
 	if _, err := c.Quote(context.Background(), "XXXX3", ""); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("an unknown ticker fails, without the token: %v", err)
+	}
+	if _, err := c.Quote(context.Background(), "PETR4", "2y"); !errors.Is(err, ErrRange) {
+		t.Fatalf("a range the plan refuses is ErrRange: %v", err)
 	}
 }
 

@@ -52,8 +52,9 @@ type Report struct {
 	Active      bool
 }
 
-// Position is one investment held: what the bank reported last, what was
-// put into it (its basis, for returns), and how I classify it.
+// Position is one investment held: what the bank reported last and what
+// was put into it (its basis, for returns). How I classify it belongs to
+// its Group.
 type Position struct {
 	Report
 	basis money.Money // what is still in it, at cost
@@ -61,8 +62,6 @@ type Position struct {
 	// that left with it, over the position's life. Returns count money taken
 	// out at what it was worth, not at what it cost.
 	realized  money.Money
-	override  Class // empty: Classify decides
-	emergency bool
 	firstSeen time.Time
 	closedAt  *time.Time
 }
@@ -85,8 +84,8 @@ func NewPosition(r Report, now time.Time) (*Position, error) {
 }
 
 // RestorePosition rebuilds a stored position, for the repository.
-func RestorePosition(r Report, basis, realized money.Money, override Class, emergency bool, firstSeen time.Time, closedAt *time.Time) *Position {
-	return &Position{Report: r, basis: basis, realized: realized, override: override, emergency: emergency, firstSeen: firstSeen, closedAt: closedAt}
+func RestorePosition(r Report, basis, realized money.Money, firstSeen time.Time, closedAt *time.Time) *Position {
+	return &Position{Report: r, basis: basis, realized: realized, firstSeen: firstSeen, closedAt: closedAt}
 }
 
 func (r Report) validate() error {
@@ -182,34 +181,9 @@ func (p *Position) Realized() money.Money { return p.realized }
 func (p *Position) NetIn() money.Money {
 	return money.BRLCents(p.basis.Cents() - p.realized.Cents())
 }
-func (p *Position) Emergency() bool      { return p.emergency }
-func (p *Position) Override() Class      { return p.override }
 func (p *Position) FirstSeen() time.Time { return p.firstSeen }
 func (p *Position) ClosedAt() *time.Time { return p.closedAt }
 func (p *Position) Open() bool           { return p.closedAt == nil }
-
-// Class is the allocation class it counts in: mine when I chose one,
-// Classify's otherwise.
-func (p *Position) Class() Class {
-	if p.override != "" {
-		return p.override
-	}
-	return Classify(p.Kind, p.Indexer, p.Ticker, p.Name)
-}
-
-// Reclassify puts it in another class, or back to Classify's with "".
-func (p *Position) Reclassify(c Class) error {
-	if c != "" {
-		if _, err := ParseClass(string(c)); err != nil {
-			return err
-		}
-	}
-	p.override = c
-	return nil
-}
-
-// MarkEmergency sets it apart as emergency fund, out of the allocation.
-func (p *Position) MarkEmergency(on bool) { p.emergency = on }
 
 // globalETFs are B3 ETFs that hold stocks abroad.
 var globalETFs = map[string]bool{

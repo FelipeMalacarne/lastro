@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -38,6 +39,9 @@ func (f *fakeBrapi) Quote(_ context.Context, symbol, rng string) (brapi.Quote, e
 	if symbol == "XXXX3" {
 		return brapi.Quote{}, errors.New("not found")
 	}
+	if symbol == "BBAS3" && rng == "2y" {
+		return brapi.Quote{}, fmt.Errorf("%w: BBAS3", brapi.ErrRange)
+	}
 	return brapi.Quote{
 		Symbol: symbol, Currency: "BRL", Price: json.Number("53.875"), Time: time.Date(2026, 10, 27, 13, 0, 0, 0, time.UTC),
 		History: []brapi.Price{{Date: time.Date(2026, 10, 23, 3, 0, 0, 0, time.UTC), Close: json.Number("58.68")}},
@@ -54,16 +58,23 @@ func (f *fakeBrapi) Fundamentals(_ context.Context, symbol string) (brapi.Fundam
 	}, nil
 }
 
-type fakeTesouro struct{}
+type fakeTesouro struct {
+	rows  []tesouro.Row
+	calls int
+}
 
-func (fakeTesouro) Latest(context.Context) ([]tesouro.Row, error) {
-	return nil, errors.New("status 429")
+func (f *fakeTesouro) Latest(context.Context) ([]tesouro.Row, error) {
+	f.calls++
+	if f.rows == nil {
+		return nil, errors.New("status 429")
+	}
+	return f.rows, nil
 }
 
 func TestRefresh(t *testing.T) {
 	ctx := context.Background()
 	f, b := &fakeSGS{}, &fakeBrapi{}
-	s := New(NewRepository(dbtest.New(t)), f, b, fakeTesouro{}, nil)
+	s := New(NewRepository(dbtest.New(t)), f, b, &fakeTesouro{}, nil)
 	s.now = func() time.Time { return time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC) }
 
 	rep, err := s.Refresh(ctx, []string{"PETR4", "XXXX3"})
@@ -111,5 +122,44 @@ func TestRefresh(t *testing.T) {
 	acc, last, err := s.Accumulated(ctx, CDI, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil || last.Format(time.DateOnly) != "2026-10-27" || acc.Percent().Bps() != 36 {
 		t.Errorf("seven days of CDI: %d bps, last %s, %v", acc.Percent().Bps(), last, err)
+	}
+}
+
+func TestRefreshFallsBackToTheFreeRange(t *testing.T) {
+	b := &fakeBrapi{}
+	s := New(NewRepository(dbtest.New(t)), &fakeSGS{}, b, &fakeTesouro{}, nil)
+	s.now = func() time.Time { return time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC) }
+	rep, err := s.Refresh(context.Background(), []string{"BBAS3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Quotes != 2 || len(b.ranges) != 2 || b.ranges[1] != shortRange {
+		t.Errorf("report %+v, ranges %v: a plan without two years gets three months", rep, b.ranges)
+	}
+}
+
+func TestRefreshReadsTesouroOncePerDay(t *testing.T) {
+	ctx := context.Background()
+	tes := &fakeTesouro{rows: []tesouro.Row{{
+		Name: "Tesouro Selic", Maturity: time.Date(2031, 3, 1, 0, 0, 0, 0, time.UTC), Date: time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC),
+		BuyRate: "0,0450", BuyPrice: "17950,12",
+	}}}
+	s := New(NewRepository(dbtest.New(t)), &fakeSGS{}, &fakeBrapi{}, tes, nil)
+	s.now = func() time.Time { return time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC) }
+	for range 2 {
+		if _, err := s.Refresh(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tes.calls != 1 {
+		t.Errorf("%d reads: Monday's titles on a Tuesday are current", tes.calls)
+	}
+	// On Wednesday, Tuesday's titles are due.
+	s.now = func() time.Time { return time.Date(2026, 10, 28, 15, 0, 0, 0, time.UTC) }
+	if _, err := s.Refresh(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if tes.calls != 2 {
+		t.Errorf("%d reads, want 2", tes.calls)
 	}
 }

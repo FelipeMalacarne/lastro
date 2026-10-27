@@ -15,14 +15,14 @@ func TestValue(t *testing.T) {
 	mk := func(r Report) *Position { r.Active, r.AsOf = true, before; p, _ := NewPosition(r, before); return p }
 
 	cdb := mk(Report{ExternalID: "cdb", Kind: KindFixedIncome, Indexer: IndexerCDI, Value: money.BRLCents(100000)})
-	reserve := mk(Report{ExternalID: "rdb", Kind: KindFixedIncome, Indexer: IndexerCDI, Value: money.BRLCents(50000)})
-	reserve.MarkEmergency(true)
+	reserve := mk(Report{ExternalID: "rdb", Kind: KindFixedIncome, Name: "RDB", Indexer: IndexerCDI, Value: money.BRLCents(50000)})
 	wege := mk(Report{ExternalID: "wege", Kind: KindStock, Ticker: tk("WEGE3"), Quantity: q("10"), Value: money.BRLCents(40000)})
 	ivvb := mk(Report{ExternalID: "ivvb", Kind: KindETF, Ticker: tk("IVVB11"), Quantity: q("2"), Value: money.BRLCents(70000)})
 	closed := mk(Report{ExternalID: "old", Kind: KindFixedIncome, Value: money.BRLCents(99999)})
 	closed.Close(day)
 
-	v := Value([]*Position{cdb, reserve, wege, ivvb, closed}, map[string]Price{
+	all := WholeReserve()
+	v := Value(GroupPositions([]*Position{cdb, reserve, wege, ivvb, closed}, map[string]GroupSetting{GroupID(reserve.Report): {Reserve: all}}), map[string]Price{
 		"WEGE3":  {Date: day, Price: money.BRLCents(4500)},
 		"IVVB11": {Date: before.AddDate(0, 0, -3), Price: money.BRLCents(30000)}, // older than the bank's report
 	}, day)
@@ -35,8 +35,8 @@ func TestValue(t *testing.T) {
 	if v.Emergency.Value.Cents() != 50000 || v.Classes[ClassCDI].Value.Cents() != 100000 {
 		t.Errorf("emergency %d, CDI %d", v.Emergency.Value.Cents(), v.Classes[ClassCDI].Value.Cents())
 	}
-	if v.Invested().Value.Cents() != 215000 || len(v.Holdings) != 4 {
-		t.Errorf("invested %d, %d holdings", v.Invested().Value.Cents(), len(v.Holdings))
+	if v.Invested().Value.Cents() != 215000 || len(v.Holdings) != 4 || len(v.Groups) != 4 {
+		t.Errorf("invested %d, %d holdings, %d groups", v.Invested().Value.Cents(), len(v.Holdings), len(v.Groups))
 	}
 }
 
@@ -70,10 +70,10 @@ func TestReturnAfterARedemption(t *testing.T) {
 	in := func(c int64) *money.Money { m := money.BRLCents(c); return &m }
 	a, _ := NewPosition(Report{ExternalID: "a", Kind: KindFixedIncome, Value: money.BRLCents(1100000), Invested: in(1000000), AsOf: d0, Active: true}, d0)
 	b, _ := NewPosition(Report{ExternalID: "b", Kind: KindFixedIncome, Value: money.BRLCents(1000000), Invested: in(1000000), AsOf: d0, Active: true}, d0)
-	start := Value([]*Position{a, b}, nil, d0).Classes[ClassCDI]
+	start := Value(GroupPositions([]*Position{a, b}, nil), nil, d0).Classes[ClassCDI]
 
 	a.Close(d1) // redeemed at R$ 11.000, prices unchanged
-	end := Value([]*Position{a, b}, nil, d1).Classes[ClassCDI]
+	end := Value(GroupPositions([]*Position{a, b}, nil), nil, d1).Classes[ClassCDI]
 	if r, ok := Return(start, end); !ok || r.Bps() != 0 {
 		t.Errorf("redeeming at value: %d bps, want 0", r.Bps())
 	}
@@ -84,14 +84,14 @@ func TestReturnAfterARedemption(t *testing.T) {
 	// Half of 100 shares bought at R$ 50, sold at R$ 100: R$ 2.500 realized.
 	q := func(s string) Quantity { x, _ := ParseQuantity(s); return x }
 	s, _ := NewPosition(Report{ExternalID: "s", Kind: KindStock, Quantity: q("100"), Value: money.BRLCents(500000), AsOf: d0, Active: true}, d0)
-	s0 := Value([]*Position{s}, nil, d0).Classes[ClassBR]
+	s0 := Value(GroupPositions([]*Position{s}, nil), nil, d0).Classes[ClassBR]
 	_ = s.Update(Report{ExternalID: "s", Kind: KindStock, Quantity: q("100"), Value: money.BRLCents(1000000), AsOf: d1, Active: true}, d1)
 	_ = s.Update(Report{ExternalID: "s", Kind: KindStock, Quantity: q("50"), Value: money.BRLCents(500000), AsOf: d1, Active: true}, d1)
 	if s.Basis().Cents() != 250000 || s.Realized().Cents() != 250000 {
 		t.Errorf("after selling half: basis %d, realized %d", s.Basis().Cents(), s.Realized().Cents())
 	}
 	// The R$ 5.000 earned is all there: value now plus cash out minus what went in.
-	s1 := Value([]*Position{s}, nil, d1).Classes[ClassBR]
+	s1 := Value(GroupPositions([]*Position{s}, nil), nil, d1).Classes[ClassBR]
 	if gain := s1.Value.Cents() - s0.Value.Cents() - (s1.Basis.Cents() - s0.Basis.Cents()); gain != 500000 {
 		t.Errorf("gain %d, want 500000", gain)
 	}

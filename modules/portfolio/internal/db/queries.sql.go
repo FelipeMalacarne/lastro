@@ -152,8 +152,44 @@ func (q *Queries) ListNetWorth(ctx context.Context, dateFrom time.Time) ([]ListN
 	return items, nil
 }
 
+const listPositionGroups = `-- name: ListPositionGroups :many
+SELECT id, class_override, reserve, reserve_cents FROM portfolio.position_groups
+`
+
+type ListPositionGroupsRow struct {
+	ID            string
+	ClassOverride *string
+	Reserve       string
+	ReserveCents  int64
+}
+
+func (q *Queries) ListPositionGroups(ctx context.Context) ([]ListPositionGroupsRow, error) {
+	rows, err := q.db.Query(ctx, listPositionGroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPositionGroupsRow
+	for rows.Next() {
+		var i ListPositionGroupsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClassOverride,
+			&i.Reserve,
+			&i.ReserveCents,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPositions = `-- name: ListPositions :many
-SELECT external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents, basis_cents, indexer, rate_bps, maturity, as_of, class_override, emergency, first_seen, closed_at, updated_at, realized_cents FROM portfolio.positions ORDER BY institution, name, external_id
+SELECT external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents, basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents FROM portfolio.positions ORDER BY institution, name, external_id
 `
 
 func (q *Queries) ListPositions(ctx context.Context) ([]PortfolioPosition, error) {
@@ -180,8 +216,6 @@ func (q *Queries) ListPositions(ctx context.Context) ([]PortfolioPosition, error
 			&i.RateBps,
 			&i.Maturity,
 			&i.AsOf,
-			&i.ClassOverride,
-			&i.Emergency,
 			&i.FirstSeen,
 			&i.ClosedAt,
 			&i.UpdatedAt,
@@ -373,14 +407,13 @@ func (q *Queries) SaveNetWorth(ctx context.Context, arg SaveNetWorthParams) erro
 const savePosition = `-- name: SavePosition :exec
 INSERT INTO portfolio.positions (
     external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents,
-    basis_cents, indexer, rate_bps, maturity, as_of, class_override, emergency, first_seen, closed_at, updated_at, realized_cents
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (external_id) DO UPDATE SET
     item_id = excluded.item_id, institution = excluded.institution, kind = excluded.kind, name = excluded.name,
     ticker = excluded.ticker, quantity_micro = excluded.quantity_micro, value_cents = excluded.value_cents,
     invested_cents = excluded.invested_cents, basis_cents = excluded.basis_cents, indexer = excluded.indexer,
-    rate_bps = excluded.rate_bps, maturity = excluded.maturity, as_of = excluded.as_of,
-    class_override = excluded.class_override, emergency = excluded.emergency, closed_at = excluded.closed_at,
+    rate_bps = excluded.rate_bps, maturity = excluded.maturity, as_of = excluded.as_of, closed_at = excluded.closed_at,
     updated_at = excluded.updated_at, realized_cents = excluded.realized_cents
 `
 
@@ -399,8 +432,6 @@ type SavePositionParams struct {
 	RateBps       int32
 	Maturity      *time.Time
 	AsOf          time.Time
-	ClassOverride *string
-	Emergency     bool
 	FirstSeen     time.Time
 	ClosedAt      *time.Time
 	UpdatedAt     time.Time
@@ -423,12 +454,35 @@ func (q *Queries) SavePosition(ctx context.Context, arg SavePositionParams) erro
 		arg.RateBps,
 		arg.Maturity,
 		arg.AsOf,
-		arg.ClassOverride,
-		arg.Emergency,
 		arg.FirstSeen,
 		arg.ClosedAt,
 		arg.UpdatedAt,
 		arg.RealizedCents,
+	)
+	return err
+}
+
+const savePositionGroup = `-- name: SavePositionGroup :exec
+INSERT INTO portfolio.position_groups (id, class_override, reserve, reserve_cents, updated_at) VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id) DO UPDATE SET class_override = excluded.class_override, reserve = excluded.reserve,
+    reserve_cents = excluded.reserve_cents, updated_at = excluded.updated_at
+`
+
+type SavePositionGroupParams struct {
+	ID            string
+	ClassOverride *string
+	Reserve       string
+	ReserveCents  int64
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) SavePositionGroup(ctx context.Context, arg SavePositionGroupParams) error {
+	_, err := q.db.Exec(ctx, savePositionGroup,
+		arg.ID,
+		arg.ClassOverride,
+		arg.Reserve,
+		arg.ReserveCents,
+		arg.UpdatedAt,
 	)
 	return err
 }

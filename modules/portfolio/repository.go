@@ -45,11 +45,7 @@ func (r *PostgresRepository) positions(ctx context.Context) ([]*Position, error)
 			m := money.BRLCents(*row.InvestedCents)
 			rep.Invested = &m
 		}
-		var override Class
-		if row.ClassOverride != nil {
-			override = Class(*row.ClassOverride)
-		}
-		out = append(out, RestorePosition(rep, money.BRLCents(row.BasisCents), money.BRLCents(row.RealizedCents), override, row.Emergency, row.FirstSeen, row.ClosedAt))
+		out = append(out, RestorePosition(rep, money.BRLCents(row.BasisCents), money.BRLCents(row.RealizedCents), row.FirstSeen, row.ClosedAt))
 	}
 	return out, nil
 }
@@ -71,7 +67,7 @@ func positionParams(p *Position, now time.Time) db.SavePositionParams {
 		ExternalID: p.ExternalID, ItemID: p.Item, Institution: p.Institution, Kind: string(p.Kind), Name: p.Name,
 		QuantityMicro: p.Quantity.Micro(), ValueCents: p.Value.Cents(), BasisCents: p.Basis().Cents(),
 		Indexer: string(p.Indexer), RateBps: int32(p.Rate.Bps()), Maturity: p.Maturity, AsOf: p.AsOf,
-		Emergency: p.Emergency(), FirstSeen: p.FirstSeen(), ClosedAt: p.ClosedAt(), UpdatedAt: now,
+		FirstSeen: p.FirstSeen(), ClosedAt: p.ClosedAt(), UpdatedAt: now,
 		RealizedCents: p.Realized().Cents(),
 	}
 	if !p.Ticker.IsZero() {
@@ -82,11 +78,36 @@ func positionParams(p *Position, now time.Time) db.SavePositionParams {
 		c := p.Invested.Cents()
 		arg.InvestedCents = &c
 	}
-	if c := p.Override(); c != "" {
-		s := string(c)
-		arg.ClassOverride = &s
-	}
 	return arg
+}
+
+func (r *PostgresRepository) groupSettings(ctx context.Context) (map[string]GroupSetting, error) {
+	rows, err := r.q.ListPositionGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]GroupSetting, len(rows))
+	for _, row := range rows {
+		res, err := ParseReserve(row.Reserve, row.ReserveCents)
+		if err != nil {
+			return nil, err
+		}
+		gs := GroupSetting{Reserve: res}
+		if row.ClassOverride != nil {
+			gs.Override = Class(*row.ClassOverride)
+		}
+		out[row.ID] = gs
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) saveGroupSetting(ctx context.Context, id string, gs GroupSetting, now time.Time) error {
+	arg := db.SavePositionGroupParams{ID: id, Reserve: gs.Reserve.Mode(), ReserveCents: gs.Reserve.Amount().Cents(), UpdatedAt: now}
+	if gs.Override != "" {
+		c := string(gs.Override)
+		arg.ClassOverride = &c
+	}
+	return r.q.SavePositionGroup(ctx, arg)
 }
 
 func (r *PostgresRepository) targets(ctx context.Context) (Targets, error) {

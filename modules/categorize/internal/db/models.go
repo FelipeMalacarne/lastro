@@ -246,12 +246,18 @@ type PortfolioPosition struct {
 	RateBps       int32
 	Maturity      *time.Time
 	AsOf          time.Time
-	ClassOverride *string
-	Emergency     bool
 	FirstSeen     time.Time
 	ClosedAt      *time.Time
 	UpdatedAt     time.Time
 	RealizedCents int64
+}
+
+type PortfolioPositionGroup struct {
+	ID            string
+	ClassOverride *string
+	Reserve       string
+	ReserveCents  int64
+	UpdatedAt     time.Time
 }
 
 type PortfolioPriceAlert struct {

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Check, Clock, PiggyBank, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Clock, PiggyBank, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -9,10 +9,11 @@ import { PriceChart } from "@/components/charts/PriceChart";
 import { Dividends, PriceAlert, Valuation, ValuationLine } from "@/components/PortfolioIncome";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
-import { assetClasses, send, useResource, type AssetClass, type Holding, type PortfolioOverview, type Thesis } from "@/lib/api";
-import { formatBRL, formatDay, formatMonth, formatPercent } from "@/lib/format";
+import { assetClasses, send, useResource, type AssetClass, type PortfolioOverview, type PositionGroup, type Reserve, type Thesis } from "@/lib/api";
+import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, parseBRL } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
@@ -399,28 +400,59 @@ function formatQuantity(q: string): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
 }
 
-function holdingDetail(h: Holding): string {
+/** "2028-05-26" → "26 May 2028". */
+function fullDay(d: string): string {
+  return `${formatDay(d)} ${d.slice(0, 4)}`;
+}
+
+/** "2028-05-26" → "May 2028". */
+function monthYear(d: string): string {
+  return `${formatDay(d).split(" ")[1]} ${d.slice(0, 4)}`;
+}
+
+function groupDetail(g: PositionGroup): string {
   const parts: string[] = [];
-  if (h.ticker && h.ticker !== h.name) parts.push(h.ticker);
-  if (h.indexer === "CDI" || h.indexer === "SELIC") parts.push(`${formatPercent(h.rateBp, { decimals: 0 })} of ${h.indexer === "CDI" ? "CDI" : "Selic"}`);
-  if (h.indexer === "IPCA") parts.push(`IPCA + ${formatPercent(h.rateBp)}`);
-  if (h.indexer === "PRE") parts.push(`${formatPercent(h.rateBp)} a year`);
-  if (h.maturity) parts.push(`until ${formatDay(h.maturity)} ${h.maturity.slice(0, 4)}`);
-  if (h.priced) parts.push(`priced ${formatDay(h.asOf)}`);
+  if (g.ticker && g.ticker !== g.name) parts.push(g.ticker);
+  if (g.indexer === "CDI" || g.indexer === "SELIC") parts.push(`${formatPercent(g.rateBp, { decimals: 0 })} of ${g.indexer === "CDI" ? "CDI" : "Selic"}`);
+  if (g.indexer === "IPCA") parts.push(`IPCA + ${formatPercent(g.rateBp)}`);
+  if (g.indexer === "PRE") parts.push(`${formatPercent(g.rateBp)} a year`);
+  if (g.lots.length > 1) parts.push(`${g.lots.length} ${g.ticker ? "lots" : "contributions"}`);
+  if (g.firstMaturity && g.lastMaturity) {
+    parts.push(g.firstMaturity === g.lastMaturity ? `until ${fullDay(g.firstMaturity)}` : `until ${monthYear(g.firstMaturity)} to ${monthYear(g.lastMaturity)}`);
+  }
+  if (g.priced) parts.push(`priced ${formatDay(g.asOf)}`);
   return parts.join(" · ");
 }
 
+/** A group's part in a section: what of it counts there, and that part's cost. */
+type Part = { g: PositionGroup; cents: number; basis: number };
+
+function partOf(g: PositionGroup, cents: number): Part {
+  return { g, cents, basis: g.valueCents > 0 ? Math.round((g.basisCents * cents) / g.valueCents) : 0 };
+}
+
+const positionCols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_140px_110px_128px_72px]";
+
 function Positions({ v }: { v: PortfolioOverview }) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const groups = [
-    ...assetClasses.map((k) => ({ key: k.id as string, name: k.name, color: k.color, rows: v.holdings.filter((h) => !h.emergency && h.class === k.id) })),
-    { key: "emergency", name: "Emergency fund", color: "note-200" as const, rows: v.holdings.filter((h) => h.emergency) },
-  ].filter((g) => g.rows.length > 0);
-  const cols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_140px_110px_120px_72px]";
+  // The opened row: a group can show in its class and in the emergency fund.
+  const [open, setOpen] = useState<string | null>(null);
+  const sections = [
+    ...assetClasses.map((k) => ({
+      key: k.id as string,
+      name: k.name,
+      color: k.color,
+      parts: v.groups.filter((g) => g.class === k.id && g.valueCents > g.emergencyCents).map((g) => partOf(g, g.valueCents - g.emergencyCents)),
+    })),
+    { key: "emergency", name: "Emergency fund", color: "note-200" as const, parts: v.groups.filter((g) => g.emergencyCents > 0 || g.shortCents > 0).map((g) => partOf(g, g.emergencyCents)) },
+  ].filter((s) => s.parts.length > 0);
   return (
-    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. “Since bought” is a position’s gain over what it cost; the class returns above cover the same period as the chart. Select a position to move it to another class or to the emergency fund, or to see a stock's prices.">
+    <Panel
+      title="Positions"
+      bodyClassName="-mx-5"
+      footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Lots from the same bank, issuer, indexer and rate are one row; open it to see each contribution. “Since bought” is the value over what it cost. The emergency fund is the amount you set, taken from its group; the rest of the group counts in its class."
+    >
       <div role="table" aria-label="Positions by class">
-        <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", cols)}>
+        <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", positionCols)}>
           <span role="columnheader">Asset</span>
           <span role="columnheader" className="hidden sm:block">
             Where
@@ -435,22 +467,22 @@ function Positions({ v }: { v: PortfolioOverview }) {
             Since bought
           </span>
         </div>
-        {groups.map((g) => {
-          const total = g.rows.reduce((s, h) => s + h.valueCents, 0);
-          const basis = g.rows.reduce((s, h) => s + h.basisCents, 0);
+        {sections.map((s) => {
+          const total = s.parts.reduce((t, p) => t + p.cents, 0);
+          const basis = s.parts.reduce((t, p) => t + p.basis, 0);
           return (
-            <div key={g.key} role="rowgroup">
-              <div role="row" className={cn("grid min-h-10 items-center gap-x-4 border-b border-rule bg-paper px-5", cols)}>
+            <div key={s.key} role="rowgroup">
+              <div role="row" className={cn("grid min-h-10 items-center gap-x-4 border-b border-rule bg-paper px-5", positionCols)}>
                 <span role="cell" className="flex items-center gap-2">
-                  {g.key === "emergency" ? (
+                  {s.key === "emergency" ? (
                     <span className="inline-flex items-center gap-1.5 text-[14px] font-semibold">
                       <ShieldCheck className="size-4 text-ink-muted" aria-hidden /> Emergency fund
                     </span>
                   ) : (
-                    <CategoryTag name={g.name} color={g.color} />
+                    <CategoryTag name={s.name} color={s.color} />
                   )}
                   <span className="type-caption text-ink-muted">
-                    {g.key === "emergency" ? "not in the allocation" : `${v.investedCents ? Math.round((total / v.investedCents) * 100) : 0}% of invested`}
+                    {s.key === "emergency" ? "not in the allocation" : `${v.investedCents ? Math.round((total / v.investedCents) * 100) : 0}% of invested`}
                   </span>
                 </span>
                 <span role="cell" className="hidden sm:block" />
@@ -462,45 +494,12 @@ function Positions({ v }: { v: PortfolioOverview }) {
                   {basis > 0 ? formatPercent(((total - basis) * 10000) / basis, { sign: "always" }) : ""}
                 </span>
               </div>
-              {g.rows.map((h) => (
-                <div key={h.id}>
-                  <button
-                    type="button"
-                    role="row"
-                    aria-expanded={editing === h.id}
-                    onClick={() => setEditing(editing === h.id ? null : h.id)}
-                    className={cn(
-                      "grid min-h-14 w-full cursor-pointer items-center gap-x-4 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
-                      cols,
-                      editing === h.id ? "bg-tinta-soft" : "bg-paper-raised hover:bg-paper-sunken",
-                    )}
-                  >
-                    <span role="cell" className="flex min-w-0 flex-col gap-0.5 pl-4">
-                      <span className="truncate text-[14px] leading-5 font-semibold">{h.name}</span>
-                      <span className="truncate type-caption text-ink-muted">
-                        {holdingDetail(h) || h.kind}
-                        <span className="sm:hidden"> · {h.institution}</span>
-                      </span>
-                    </span>
-                    <span role="cell" className="hidden truncate text-[14px] text-ink-muted sm:block">
-                      {h.institution}
-                    </span>
-                    <span role="cell" className="hidden text-right type-figure-sm text-ink-muted sm:block">
-                      {h.ticker ? formatQuantity(h.quantity) : ""}
-                    </span>
-                    <span role="cell" className="flex flex-col items-end">
-                      <Amount cents={h.valueCents} sign="none" />
-                      {h.returnBp !== null && (
-                        <span className="type-figure-sm text-ink-muted sm:hidden">{formatPercent(h.returnBp, { sign: "always" })}</span>
-                      )}
-                    </span>
-                    <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", h.returnBp !== null && h.returnBp < 0 ? "text-ink" : "text-ink-muted")}>
-                      {h.returnBp !== null ? formatPercent(h.returnBp, { sign: "always" }) : "—"}
-                    </span>
-                  </button>
-                  {editing === h.id && <PositionEditor h={h} onDone={() => setEditing(null)} />}
-                </div>
-              ))}
+              {s.parts.map((p) => {
+                const key = `${s.key}:${p.g.id}`;
+                return (
+                  <GroupRow key={key} p={p} emergency={s.key === "emergency"} open={open === key} onToggle={() => setOpen(open === key ? null : key)} onDone={() => setOpen(null)} />
+                );
+              })}
             </div>
           );
         })}
@@ -509,14 +508,75 @@ function Positions({ v }: { v: PortfolioOverview }) {
   );
 }
 
-function PositionEditor({ h, onDone }: { h: Holding; onDone: () => void }) {
+function GroupRow({ p, emergency, open, onToggle, onDone }: { p: Part; emergency: boolean; open: boolean; onToggle: () => void; onDone: () => void }) {
+  const g = p.g;
+  const many = g.lots.length > 1;
+  const split = g.emergencyCents > 0 && g.emergencyCents < g.valueCents;
+  let caption = groupDetail(g) || g.kind;
+  if (emergency && g.reserve === "amount") caption = `${formatBRL(g.emergencyCents)} of ${formatBRL(g.valueCents)}${caption ? ` · ${caption}` : ""}`;
+  else if (!emergency && split) caption = `${caption} · ${formatBRL(g.emergencyCents)} of it is the emergency fund`;
+  const quantity = g.ticker ? formatQuantity(String(g.lots.reduce((t, l) => t + Number(l.quantity), 0))) : "";
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <div>
+      <button
+        type="button"
+        role="row"
+        aria-expanded={open}
+        onClick={onToggle}
+        className={cn(
+          "grid min-h-14 w-full cursor-pointer items-center gap-x-4 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
+          positionCols,
+          open ? "bg-tinta-soft" : "bg-paper-raised hover:bg-paper-sunken",
+        )}
+      >
+        <span role="cell" className="flex min-w-0 items-center gap-2 pl-4">
+          {many ? <Chevron className="size-4 shrink-0 text-ink-muted" aria-hidden /> : <span className="w-4 shrink-0" aria-hidden />}
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="truncate text-[14px] leading-5 font-semibold">{g.name}</span>
+            <span className="type-caption text-ink-muted sm:truncate">
+              {caption}
+              <span className="sm:hidden"> · {g.institution}</span>
+            </span>
+            {emergency && g.shortCents > 0 && (
+              <span className="inline-flex items-center gap-1 type-caption text-warning">
+                <TriangleAlert className="size-3.5" aria-hidden /> {formatBRL(g.shortCents)} short of {formatBRL(g.reserveCents)}
+              </span>
+            )}
+          </span>
+        </span>
+        <span role="cell" className="hidden truncate text-[14px] text-ink-muted sm:block">
+          {g.institution}
+        </span>
+        <span role="cell" className="hidden text-right type-figure-sm text-ink-muted sm:block">
+          {quantity}
+        </span>
+        <span role="cell" className="flex flex-col items-end">
+          <Amount cents={p.cents} sign="none" />
+          {!emergency && split && <span className="type-figure-sm text-ink-muted">of {formatBRL(g.valueCents)}</span>}
+          {g.returnBp !== null && <span className="type-figure-sm text-ink-muted sm:hidden">{formatPercent(g.returnBp, { sign: "always" })}</span>}
+        </span>
+        <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", g.returnBp !== null && g.returnBp < 0 ? "text-ink" : "text-ink-muted")}>
+          {g.returnBp !== null ? formatPercent(g.returnBp, { sign: "always" }) : "—"}
+        </span>
+      </button>
+      {open && <GroupEditor g={g} onDone={onDone} />}
+    </div>
+  );
+}
+
+function GroupEditor({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function save(body: { class?: string; emergency?: boolean }) {
+  const [mode, setMode] = useState(g.reserve);
+  const [amount, setAmount] = useState(g.reserveCents ? inputBRL(g.reserveCents) : "");
+  const cents = parseBRL(amount);
+  const rest = mode === "amount" && cents ? Math.max(g.valueCents - cents, 0) : null;
+  async function save(body: { class?: string; reserve?: Reserve; reserveCents?: number }) {
     setBusy(true);
     setError(null);
     try {
-      await send("PATCH", `/api/v1/positions/${encodeURIComponent(h.id)}`, body);
+      await send("PATCH", `/api/v1/position-groups/${encodeURIComponent(g.id)}`, body);
       onDone();
     } catch (e) {
       setError((e as Error).message);
@@ -524,49 +584,122 @@ function PositionEditor({ h, onDone }: { h: Holding; onDone: () => void }) {
       setBusy(false);
     }
   }
+  const many = g.lots.length > 1;
   return (
-    <div className="flex flex-col gap-3 border-b border-rule bg-paper px-5 py-4 shadow-[inset_3px_0_0_var(--tinta)]">
-      <span className="type-label text-ink-muted">Counts in</span>
-      <div role="radiogroup" aria-label="Class" className="flex flex-wrap gap-1.5">
-        {assetClasses.map((k) => {
-          const on = !h.emergency && h.class === k.id;
-          return (
-            <button
-              key={k.id}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              disabled={busy}
-              onClick={() => void save({ class: k.id === h.autoClass ? "" : k.id, emergency: false })}
-              className={cn(
-                "flex h-9 cursor-pointer items-center gap-2 rounded-sm border px-2.5 focus-visible:focus-ring",
-                on ? "border-tinta bg-tinta-soft" : "border-rule bg-paper-raised hover:bg-paper-sunken",
-              )}
-            >
-              <CategoryTag name={k.name} color={k.color} />
-              {k.id === h.autoClass && <span className="type-caption text-ink-muted">automatic</span>}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={h.emergency}
-          disabled={busy}
-          onClick={() => void save({ emergency: !h.emergency })}
-          className={cn(
-            "flex h-9 cursor-pointer items-center gap-2 rounded-sm border px-2.5 text-[14px] font-semibold focus-visible:focus-ring",
-            h.emergency ? "border-tinta bg-tinta-soft" : "border-rule bg-paper-raised hover:bg-paper-sunken",
-          )}
-        >
-          <ShieldCheck className="size-4" aria-hidden /> Emergency fund
-        </button>
+    <div className="flex flex-col gap-5 border-b border-rule bg-paper py-4 pr-5 pl-5 shadow-[inset_3px_0_0_var(--tinta)] sm:pl-14">
+      <div className="flex flex-col gap-2">
+        <span className="type-label text-ink-muted">Counts in</span>
+        <div role="radiogroup" aria-label="Class" className="flex flex-wrap gap-1.5">
+          {assetClasses.map((k) => {
+            const on = g.reserve !== "all" && g.class === k.id;
+            return (
+              <button
+                key={k.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={busy}
+                onClick={() => void save({ class: k.id === g.autoClass ? "" : k.id })}
+                className={cn(
+                  "flex h-9 cursor-pointer items-center gap-2 rounded-sm border px-2.5 focus-visible:focus-ring",
+                  on ? "border-tinta bg-tinta-soft" : "border-rule bg-paper-raised hover:bg-paper-sunken",
+                )}
+              >
+                <CategoryTag name={k.name} color={k.color} />
+                {k.id === g.autoClass && <span className="type-caption text-ink-muted">automatic</span>}
+              </button>
+            );
+          })}
+        </div>
+        <span className="type-caption text-ink-muted">
+          {many ? `Applies to all ${g.lots.length} ${g.ticker ? "lots" : "contributions"}, and to the next ones that join this group.` : "Applies to the next lots of this product too."}
+        </span>
       </div>
-      {error && <p className="m-0 type-caption text-danger">Could not save: {error}.</p>}
-      <span className="type-caption text-ink-muted">The emergency fund is shown apart and never gets a share of a contribution.</span>
-      {h.ticker && (h.kind === "stock" || h.kind === "bdr" || h.kind === "fii") && <Valuation ticker={h.ticker} />}
-      {h.ticker && <PriceAlert ticker={h.ticker} />}
-      {h.ticker && <Prices ticker={h.ticker} />}
+
+      <form
+        className="flex flex-col gap-2 border-t border-rule pt-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (cents) void save({ reserve: "amount", reserveCents: cents });
+        }}
+      >
+        <span className="inline-flex items-center gap-1.5 type-label text-ink-muted">
+          <ShieldCheck className="size-3.5" aria-hidden /> Emergency fund
+        </span>
+        <SegmentedControl<Reserve>
+          label="Emergency fund"
+          className="self-start"
+          options={[
+            { value: "none", label: "None" },
+            { value: "amount", label: "An amount" },
+            { value: "all", label: "All of it" },
+          ]}
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            if (m !== "amount") void save({ reserve: m });
+          }}
+        />
+        {mode === "amount" && (
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+            <TextField
+              label="Set apart from this group"
+              numeric
+              prefix="R$"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              error={amount && !cents ? "An amount, like 12.000,00" : undefined}
+              className="w-[200px]"
+            />
+            <Button type="submit" variant="primary" size="sm" disabled={busy || !cents}>
+              Save
+            </Button>
+          </div>
+        )}
+        {error && <p className="m-0 type-caption text-danger">Could not save: {error}.</p>}
+        <span className="max-w-[70ch] type-caption text-ink-muted">
+          The emergency fund is shown apart and never gets a share of a contribution.
+          {rest !== null && ` The other ${formatBRL(rest)} counts in ${classOf(g.class).name}.`}
+          {mode === "amount" && " When the group holds less than this, all of it is the emergency fund and the panel says how much is missing."}
+        </span>
+      </form>
+
+      {many && <Lots g={g} />}
+      {g.ticker && (g.kind === "stock" || g.kind === "bdr" || g.kind === "fii") && <Valuation ticker={g.ticker} />}
+      {g.ticker && <PriceAlert ticker={g.ticker} />}
+      {g.ticker && <Prices ticker={g.ticker} />}
+    </div>
+  );
+}
+
+/** Each lot of a group, five at first. */
+function Lots({ g }: { g: PositionGroup }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? g.lots : g.lots.slice(0, 5);
+  return (
+    <div className="flex flex-col border-t border-rule pt-4">
+      <span className="pb-2 type-label text-ink-muted">{g.ticker ? "Lots" : "Contributions"}</span>
+      <div role="table" aria-label={g.ticker ? "Lots" : "Contributions"}>
+        {shown.map((l) => (
+          <div key={l.id} role="row" className="grid min-h-9 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 border-b border-rule py-1 sm:grid-cols-[minmax(0,1fr)_128px_72px] sm:gap-x-4">
+            <span role="cell" className="type-caption text-ink-muted">
+              {l.maturity ? `Until ${fullDay(l.maturity)}` : g.ticker ? `${formatQuantity(l.quantity)} units` : `As of ${fullDay(l.asOf)}`}
+            </span>
+            <span role="cell" className="text-right">
+              <Amount cents={l.valueCents} sign="none" size="sm" />
+            </span>
+            <span role="cell" className="text-right type-figure-sm text-ink-muted">
+              {l.returnBp !== null ? formatPercent(l.returnBp, { sign: "always" }) : "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+      {g.lots.length > 5 && (
+        <Button variant="ghost" size="sm" className="mt-2 self-start" onClick={() => setAll(!all)}>
+          {all ? "Show fewer" : `Show ${g.lots.length - 5} more`}
+          {all ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}
+        </Button>
+      )}
     </div>
   );
 }
@@ -591,7 +724,7 @@ function Prices({ ticker }: { ticker: string }) {
 
 function Picks({ v }: { v: PortfolioOverview }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const stocks = v.holdings.filter((h) => h.ticker && (h.kind === "stock" || h.kind === "bdr"));
+  const stocks = v.groups.filter((h) => h.ticker && (h.kind === "stock" || h.kind === "bdr"));
   const withThesis = new Set(v.theses.map((t) => t.ticker));
   const missing = stocks.filter((h) => !withThesis.has(h.ticker!));
   const soon = v.theses.filter((t) => t.held && t.reportInDays !== null && t.reportInDays <= 7).sort((a, b) => a.reportInDays! - b.reportInDays!);

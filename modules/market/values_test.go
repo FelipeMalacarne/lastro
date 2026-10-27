@@ -3,6 +3,7 @@ package market
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestParsePercentRate(t *testing.T) {
@@ -59,4 +60,19 @@ func repeat(r Rate, n int) []Rate {
 		out[i] = r
 	}
 	return out
+}
+
+func TestLastWeekday(t *testing.T) {
+	tests := []struct{ day, want string }{
+		{"2026-10-27", "2026-10-26"}, // Tuesday: Monday
+		{"2026-10-26", "2026-10-23"}, // Monday: Friday
+		{"2026-10-25", "2026-10-23"}, // Sunday: Friday
+		{"2026-10-24", "2026-10-23"}, // Saturday: Friday
+	}
+	for _, tt := range tests {
+		d, _ := time.Parse(time.DateOnly, tt.day)
+		if got := lastWeekday(d).Format(time.DateOnly); got != tt.want {
+			t.Errorf("%s: %s, want %s", tt.day, got, tt.want)
+		}
+	}
 }

@@ -40,7 +40,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 		InvestedCents: inv.Value.Cents(), BasisCents: inv.Basis.Cents(), BandBp: t.Band.Bps(),
 		Targets:  map[Class]int64{},
 		NetWorth: netWorthView(nw),
-		Classes:  []ClassView{}, Growth: []GrowthPoint{}, Holdings: []HoldingView{}, Theses: []ThesisView{},
+		Classes:  []ClassView{}, Growth: []GrowthPoint{}, Groups: []GroupView{}, Theses: []ThesisView{},
 	}
 	for c, p := range t.Allocation.Weights() {
 		out.Targets[c] = p.Bps()
@@ -102,9 +102,9 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 
 	// Each class against its target.
 	counts := map[Class]int{}
-	for _, h := range v.Holdings {
-		if !h.Position.Emergency() {
-			counts[h.Position.Class()]++
+	for _, g := range v.Groups {
+		if g.Amounts.Value.Cents() > g.Emergency.Value.Cents() {
+			counts[g.Group.Class()]++
 		}
 	}
 	for _, c := range Classes {
@@ -157,36 +157,24 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 		}
 	}
 
-	// Holdings, biggest first within each class.
+	// Groups, biggest first, and their lots, biggest first.
 	where := map[string]bool{}
 	var newest time.Time
 	held := map[string]int64{}
-	for _, h := range v.Holdings {
-		p := h.Position
-		where[p.Institution] = true
-		if h.At.After(newest) {
-			newest = h.At
+	for _, g := range v.Groups {
+		out.Groups = append(out.Groups, groupView(g))
+		for _, h := range g.Holdings {
+			where[h.Position.Institution] = true
+			if h.At.After(newest) {
+				newest = h.At
+			}
+			if !h.Position.Ticker.IsZero() {
+				held[h.Position.Ticker.String()] += h.Value.Cents()
+			}
 		}
-		hv := HoldingView{
-			ID: p.ExternalID, Name: p.Name, Institution: p.Institution, Kind: p.Kind, Class: p.Class(),
-			AutoClass: Classify(p.Kind, p.Indexer, p.Ticker, p.Name), Emergency: p.Emergency(), Quantity: p.Quantity.String(),
-			ValueCents: h.Value.Cents(), BasisCents: p.Basis().Cents(), Indexer: p.Indexer, RateBp: p.Rate.Bps(),
-			AsOf: day(h.At), Priced: h.Priced,
-		}
-		if !p.Ticker.IsZero() {
-			hv.Ticker = ptr(p.Ticker.String())
-			held[p.Ticker.String()] += h.Value.Cents()
-		}
-		if p.Maturity != nil {
-			hv.Maturity = ptr(day(*p.Maturity))
-		}
-		if b := p.Basis().Cents(); b > 0 {
-			hv.ReturnBp = ptr((h.Value.Cents() - b) * 10000 / b)
-		}
-		out.Holdings = append(out.Holdings, hv)
 	}
-	sort.SliceStable(out.Holdings, func(i, j int) bool { return out.Holdings[i].ValueCents > out.Holdings[j].ValueCents })
-	out.Positions = len(out.Holdings)
+	sort.SliceStable(out.Groups, func(i, j int) bool { return out.Groups[i].ValueCents > out.Groups[j].ValueCents })
+	out.Positions = len(out.Groups)
 	for w := range where {
 		out.Where = append(out.Where, w)
 	}
@@ -213,6 +201,48 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 		out.Theses = append(out.Theses, tv)
 	}
 	return out, nil
+}
+
+func groupView(g GroupValue) GroupView {
+	p := g.Holdings[0].Position
+	gv := GroupView{
+		ID: g.Group.ID, Name: p.Name, Institution: p.Institution, Kind: p.Kind, Class: g.Group.Class(), AutoClass: g.Group.AutoClass(),
+		Indexer: p.Indexer, RateBp: p.Rate.Bps(), Reserve: g.Group.Reserve.Mode(), ReserveCents: g.Group.Reserve.Amount().Cents(),
+		EmergencyCents: g.Emergency.Value.Cents(), ShortCents: g.Group.Reserve.Short(g.Amounts.Value).Cents(),
+		ValueCents: g.Amounts.Value.Cents(), BasisCents: g.Cost().Cents(), Lots: []LotView{},
+	}
+	if !p.Ticker.IsZero() {
+		gv.Ticker = ptr(p.Ticker.String())
+	}
+	if b := gv.BasisCents; b > 0 {
+		gv.ReturnBp = ptr((gv.ValueCents - b) * 10000 / b)
+	}
+	var newest time.Time
+	for _, h := range g.Holdings {
+		lp := h.Position
+		lv := LotView{ID: lp.ExternalID, Quantity: lp.Quantity.String(), ValueCents: h.Value.Cents(), BasisCents: lp.Basis().Cents(), AsOf: day(h.At), Priced: h.Priced}
+		if b := lp.Basis().Cents(); b > 0 {
+			lv.ReturnBp = ptr((h.Value.Cents() - b) * 10000 / b)
+		}
+		if lp.Maturity != nil {
+			m := day(*lp.Maturity)
+			lv.Maturity = &m
+			if gv.FirstMaturity == nil || m < *gv.FirstMaturity {
+				gv.FirstMaturity = ptr(m)
+			}
+			if gv.LastMaturity == nil || m > *gv.LastMaturity {
+				gv.LastMaturity = ptr(m)
+			}
+		}
+		if h.At.After(newest) {
+			newest = h.At
+		}
+		gv.Priced = gv.Priced || h.Priced
+		gv.Lots = append(gv.Lots, lv)
+	}
+	gv.AsOf = day(newest)
+	sort.SliceStable(gv.Lots, func(i, j int) bool { return gv.Lots[i].ValueCents > gv.Lots[j].ValueCents })
+	return gv
 }
 
 func netWorthView(n NetWorth) NetWorthView {

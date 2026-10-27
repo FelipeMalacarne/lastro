@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"lastro/migrations"
 	"lastro/modules/ledger"
 	"lastro/modules/market"
 	"lastro/money"
@@ -42,10 +43,11 @@ func TestPortfolio(t *testing.T) {
 	if n, err := s.SyncPositions(ctx, "it", reports(day1, "100", 1000000)); err != nil || n != 5 {
 		t.Fatalf("first sync: %d, %v (a CDB withdrawn before lastro knew it is not followed)", n, err)
 	}
-	if err := s.UpdatePosition(ctx, "rdb", nil, ptr(true)); err != nil {
+	all := WholeReserve()
+	if err := s.UpdateGroup(ctx, GroupID(reports(day1, "100", 1000000)[4]), nil, &all); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpdatePosition(ctx, "nope", nil, ptr(true)); !errors.Is(err, ErrNotFound) {
+	if err := s.UpdateGroup(ctx, "nope", nil, &all); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown position: %v", err)
 	}
 	if _, err := s.Valuate(ctx, s.Today()); err != nil {
@@ -197,5 +199,109 @@ func TestDividendsAndPriceDrops(t *testing.T) {
 	drops, err := s.PriceDrops(ctx)
 	if err != nil || len(drops) != 1 || drops[0].ChangeBps != -609 || drops[0].CloseCents != 3822 {
 		t.Errorf("a 6,1%% fall over a 5%% alert: %+v %v", drops, err)
+	}
+}
+
+// Caixinha contributions are one group: its class and the amount set apart
+// as the emergency fund apply to every lot, the next ones too.
+func TestGroups(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	now := time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	lot := func(id string, value int64, maturity string) Report {
+		m, _ := time.Parse(time.DateOnly, maturity)
+		in := money.BRLCents(value)
+		return Report{ExternalID: id, Item: "it", Institution: "Nubank", Kind: KindFixedIncome, Name: "CDB - NU FINANCEIRA S.A.", Indexer: IndexerCDI, Rate: money.FromBps(10000), Value: money.BRLCents(value), Invested: &in, Maturity: &m, AsOf: s.Today(), Active: true}
+	}
+	lots := []Report{lot("a", 1000000, "2028-05-04"), lot("b", 800000, "2028-09-30"), lot("c", 300000, "2027-12-11")}
+	if _, err := s.SyncPositions(ctx, "it", lots); err != nil {
+		t.Fatal(err)
+	}
+	fund, _ := AmountReserve(money.BRLCents(1200000))
+	if err := s.UpdateGroup(ctx, GroupID(lots[0]), nil, &fund); err != nil {
+		t.Fatal(err)
+	}
+	// A new contribution joins the group.
+	if _, err := s.SyncPositions(ctx, "it", append(lots, lot("d", 100000, "2028-10-27"))); err != nil {
+		t.Fatal(err)
+	}
+	o, err := s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(o.Groups) != 1 || o.Positions != 1 {
+		t.Fatalf("groups %+v", o.Groups)
+	}
+	g := o.Groups[0]
+	if g.ValueCents != 2200000 || len(g.Lots) != 4 || g.Reserve != ReserveAmount || g.ReserveCents != 1200000 || g.EmergencyCents != 1200000 ||
+		*g.FirstMaturity != "2027-12-11" || *g.LastMaturity != "2028-10-27" || g.Lots[0].ValueCents != 1000000 {
+		t.Errorf("group %+v", g)
+	}
+	if o.NetWorth.EmergencyCents != 1200000 || o.InvestedCents != 1000000 {
+		t.Errorf("emergency %d, invested %d", o.NetWorth.EmergencyCents, o.InvestedCents)
+	}
+	// Withdrawing two lots leaves the group short of the amount.
+	if _, err := s.SyncPositions(ctx, "it", []Report{lots[1], lot("d", 100000, "2028-10-27")}); err != nil {
+		t.Fatal(err)
+	}
+	if o, err = s.Overview(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if g := o.Groups[0]; g.EmergencyCents != 900000 || g.ShortCents != 300000 || o.InvestedCents != 0 {
+		t.Errorf("short: %+v, invested %d", g, o.InvestedCents)
+	}
+}
+
+// The migration to groups keeps what each lot was marked as: a group whose
+// open lots were all emergency fund stays all of it, one partly marked sets
+// apart what those lots were worth, and the class chosen for a lot goes to
+// its group. The ids it computes in SQL are GroupID's.
+func TestGroupsFromMarkedLots(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	if err := migrations.DownTo(ctx, pool, 20261106120000); err != nil {
+		t.Fatal(err)
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO portfolio.positions (external_id, item_id, institution, kind, name, ticker, value_cents, invested_cents, basis_cents,
+		    indexer, rate_bps, as_of, class_override, emergency, first_seen, closed_at, updated_at)
+		VALUES
+		    ('a', 'it', 'Nubank', 'fixed_income', 'CDB - NU FINANCEIRA S.A.', NULL, 1000000, 1000000, 1000000, 'CDI', 10000, '2026-10-27', NULL, true, now(), NULL, now()),
+		    ('b', 'it', 'Nubank', 'fixed_income', 'CDB - NU FINANCEIRA S.A.', NULL, 500000, 500000, 500000, 'CDI', 10000, '2026-10-27', NULL, true, now(), NULL, now()),
+		    ('c', 'it', 'Nubank', 'fixed_income', 'CDB - NU FINANCEIRA S.A.', NULL, 300000, 300000, 300000, 'CDI', 10000, '2026-10-27', NULL, false, now(), NULL, now()),
+		    ('d', 'it', 'Nubank', 'fixed_income', 'CDB - NU FINANCEIRA S.A.', NULL, 0, 200000, 0, 'CDI', 10000, '2026-10-27', NULL, false, now(), now(), now()),
+		    ('e', 'it', 'Nubank', 'fixed_income', 'CDB - NU FINANCEIRA S.A.', NULL, 400000, 400000, 400000, 'CDI', 12000, '2026-10-27', NULL, true, now(), NULL, now()),
+		    ('f', 'it', 'Nubank', 'etf', 'Itaú Ibovespa', 'BOVA11', 200000, NULL, 200000, '', 0, '2026-10-27', 'global', false, now(), NULL, now())`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Up(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	o, err := s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type want struct {
+		reserve          string
+		cents, emergency int64
+		class            Class
+	}
+	got := map[int64]want{}
+	for _, g := range o.Groups {
+		got[g.RateBp] = want{g.Reserve, g.ReserveCents, g.EmergencyCents, g.Class}
+	}
+	exp := map[int64]want{
+		10000: {ReserveAmount, 1500000, 1500000, ClassCDI}, // a and b marked, c not, d closed
+		12000: {ReserveAll, 0, 400000, ClassCDI},
+		0:     {ReserveNone, 0, 0, ClassGlobal},
+	}
+	for rate, w := range exp {
+		if got[rate] != w {
+			t.Errorf("rate %d: %+v, want %+v", rate, got[rate], w)
+		}
 	}
 }

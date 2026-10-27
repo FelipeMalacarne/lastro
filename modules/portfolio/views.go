@@ -2,9 +2,9 @@ package portfolio
 
 // OverviewView is the Portfolio screen.
 type OverviewView struct {
-	AsOf      *string  `json:"asOf"` // the newest price or report among the holdings
-	Positions int      `json:"positions"`
-	Where     []string `json:"where"` // institutions
+	AsOf      *string  `json:"asOf"`      // the newest price or report among the holdings
+	Positions int      `json:"positions"` // groups held: a product bought in several lots is one
+	Where     []string `json:"where"`     // institutions
 
 	InvestedCents   int64   `json:"investedCents"`
 	BasisCents      int64   `json:"basisCents"`
@@ -24,8 +24,8 @@ type OverviewView struct {
 	Growth     []GrowthPoint  `json:"growth"`
 	Benchmarks BenchmarksView `json:"benchmarks"`
 
-	Holdings []HoldingView `json:"holdings"`
-	Theses   []ThesisView  `json:"theses"`
+	Groups []GroupView  `json:"groups"`
+	Theses []ThesisView `json:"theses"`
 }
 
 type NetWorthView struct {
@@ -47,7 +47,7 @@ type ClassView struct {
 	TargetBp    int64  `json:"targetBp"`
 	Status      Status `json:"status"`
 	Return12mBp *int64 `json:"return12mBp"`
-	Holdings    int    `json:"holdings"`
+	Holdings    int    `json:"holdings"` // groups with money in the class
 }
 
 type GrowthPoint struct {
@@ -64,7 +64,9 @@ type BenchmarksView struct {
 	IPCAUntil *string `json:"ipcaUntil"`
 }
 
-type HoldingView struct {
+// GroupView is a product held, in one or more lots, and how much of it is
+// the emergency fund.
+type GroupView struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Institution string  `json:"institution"`
@@ -72,16 +74,36 @@ type HoldingView struct {
 	Ticker      *string `json:"ticker"`
 	Class       Class   `json:"class"`
 	AutoClass   Class   `json:"autoClass"` // Classify's, to go back to
-	Emergency   bool    `json:"emergency"`
-	Quantity    string  `json:"quantity"`
-	ValueCents  int64   `json:"valueCents"`
-	BasisCents  int64   `json:"basisCents"`
-	ReturnBp    *int64  `json:"returnBp"` // since it was put in
 	Indexer     Indexer `json:"indexer"`
 	RateBp      int64   `json:"rateBp"`
-	Maturity    *string `json:"maturity"`
-	AsOf        string  `json:"asOf"`
-	Priced      bool    `json:"priced"` // valued at a market quote newer than the bank's report
+	// Reserve is "none", "amount" or "all"; ReserveCents is the amount set
+	// apart, for "amount". EmergencyCents is what of the group is the
+	// emergency fund today, and ShortCents what it lacks to cover the amount.
+	Reserve        string    `json:"reserve"`
+	ReserveCents   int64     `json:"reserveCents"`
+	EmergencyCents int64     `json:"emergencyCents"`
+	ShortCents     int64     `json:"shortCents"`
+	ValueCents     int64     `json:"valueCents"`
+	BasisCents     int64     `json:"basisCents"` // the open lots, at cost
+	ReturnBp       *int64    `json:"returnBp"`   // since bought
+	FirstMaturity  *string   `json:"firstMaturity"`
+	LastMaturity   *string   `json:"lastMaturity"`
+	AsOf           string    `json:"asOf"`
+	Priced         bool      `json:"priced"`
+	Lots           []LotView `json:"lots"` // biggest first
+}
+
+// LotView is one lot of a group: a single purchase or contribution, as the
+// bank reports it.
+type LotView struct {
+	ID         string  `json:"id"`
+	Quantity   string  `json:"quantity"`
+	ValueCents int64   `json:"valueCents"`
+	BasisCents int64   `json:"basisCents"`
+	ReturnBp   *int64  `json:"returnBp"` // since it was put in
+	Maturity   *string `json:"maturity"`
+	AsOf       string  `json:"asOf"`
+	Priced     bool    `json:"priced"` // valued at a market quote newer than the bank's report
 }
 
 type ThesisView struct {
