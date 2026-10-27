@@ -1,0 +1,126 @@
+package ledger
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode"
+
+	"lastro/money"
+)
+
+// ErrCurrencyChanged means a value arrived in another currency than the one
+// the account or transaction already has. Currencies never change.
+var ErrCurrencyChanged = errors.New("ledger: currency changed")
+
+// Account is one of my accounts at a bank: checking, savings or a credit
+// card. Its balance is from my point of view: on a card it is negative, the
+// amount owed on the open bill.
+type Account struct {
+	id          AccountID
+	externalID  ExternalID
+	name        string
+	institution string
+	typ         AccountType
+	number      string
+	currency    money.Currency
+	balance     money.Money
+	balanceAt   time.Time
+}
+
+// AccountDetails is what a source knows about an account at a given moment.
+type AccountDetails struct {
+	ExternalID  ExternalID
+	Name        string
+	Institution string
+	Type        AccountType
+	Number      string // as the bank formats it; only the last four digits are kept
+	Balance     money.Money
+	BalanceAt   time.Time
+}
+
+// NewAccount creates an account. Its currency is the currency of the
+// balance, and from then on everything in the account is in that currency.
+func NewAccount(d AccountDetails) (*Account, error) {
+	if err := d.validate(); err != nil {
+		return nil, err
+	}
+	a := &Account{
+		id:         AccountID(newID()),
+		externalID: d.ExternalID,
+		typ:        d.Type,
+		currency:   d.Balance.Currency(),
+	}
+	a.apply(d)
+	return a, nil
+}
+
+// Refresh applies newer details from the source. Type and currency never
+// change; a balance older than the one already known is ignored.
+func (a *Account) Refresh(d AccountDetails) error {
+	if err := d.validate(); err != nil {
+		return err
+	}
+	switch {
+	case d.ExternalID != a.externalID:
+		return fmt.Errorf("%w: details of account %s applied to %s", ErrInvalid, d.ExternalID, a.externalID)
+	case d.Type != a.typ:
+		return fmt.Errorf("%w: account %s cannot change from %s to %s", ErrInvalid, a.externalID, a.typ, d.Type)
+	case d.Balance.Currency() != a.currency:
+		return fmt.Errorf("%w: account %s is in %s, got %s", ErrCurrencyChanged, a.externalID, a.currency, d.Balance.Currency())
+	}
+	if d.BalanceAt.Before(a.balanceAt) {
+		d.Balance, d.BalanceAt = a.balance, a.balanceAt
+	}
+	a.apply(d)
+	return nil
+}
+
+func (a *Account) apply(d AccountDetails) {
+	a.name = strings.TrimSpace(d.Name)
+	a.institution = strings.TrimSpace(d.Institution)
+	a.number = lastDigits(d.Number, 4)
+	a.balance, a.balanceAt = d.Balance, d.BalanceAt
+}
+
+func (d AccountDetails) validate() error {
+	if d.ExternalID.IsZero() {
+		return fmt.Errorf("%w: account without an external id", ErrInvalid)
+	}
+	if strings.TrimSpace(d.Name) == "" {
+		return fmt.Errorf("%w: account %s without a name", ErrInvalid, d.ExternalID)
+	}
+	if _, err := ParseAccountType(string(d.Type)); err != nil {
+		return err
+	}
+	if _, err := money.Zero(d.Balance.Currency()); err != nil {
+		return fmt.Errorf("%w: account %s balance: %w", ErrInvalid, d.ExternalID, err)
+	}
+	return nil
+}
+
+// lastDigits keeps the last n digits of an account or card number: enough to
+// tell accounts apart on screen, never the whole number.
+func lastDigits(s string, n int) string {
+	var digits []rune
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			digits = append(digits, r)
+		}
+	}
+	if len(digits) > n {
+		digits = digits[len(digits)-n:]
+	}
+	return string(digits)
+}
+
+func (a *Account) ID() AccountID            { return a.id }
+func (a *Account) ExternalID() ExternalID   { return a.externalID }
+func (a *Account) Name() string             { return a.name }
+func (a *Account) Institution() string      { return a.institution }
+func (a *Account) Type() AccountType        { return a.typ }
+func (a *Account) Number() string           { return a.number }
+func (a *Account) Currency() money.Currency { return a.currency }
+func (a *Account) Balance() money.Money     { return a.balance }
+func (a *Account) BalanceAt() time.Time     { return a.balanceAt }

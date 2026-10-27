@@ -6,22 +6,25 @@
 
 ## Concepts
 
-- `Account` (aggregate): checking account, credit card, investment account or savings pot.
-- `Transaction` (aggregate): one movement in an account.
+- `Account` (aggregate, `account.go`): checking account, savings account or credit card. Its balance is from my point of view: negative on a card (the amount owed on the open bill). Only the last four digits of its number are kept.
+- `Transaction` (aggregate, `transaction.go`): one movement in an account. The amount is negative when money leaves the account, on checking and on cards alike. Its kind is the source's until the transaction is paired; while paired, the pair's.
+- `Pair` (in `transaction.go`): links the two sides of a movement between my own accounts. Into a card it makes both sides a card bill payment; between bank accounts, a transfer.
 - Value objects (`values.go`): `ExternalID` (the source's id, today Pluggy's), `Kind` (expense, income, transfer, card bill payment; only the first two count in totals), `Installment` ("3 of 10"), `CategoryID` (opaque, owned by `categorize`), `Source` (rule, LLM or manual), `Status` (pending or posted) and `AccountType` (checking, savings, credit card). Constructors return an error wrapping `ErrInvalid` instead of an invalid value.
-- `TransferMatcher` (domain service): pairs an outflow in one of your accounts with the matching inflow in another.
+- `TransferMatcher` (domain service): pairs an outflow in one of my accounts with the matching inflow in another.
 
 ## Invariants
 
-- A transaction is unique per account and `ExternalID`. Importing again never duplicates: it is an upsert.
-- Card bill payments and transfers between your own accounts never count as expense or income.
-- A transaction's amount never changes currency.
-- A manual category beats an automatic one. Rules and the LLM never overwrite a manual choice.
-- Pending transactions may change or disappear on the next sync. Only posted transactions go into closed reports.
+- A transaction is unique per account and `ExternalID`. Importing again never duplicates: it is an upsert. When the source recreates a transaction with a new `ExternalID` but the same bank reference, the existing one is re-keyed, keeping its category.
+- An account's type and currency never change, and neither does a transaction's currency: it is always the account's.
+- Card bill payments and transfers between my own accounts never count as expense or income.
+- A pair joins an outflow and an inflow of the same amount in two different accounts, never out of a card. If one side is removed or its amount changes, the pair breaks on both sides and each gets its source's kind back.
+- A manual category beats an automatic one. Rules and the LLM never overwrite a manual choice (`ErrManualCategory`).
+- Pending transactions may change or disappear on the next sync. A transaction the source stops returning is removed (kept, but out of every list and total); if it comes back, it is restored. Removed transactions cannot be categorized or paired. Only posted transactions go into closed reports.
+- A balance older than the one already known never replaces it.
 
 ## Events
 
-- Publishes: `TransactionsImported` (new or changed IDs), `TransactionCategorized`.
+- Publishes: `TransactionsImported` (ids of new or changed transactions, after the import commits), `TransactionCategorized` (recorded by the aggregate, published after the commit).
 - Consumes: none. It receives commands from `ingest` and `categorize` through its Service.
 
 ## Milestone
