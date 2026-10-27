@@ -1,6 +1,6 @@
 # ADR-0008: Identity through a self-hosted Zitadel, lastro as a resource server
 
-**Status:** Proposed (supersedes ADR-0004 once accepted)
+**Status:** Proposed (supersedes ADR-0004 once accepted). The lastro side is built and stays off until `LASTRO_OIDC_ISSUER` is set; the spike with Zitadel decides.
 **Date:** 2026-10-27
 **Deciders:** Felipe
 
@@ -19,12 +19,14 @@ An identity provider in the cluster can also serve other services that speak OID
 ### lastro is a resource server and knows nothing about the provider
 
 - `platform/auth` verifies OIDC/OAuth JWTs from one configured issuer. It reads discovery and the JWKS (the key cache and refresh limit from `cfaccess.go` stay), accepts RS256 and ES256, and checks issuer, audience and the validity window.
-- **Only the owner gets in.** The provider will hold other users of other services, so a valid token is not enough: the token must carry lastro's `owner` project role, and the project only issues tokens to users granted on it.
-- **Permissions by client.** `Identity` gains `ClientID` and a permission (`read` or `write`) that lastro derives from the client (`azp`/`client_id`) through config: the web app and the CLI write, the MCP client reads. The middleware lets `GET` through with `read` and asks `write` for every other method, so no module changes.
-- **The web app uses a BFF.** The server is a confidential client: `/auth/login`, `/auth/callback` and `/auth/logout` run Authorization Code with PKCE, and the browser only holds an `HttpOnly`, `SameSite=Lax` session cookie. Sessions live in Postgres, in an `auth` schema. No token reaches JavaScript.
+- **Only the owner gets in.** The provider will hold other users of other services, so a valid token is not enough: its `sub` must be the owner's (`LASTRO_OIDC_OWNER_SUBJECT`). That works with any provider and names one exact user. In Zitadel, the project also checks that a user is granted on it before issuing a token, a second lock.
+- **Permissions by client.** `Identity` gains `ClientID` and a permission (`read` or `write`) that lastro derives from the client (`azp`, then `client_id`). Writing is opt-in: the web session, the CLI's client and the clients in `LASTRO_OIDC_WRITE_CLIENTS` write; every other client, Claude's among them, only reads. The middleware lets `GET` through with `read` and asks `write` for every other method, so no module changes. MCP is the exception: every call is a `POST`, so `/mcp` takes any of the owner's bearer tokens and its tools are read-only by construction (ADR-0009).
+- **The web app uses a BFF.** The server is a confidential client: `/auth/login`, `/auth/callback` and `/auth/logout` run Authorization Code with PKCE, `state` and `nonce`, and the browser only holds an `HttpOnly`, `SameSite=Lax` session cookie. No token reaches JavaScript.
+- **The session is a sealed cookie**, not a table: the owner and an expiry, encrypted and authenticated with AES-256-GCM under `LASTRO_SESSION_KEY`, for 14 days. No migration and no `auth` schema. The cost is that one session cannot be revoked alone; rotating the key signs every session out, which is enough for one user. An unsafe request carrying a session must come from lastro's own origin, on top of `SameSite=Lax`.
 - **Bearer tokens** for everything else: CLI, MCP and the future app.
-- **Discovery for OAuth clients:** `/.well-known/oauth-protected-resource` (RFC 9728), and a `401` with `WWW-Authenticate: Bearer resource_metadata="…"`.
-- The middleware tries the session cookie, then the bearer token. `LASTRO_AUTH_DISABLED` keeps its rule: dev only.
+- **Discovery for OAuth clients:** `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp` (RFC 9728), and a `401` with `WWW-Authenticate: Bearer resource_metadata="…"`. The root document also names the CLI's public client (`lastro_cli_client_id`), so `lastro connect` needs only the server's URL.
+- The middleware tries the session cookie, then the bearer token, then the Access JWT while Access is still configured. A bearer token that fails never falls through to the next way in. `LASTRO_AUTH_DISABLED` keeps its rule: dev only.
+- Discovery happens on first use and is cached, so lastro starts while the provider is down.
 - OAuth plumbing uses `golang.org/x/oauth2`. Writing PKCE and the code exchange by hand is the kind of code where a vetted library earns the dependency. JWT verification stays on the standard library, as today.
 
 ### The provider is Zitadel, on saradomin
