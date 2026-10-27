@@ -513,7 +513,9 @@ func seedMarket(ctx context.Context, a *app.App, today time.Time, prices map[str
 	}
 	var divs []market.Dividend
 	var funds []market.Fundamental
-	month := func(n int) time.Time { return time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, n, 0) }
+	month := func(n int) time.Time {
+		return time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, n, 0)
+	}
 	for n := -15; n <= 1; n++ {
 		m := month(n)
 		divs = append(divs, market.Dividend{Symbol: "ITUB4", Label: "JCP", ComDate: m.AddDate(0, 0, -1), PaymentDate: m.AddDate(0, 1, 0), RateMicro: 17_600})
