@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"lastro/modules/categorize"
 	"lastro/modules/ingest"
 	"lastro/modules/ledger"
 	"lastro/platform/auth"
@@ -33,8 +34,9 @@ type App struct {
 	auth func(http.Handler) http.Handler
 
 	// One field per module, wired in New in dependency order.
-	Ledger *ledger.Service
-	Ingest *ingest.Service
+	Ledger     *ledger.Service
+	Ingest     *ingest.Service
+	Categorize *categorize.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -63,6 +65,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
+	a.Categorize = categorize.New(categorize.NewRepository(pool))
 	// M2 on: subscriptions, e.g. events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
 
 	return a, nil
@@ -99,6 +102,7 @@ func (a *App) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
 	a.Ledger.RegisterRoutes(api, a.Logger)
 	a.Ingest.RegisterRoutes(api, a.Logger)
+	a.Categorize.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())

@@ -8,6 +8,26 @@ import (
 	"time"
 )
 
+type CategorizeCategory struct {
+	ID         string
+	Name       string
+	Color      string
+	Budgeted   bool
+	ArchivedAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type CategorizeRule struct {
+	ID          string
+	PatternKind string
+	Pattern     string
+	AccountID   *string
+	CategoryID  string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type IngestItem struct {
 	ID               string
 	Institution      string

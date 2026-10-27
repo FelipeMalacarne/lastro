@@ -35,6 +35,10 @@ func NotFound(msg string) *Error {
 	return &Error{Status: http.StatusNotFound, Code: "not_found", Message: msg}
 }
 
+func Conflict(msg string) *Error {
+	return &Error{Status: http.StatusConflict, Code: "conflict", Message: msg}
+}
+
 // WriteError writes the error response. Anything that is not an *Error becomes
 // a generic 500: the details go to the log, never to the client.
 func WriteError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {

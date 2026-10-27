@@ -45,7 +45,7 @@ Every account and transaction on the phone, synced every day, with transfers and
 
 Every transaction has a category or is waiting in the review queue, and every correction teaches a rule.
 
-- [ ] `categorize`: categories (CRUD, seeded with the eight note colours) and the `Rule` aggregate, with tests
+- [x] `categorize`: categories (CRUD, seeded with the eight note colours) and the `Rule` aggregate, with tests
 - [ ] Rule engine, from the most specific rule to the most generic
 - [ ] `TransactionsImported` handler
 - [ ] Review queue screen, where a manual correction becomes a rule
