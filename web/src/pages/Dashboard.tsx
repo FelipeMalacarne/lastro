@@ -25,7 +25,7 @@ import {
   type TransactionList,
 } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
-import { formatBRL, formatDay, formatMonth, formatPercent, todayISO } from "@/lib/format";
+import { formatBRL, formatDay, formatMonth, formatPercent, keepAmounts, todayISO } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
@@ -115,8 +115,8 @@ function Alerts() {
           >
             <Icon className={cn("mt-0.5 size-4 flex-none", tone[a.severity])} aria-hidden />
             <span className="flex min-w-0 flex-col">
-              <span className="text-[14px] leading-5 font-semibold">{a.title}</span>
-              <span className="type-caption text-ink-muted">{a.detail}</span>
+              <span className="text-[14px] leading-5 font-semibold">{keepAmounts(a.title)}</span>
+              <span className="type-caption text-ink-muted">{keepAmounts(a.detail)}</span>
             </span>
           </Link>
         );

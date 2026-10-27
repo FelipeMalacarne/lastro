@@ -3,7 +3,7 @@ import { CategoryTag } from "@/components/CategoryTag";
 import { Panel } from "@/components/Panel";
 import { useResource } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
-import { formatBRL, formatMonth, formatPercent } from "@/lib/format";
+import { formatBRL, formatMonth, formatPercent, keepAmounts } from "@/lib/format";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
 import { PageHeader } from "@/shell/AppShell";
@@ -46,7 +46,7 @@ export function Report() {
         <>
           <Panel className="lg:p-6" footer="Kept: income minus everything that counts as spending, over income. Pay yourself first is part of what was kept.">
             <div className="flex flex-col gap-5">
-              {d.sentence && <p className="m-0 max-w-[70ch] font-display text-[20px] leading-7 font-medium">{d.sentence}</p>}
+              {d.sentence && <p className="m-0 max-w-[70ch] font-display text-[20px] leading-7 font-medium">{keepAmounts(d.sentence)}</p>}
               <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-4">
                 <Figure label="Income" cents={d.incomeCents} sign="always" />
                 <Figure
@@ -104,7 +104,7 @@ export function Report() {
                 ) : (
                   <ul className="m-0 flex flex-col gap-2 pl-[18px] text-[14px] leading-5">
                     {d.notes.map((n) => (
-                      <li key={n}>{n}</li>
+                      <li key={n}>{keepAmounts(n)}</li>
                     ))}
                   </ul>
                 )}

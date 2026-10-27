@@ -81,13 +81,16 @@ export function AccountPage({ id }: { id: string }) {
         }
       />
       {all.length > 1 && (
-        <SegmentedControl
-          label="Account"
-          className="lg:hidden"
-          options={all.map((x) => ({ value: x.a.id, label: shortName(x.a, all.map((y) => y.a)) }))}
-          value={a.id}
-          onChange={(v) => navigate(`/accounts/${v}${location.search}`)}
-        />
+        // Many accounts scroll sideways instead of widening the page.
+        <div className="-mx-4 overflow-x-auto px-4 lg:hidden">
+          <SegmentedControl
+            label="Account"
+            className="w-max [&_button]:whitespace-nowrap"
+            options={all.map((x) => ({ value: x.a.id, label: shortName(x.a, all.map((y) => y.a)) }))}
+            value={a.id}
+            onChange={(v) => navigate(`/accounts/${v}${location.search}`)}
+          />
+        </div>
       )}
       {notice && (
         <Notice tone={notice.tone} title={notice.title}>
@@ -102,6 +105,7 @@ export function AccountPage({ id }: { id: string }) {
 
 /** "Checking", "Card", or with the bank when there is more than one. */
 function shortName(a: Account, all: Account[]): string {
+  if (a.manual) return a.name;
   const kind = a.type === "credit_card" ? "Card" : typeName[a.type];
   return new Set(all.map((x) => x.institution)).size > 1 && a.institution !== all[0].institution ? `${a.institution} ${kind.toLowerCase()}` : kind;
 }
@@ -381,9 +385,9 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
           {live.length === 0 ? (
             <p className="m-0 px-5 type-body text-ink-muted">{purchases.loading ? "Loading…" : "No installments in progress."}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[520px]">
-                <div className="grid grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] gap-3 border-y border-rule bg-paper-sunken px-5 py-2 type-label text-ink-muted max-lg:hidden">
+            <div>
+              <div>
+                <div className="hidden grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] gap-3 border-y border-rule bg-paper-sunken px-5 py-2 type-label text-ink-muted lg:grid">
                   <span>Purchase</span>
                   <span>Progress</span>
                   <span className="text-right">Per month</span>
@@ -394,21 +398,24 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
                   <Link
                     key={p.installments[0].id}
                     to={`/transactions?month=${p.installments.find((i) => i.number === p.current)?.date.slice(0, 7) ?? current}&account=${a.id}&tx=${(p.installments.find((i) => i.number === p.current) ?? p.installments[0]).id}`}
-                    className="grid min-h-12 grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] items-center gap-3 border-b border-rule px-5 py-2 text-ink no-underline hover:bg-paper-sunken hover:text-ink"
+                    className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-rule px-5 py-2.5 text-ink no-underline hover:bg-paper-sunken hover:text-ink lg:grid-cols-[minmax(0,1fr)_150px_96px_104px_72px] lg:py-2"
                   >
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate type-body-strong">{p.description}</span>
                       <span className="type-caption text-ink-muted">{formatBRL(p.amountCents * p.total)} in all</span>
                     </span>
-                    <span className="flex flex-col gap-1">
+                    <span className="flex flex-col gap-1 max-lg:col-span-2 max-lg:row-start-2">
                       <InstallmentProgress current={p.current} total={p.total} />
                       <span className="type-figure-sm text-ink-muted">
                         {p.current} of {p.total}
+                        <span className="lg:hidden">
+                          {" "}· {formatBRL(p.remainingCents)} still to pay · last in {formatMonth(p.lastDate.slice(0, 7), true)}
+                        </span>
                       </span>
                     </span>
-                    <Amount cents={p.amountCents} sign="none" className="text-right" />
-                    <Amount cents={p.remainingCents} sign="none" className="text-right" />
-                    <span className="text-right type-figure-sm text-ink-muted">{formatMonth(p.lastDate.slice(0, 7), true)}</span>
+                    <Amount cents={p.amountCents} sign="none" className="text-right max-lg:row-start-1 max-lg:col-start-2" />
+                    <Amount cents={p.remainingCents} sign="none" className="text-right max-lg:hidden" />
+                    <span className="text-right type-figure-sm text-ink-muted max-lg:hidden">{formatMonth(p.lastDate.slice(0, 7), true)}</span>
                   </Link>
                 ))}
               </div>

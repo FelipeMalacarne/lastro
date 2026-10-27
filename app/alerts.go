@@ -34,7 +34,7 @@ func (a *App) Alerts(ctx context.Context) ([]budget.AlertView, error) {
 			Key:      fmt.Sprintf("price:%s:%s", d.Ticker, d.Date.Format(time.DateOnly)),
 			Kind:     AlertPriceDrop,
 			Severity: "info",
-			Title:    fmt.Sprintf("%s fell %s on %s", d.Ticker, money.FromBps(-d.ChangeBps), d.Date.Format("2 Jan")),
+			Title:    fmt.Sprintf("%s fell %s on %s", d.Ticker, money.FromBps((-d.ChangeBps+5)/10*10), d.Date.Format("2 Jan")),
 			Detail:   detail,
 			Link:     "/portfolio",
 		})

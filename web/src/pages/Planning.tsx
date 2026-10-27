@@ -92,7 +92,7 @@ export function Planning() {
               {base ? <Amount cents={round(base.finalCents)} size="hero" sign="none" estimate /> : <span className="type-body text-ink-muted">…</span>}
               {low && high && (
                 <span className="type-caption text-ink-muted">
-                  {formatBRL(round(low.finalCents))} if returns are pessimistic, {formatBRL(round(high.finalCents))} if optimistic
+                  ≈ {formatBRL(round(low.finalCents)).replace(",00", "")} if returns are pessimistic, ≈ {formatBRL(round(high.finalCents)).replace(",00", "")} if optimistic
                 </span>
               )}
             </div>

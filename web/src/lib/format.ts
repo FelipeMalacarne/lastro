@@ -115,6 +115,11 @@ export function inputBRL(cents: number): string {
   return p.units + p.cents;
 }
 
+/** Keeps "R$" with its number in prose the server wrote ("R$ 2.953,78" never breaks after R$). */
+export function keepAmounts(s: string): string {
+  return s.replace(/R\$ /g, "R$\u00a0");
+}
+
 /** formatCompact(150000000) → "1,5 mi"; 50000000 → "500 mil": axis labels on a phone. */
 export function formatCompact(cents: number): string {
   const v = Math.round(cents / 100);
