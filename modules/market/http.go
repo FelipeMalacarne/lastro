@@ -3,6 +3,8 @@ package market
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"lastro/platform/httpx"
@@ -25,6 +27,33 @@ type bondJSON struct {
 
 // RegisterRoutes adds the market's endpoints to the authenticated API.
 func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
+	// GET /api/v1/quotes/{symbol}?months=12: the daily closes, oldest first.
+	mux.HandleFunc("GET /api/v1/quotes/{symbol}", func(w http.ResponseWriter, r *http.Request) {
+		months := 12
+		if q := r.URL.Query().Get("months"); q != "" {
+			n, err := strconv.Atoi(q)
+			if err != nil || n < 1 || n > 60 {
+				httpx.WriteError(w, r, logger, httpx.BadRequest("months must be 1 to 60"))
+				return
+			}
+			months = n
+		}
+		qs, err := s.Quotes(r.Context(), strings.ToUpper(r.PathValue("symbol")), s.today().AddDate(0, -months, 0))
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		type point struct {
+			Date       string `json:"date"`
+			CloseCents int64  `json:"closeCents"`
+		}
+		out := make([]point, len(qs))
+		for i, q := range qs {
+			out[i] = point{Date: q.Date.Format(time.DateOnly), CloseCents: q.Close.Cents()}
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"closes": out})
+	})
+
 	// GET /api/v1/market: CDI and IPCA over twelve months, and Tesouro Direto's titles.
 	mux.HandleFunc("GET /api/v1/market", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

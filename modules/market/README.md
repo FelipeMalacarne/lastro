@@ -25,6 +25,8 @@
 
 - `GET /api/v1/market`: `CDI` and `IPCA`, each with the last value's date, the twelve months to it compounded (`last12mBp`) and the latest value (CDI a year at the latest day's rate), plus `bonds`, Tesouro Direto's latest titles with their buy rate and price.
 
+- `GET /api/v1/quotes/{symbol}?months=12`: a symbol's daily closes, oldest first.
+
 ## Milestone
 
 M4

@@ -5,6 +5,7 @@ import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
 import { CategoryTag } from "@/components/CategoryTag";
 import { GrowthChart } from "@/components/charts/GrowthChart";
+import { PriceChart } from "@/components/charts/PriceChart";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
 import { TextField } from "@/components/TextField";
@@ -421,7 +422,7 @@ function Positions({ v }: { v: PortfolioOverview }) {
   ].filter((g) => g.rows.length > 0);
   const cols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_140px_110px_120px_72px]";
   return (
-    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Return since it was put in. Click a position to move it to another class or to the emergency fund.">
+    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Return since it was put in. Click a position to move it to another class or to the emergency fund, or to see a stock's prices.">
       <div role="table" aria-label="Positions by class">
         <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", cols)}>
           <span role="columnheader">Asset</span>
@@ -567,6 +568,25 @@ function PositionEditor({ h, onDone }: { h: Holding; onDone: () => void }) {
       </div>
       {error && <p className="m-0 type-caption text-danger">Could not save: {error}.</p>}
       <span className="type-caption text-ink-muted">The emergency fund is shown apart and never gets a share of a contribution.</span>
+      {h.ticker && <Prices ticker={h.ticker} />}
+    </div>
+  );
+}
+
+/** A year of a ticker's closes, from the market data (F8). */
+function Prices({ ticker }: { ticker: string }) {
+  const wide = useWide();
+  const res = useResource<{ closes: { date: string; closeCents: number }[] }>(`/api/v1/quotes/${encodeURIComponent(ticker)}?months=12`);
+  if (!res.data) return null;
+  if (res.data.closes.length < 2)
+    return (
+      <p className="m-0 border-t border-rule pt-3 type-caption text-ink-muted">
+        No price history for {ticker} yet. The next sync reads it; brapi answers most tickers only with LASTRO_BRAPI_TOKEN set.
+      </p>
+    );
+  return (
+    <div className="border-t border-rule pt-3">
+      <PriceChart ticker={ticker} closes={res.data.closes} width={wide ? 900 : 360} />
     </div>
   );
 }

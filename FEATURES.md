@@ -53,7 +53,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [x] A visible warning when an item has not synced for more than 2 days or needs re-authentication in Meu Pluggy.
-- [ ] Import of the B3 trade statement for positions that do not come through Open Finance.
+- [ ] Import of the B3 trade statement for positions that do not come through Open Finance. (Not needed while every broker is connected: Nubank sends stocks and ETFs, see `docs/pluggy.md`.)
 
 **P2**
 - [ ] Manual entries for cash or for accounts outside Open Finance (e.g. private pension plans).
