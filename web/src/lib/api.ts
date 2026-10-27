@@ -132,6 +132,16 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
+/**
+ * When the session is gone, the API answers 401 with where to sign in
+ * (ADR-0008). The page goes there and comes back to where it was.
+ */
+function signInIfAsked(r: Response, body: { login?: string }): boolean {
+  if (r.status !== 401 || !body.login || !body.login.startsWith("/")) return false;
+  window.location.assign(`${body.login}?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+  return true;
+}
+
 async function load(url: string) {
   inflight.get(url)?.abort();
   const ctrl = new AbortController();
@@ -142,6 +152,7 @@ async function load(url: string) {
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
     const body = await r.json().catch(() => ({}));
+    if (signInIfAsked(r, body)) return;
     if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
     cache.set(url, { data: body, loading: false, at: Date.now() });
   } catch (e) {
@@ -199,6 +210,7 @@ export async function send<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELE
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const out = await r.json().catch(() => ({}));
+  if (signInIfAsked(r, out)) throw new Error("Signing in again…");
   if (!r.ok) throw new Error(out.message || `HTTP ${r.status}`);
   refreshAll();
   return out as T;

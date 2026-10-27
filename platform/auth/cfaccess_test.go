@@ -2,16 +2,8 @@ package auth
 
 import (
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,25 +16,17 @@ const (
 	aud  = "aud-tag-123"
 )
 
-type fixture struct {
-	key    *rsa.PrivateKey
-	server *httptest.Server
-	v      *Verifier
-	now    time.Time
+type cfFixture struct {
+	s   *signer
+	v   *Verifier
+	now time.Time
 }
 
-func newFixture(t *testing.T) *fixture {
+func newCFFixture(t *testing.T) *cfFixture {
 	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	jwks := map[string]any{"keys": []map[string]string{{
-		"kid": "k1", "kty": "RSA", "alg": "RS256", "use": "sig",
-		"n": b64(key.N.Bytes()), "e": b64(big.NewInt(int64(key.E)).Bytes()),
-	}}}
+	s := newSigner(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(jwks)
+		_ = json.NewEncoder(w).Encode(s.jwks())
 	}))
 	t.Cleanup(srv.Close)
 
@@ -50,28 +34,14 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{key: key, server: srv, v: v, now: time.Unix(1_800_000_000, 0)}
-	v.certsURL = srv.URL
+	f := &cfFixture{s: s, v: v, now: time.Unix(1_800_000_000, 0)}
+	v.keys.url = srv.URL
 	v.now = func() time.Time { return f.now }
+	v.keys.now = v.now
 	return f
 }
 
-func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
-
-func (f *fixture) sign(t *testing.T, header, claims map[string]any) string {
-	t.Helper()
-	h, _ := json.Marshal(header)
-	c, _ := json.Marshal(claims)
-	signed := b64(h) + "." + b64(c)
-	digest := sha256.Sum256([]byte(signed))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, f.key, crypto.SHA256, digest[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	return signed + "." + b64(sig)
-}
-
-func (f *fixture) validClaims() map[string]any {
+func (f *cfFixture) validClaims() map[string]any {
 	return map[string]any{
 		"email": "me@example.com", "sub": "user-1",
 		"iss": "https://" + team, "aud": []string{aud},
@@ -79,42 +49,43 @@ func (f *fixture) validClaims() map[string]any {
 	}
 }
 
-var rs256 = map[string]any{"alg": "RS256", "kid": "k1", "typ": "JWT"}
-
 func TestVerifyAcceptsValidToken(t *testing.T) {
-	f := newFixture(t)
-	id, err := f.v.Verify(context.Background(), f.sign(t, rs256, f.validClaims()))
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if id.Email != "me@example.com" {
-		t.Fatalf("email = %q", id.Email)
+	f := newCFFixture(t)
+	for name, h := range map[string]map[string]any{"RS256": rs256, "ES256": es256} {
+		id, err := f.v.Verify(context.Background(), f.s.sign(t, h, f.validClaims()))
+		if err != nil {
+			t.Fatalf("%s: error: %v", name, err)
+		}
+		if id.Email != "me@example.com" || id.Permission != PermWrite {
+			t.Fatalf("%s: identity %+v", name, id)
+		}
 	}
 }
 
 func TestVerifyRejects(t *testing.T) {
-	f := newFixture(t)
-	with := func(k string, v any) map[string]any {
-		c := f.validClaims()
-		c[k] = v
-		return c
-	}
+	f := newCFFixture(t)
+	c := f.validClaims()
 	tests := []struct {
 		name   string
 		header map[string]any
 		claims map[string]any
 		want   error
 	}{
-		{"wrong audience", rs256, with("aud", []string{"other"}), ErrInvalidToken},
-		{"wrong issuer", rs256, with("iss", "https://other.cloudflareaccess.com"), ErrInvalidToken},
-		{"expired", rs256, with("exp", f.now.Add(-2*time.Minute).Unix()), ErrInvalidToken},
-		{"not valid yet", rs256, with("nbf", f.now.Add(5*time.Minute).Unix()), ErrInvalidToken},
-		{"alg none", map[string]any{"alg": "none", "kid": "k1"}, f.validClaims(), ErrInvalidToken},
-		{"unknown kid", map[string]any{"alg": "RS256", "kid": "k2"}, f.validClaims(), ErrUnknownKey},
+		{"wrong audience", rs256, with(c, "aud", []string{"other"}), ErrInvalidToken},
+		{"wrong issuer", rs256, with(c, "iss", "https://other.cloudflareaccess.com"), ErrInvalidToken},
+		{"expired", rs256, with(c, "exp", f.now.Add(-2*time.Minute).Unix()), ErrInvalidToken},
+		{"no expiry", rs256, with(c, "exp", nil), ErrInvalidToken},
+		{"not valid yet", rs256, with(c, "nbf", f.now.Add(5*time.Minute).Unix()), ErrInvalidToken},
+		{"alg none", map[string]any{"alg": "none", "kid": "rsa"}, c, ErrInvalidToken},
+		{"HS256", map[string]any{"alg": "HS256", "kid": "rsa"}, c, ErrInvalidToken},
+		// An RS256 signature checked against the EC key, and the other way round.
+		{"RS256 with the EC kid", map[string]any{"alg": "RS256", "kid": "ec"}, c, ErrInvalidToken},
+		{"ES256 with the RSA kid", map[string]any{"alg": "ES256", "kid": "rsa"}, c, ErrInvalidToken},
+		{"unknown kid", map[string]any{"alg": "RS256", "kid": "k2"}, c, ErrUnknownKey},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := f.v.Verify(context.Background(), f.sign(t, tt.header, tt.claims))
+			_, err := f.v.Verify(context.Background(), f.s.sign(t, tt.header, tt.claims))
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("want %v, got %v", tt.want, err)
 			}
@@ -123,36 +94,36 @@ func TestVerifyRejects(t *testing.T) {
 }
 
 func TestVerifyRejectsTamperedPayload(t *testing.T) {
-	f := newFixture(t)
-	parts := strings.Split(f.sign(t, rs256, f.validClaims()), ".")
-	c := f.validClaims()
-	c["email"] = "attacker@example.com"
-	forged, _ := json.Marshal(c)
-	token := parts[0] + "." + b64(forged) + "." + parts[2]
-	if _, err := f.v.Verify(context.Background(), token); !errors.Is(err, ErrInvalidToken) {
-		t.Fatalf("want ErrInvalidToken, got %v", err)
+	f := newCFFixture(t)
+	for _, h := range []map[string]any{rs256, es256} {
+		parts := strings.Split(f.s.sign(t, h, f.validClaims()), ".")
+		forged, _ := json.Marshal(with(f.validClaims(), "email", "attacker@example.com"))
+		token := parts[0] + "." + b64(forged) + "." + parts[2]
+		if _, err := f.v.Verify(context.Background(), token); !errors.Is(err, ErrInvalidToken) {
+			t.Fatalf("%v: want ErrInvalidToken, got %v", h["alg"], err)
+		}
 	}
 }
 
-func TestMiddleware(t *testing.T) {
-	f := newFixture(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := f.v.Middleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestVerifierReadsHeaderAndCookie(t *testing.T) {
+	f := newCFFixture(t)
+	tok := f.s.sign(t, rs256, f.validClaims())
+	a := &Authenticator{Logger: quiet(), CF: f.v}
+	h := a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := IdentityFrom(r.Context())
 		_, _ = w.Write([]byte(id.Email))
 	}))
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("no token: status %d", rec.Code)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set(HeaderName, f.sign(t, rs256, f.validClaims()))
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || rec.Body.String() != "me@example.com" {
-		t.Fatalf("with token: status %d, body %q", rec.Code, rec.Body.String())
+	for name, set := range map[string]func(*http.Request){
+		"header": func(r *http.Request) { r.Header.Set(HeaderName, tok) },
+		"cookie": func(r *http.Request) { r.AddCookie(&http.Cookie{Name: CookieName, Value: tok}) },
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/sync", nil)
+		set(req)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "me@example.com" {
+			t.Fatalf("%s: status %d, body %q", name, rec.Code, rec.Body.String())
+		}
 	}
 }
