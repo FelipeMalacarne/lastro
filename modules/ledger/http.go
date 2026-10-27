@@ -64,6 +64,41 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, map[string]any{"purchases": v}, err)
 	})
 
+	// GET /api/v1/transactions/duplicates: the transactions I added by hand
+	// that may be a synced one told twice, each with it.
+	mux.HandleFunc("GET /api/v1/transactions/duplicates", func(w http.ResponseWriter, r *http.Request) {
+		v, err := s.PossibleDuplicates(r.Context())
+		writeView(w, r, logger, map[string]any{"duplicates": v}, err)
+	})
+
+	// POST /api/v1/transactions/{id}/duplicate {"of": "<synced id>", "same": true|false}:
+	// whether a transaction I added and a synced one are the same movement.
+	// The same: they merge into the synced one. Not: both stay, never
+	// suggested again.
+	mux.HandleFunc("POST /api/v1/transactions/{id}/duplicate", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := transactionID(w, r, logger)
+		if !ok {
+			return
+		}
+		var in struct {
+			Of   TransactionID `json:"of"`
+			Same *bool         `json:"same"`
+		}
+		if err := decode(w, r, &in, "of and same"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if !uuidRe.MatchString(string(in.Of)) || in.Same == nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("of must be a transaction id and same true or false"))
+			return
+		}
+		if *in.Same {
+			writeNoContent(w, r, logger, s.MergeDuplicate(r.Context(), id, in.Of))
+			return
+		}
+		writeNoContent(w, r, logger, s.KeepApart(r.Context(), id, in.Of))
+	})
+
 	// GET /api/v1/transactions/days?month=2026-10: spending day by day.
 	mux.HandleFunc("GET /api/v1/transactions/days", func(w http.ResponseWriter, r *http.Request) {
 		month, err := time.Parse("2006-01", r.URL.Query().Get("month"))
@@ -161,7 +196,8 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 
 	// POST /api/v1/accounts/{id}/transactions {"date", "description", "amountCents"}:
-	// a wallet entry, negative for money out.
+	// a transaction I add, negative for money out: a wallet entry, or one a
+	// synced account's source failed to send.
 	mux.HandleFunc("POST /api/v1/accounts/{id}/transactions", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := accountID(w, r, logger)
 		if !ok {
@@ -195,7 +231,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		httpx.JSON(w, http.StatusCreated, map[string]any{"id": tx})
 	})
 
-	// DELETE /api/v1/transactions/{id}: only a wallet entry I added.
+	// DELETE /api/v1/transactions/{id}: only a transaction I added.
 	mux.HandleFunc("DELETE /api/v1/transactions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := transactionID(w, r, logger)
 		if !ok {
@@ -404,11 +440,13 @@ func transactionID(w http.ResponseWriter, r *http.Request, logger *slog.Logger) 
 }
 
 // writeNoContent answers 204, or the error: 400 for an invalid value, 404
-// for an unknown id.
+// for an unknown id, 409 for two transactions that cannot be one movement.
 func writeNoContent(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
 	switch {
 	case errors.Is(err, ErrInvalid):
 		err = httpx.BadRequest(err.Error())
+	case errors.Is(err, ErrNotDuplicate), errors.Is(err, ErrRemoved):
+		err = httpx.Conflict(err.Error())
 	case errors.Is(err, ErrNotFound):
 		err = httpx.NotFound("no such account, transaction or balance")
 	}

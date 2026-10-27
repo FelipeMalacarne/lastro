@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Clock, CreditCard, Search, X } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Clock, CreditCard, Search, TriangleAlert, X } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail, type Undo } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDate, formatDay, formatMonth, formatWeekday } from "@/lib/format";
-import { Link, hrefWith } from "@/lib/router";
+import { Link, hrefWith, navigate } from "@/lib/router";
 
 type Props = {
   id: string;
@@ -69,7 +69,7 @@ function Body({ d }: { d: Detail }) {
   const neutral = t.kind === "transfer" || t.kind === "bill_payment";
   const facts: [string, string][] = [
     ["Date", `${formatWeekday(t.date)} ${t.date.slice(0, 4)}`],
-    ["Account", accountName(t)],
+    ["Account", t.manual && t.account.type !== "cash" ? `${accountName(t)}, added by you` : accountName(t)],
     ["Status", t.status === "pending" ? "Pending, may still change" : "Posted"],
     [
       "Counts as",
@@ -107,6 +107,8 @@ function Body({ d }: { d: Detail }) {
           )}
         </div>
       </div>
+
+      {d.duplicates.length > 0 && <SameTransaction t={t} others={d.duplicates} />}
 
       <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[14px] leading-5">
         {facts.map(([k, v]) => (
@@ -217,7 +219,7 @@ function Body({ d }: { d: Detail }) {
         <Button asChild variant="ghost" size="sm">
           <Link to={`/accounts/${t.account.id}`}>Open {accountName(t)}</Link>
         </Button>
-        {t.account.type === "cash" && <RemoveEntry id={t.id} />}
+        {t.manual && <RemoveEntry id={t.id} wallet={t.account.type === "cash"} />}
       </div>
     </>
   );
@@ -252,19 +254,84 @@ function TransferMark({ t }: { t: Transaction }) {
   );
 }
 
-/** A wallet entry I added can be taken back; a synced transaction never. */
-function RemoveEntry({ id }: { id: string }) {
+/**
+ * A transaction the bank may have sent too, after I added it (canvas: "A
+ * transaction the bank never sent"). lastro never merges them on its own.
+ */
+function SameTransaction({ t, others }: { t: Transaction; others: Transaction[] }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function answer(o: Transaction, same: boolean) {
+    const [manual, synced] = t.manual ? [t, o] : [o, t];
+    setBusy(true);
+    setError(null);
+    try {
+      await send("POST", `/api/v1/transactions/${manual.id}/duplicate`, { of: synced.id, same });
+      // Merged, mine is gone: show the one that stays.
+      if (same && t.manual) navigate(hrefWith({ tx: synced.id, day: null }), { replace: true });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-col gap-3 rounded-md bg-warning-soft p-4">
+      <span className="inline-flex items-center gap-2 type-body-strong">
+        <TriangleAlert className="size-4 flex-none text-warning" aria-hidden />
+        Is this the same transaction?
+      </span>
+      {others.map((o) => (
+        <div key={o.id} className="flex flex-col gap-2">
+          <Link
+            to={hrefWith({ tx: o.id, day: null })}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 rounded-sm border border-rule bg-paper-raised px-3 py-2 text-ink no-underline hover:bg-paper-sunken hover:text-ink focus-visible:focus-ring"
+          >
+            <span className="type-body-strong">{o.description}</span>
+            <Amount cents={o.amountCents} sign="always" />
+            <span className="col-span-2 type-caption text-ink-muted">
+              {formatDay(o.date)} · {o.manual ? "added by you" : `sent by ${o.account.institution}`}, {apart(t.date, o.date)}
+            </span>
+          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void answer(o, true)}>
+              Same transaction
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => void answer(o, false)}>
+              Different
+            </Button>
+          </div>
+        </div>
+      ))}
+      <span className="type-caption text-ink-muted">
+        Same: yours is removed and the bank&apos;s keeps your category, note and tags. Different: both stay and lastro stops asking about this pair.
+      </span>
+      {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
+    </div>
+  );
+}
+
+/** "2 days after yours", from the open transaction's point of view. */
+function apart(mine: string, other: string): string {
+  const days = Math.round((Date.parse(other) - Date.parse(mine)) / 86_400_000);
+  if (days === 0) return "the same day";
+  const n = Math.abs(days);
+  return `${n} ${n === 1 ? "day" : "days"} ${days > 0 ? "after" : "before"} this one`;
+}
+
+/** A transaction I added can be taken back; a synced transaction never. */
+function RemoveEntry({ id, wallet }: { id: string; wallet: boolean }) {
   const [sure, setSure] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!sure)
     return (
       <Button variant="ghost" size="sm" onClick={() => setSure(true)}>
-        Remove this entry
+        {wallet ? "Remove this entry" : "Remove this transaction"}
       </Button>
     );
   return (
     <span className="flex flex-wrap items-center gap-2 type-caption text-ink-muted">
-      Its amount goes back to the wallet.
+      {wallet ? "Its amount goes back to the wallet." : "The bank's balance does not change."}
       <Button
         size="sm"
         onClick={() =>

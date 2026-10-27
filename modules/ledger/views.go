@@ -57,6 +57,16 @@ type TransactionView struct {
 	CountedCents int64 `json:"countedCents"`
 	// MarkedTransfer is a transfer I marked: to an account lastro does not have.
 	MarkedTransfer bool `json:"markedTransfer"`
+	// Manual is a transaction I added by hand, in a wallet or one a synced
+	// account's source failed to send.
+	Manual bool `json:"manual"`
+}
+
+// DuplicateView is a transaction I added by hand and a synced one that may
+// be the same movement (see PossibleDuplicate): I say whether they are.
+type DuplicateView struct {
+	Manual TransactionView `json:"manual"`
+	Synced TransactionView `json:"synced"`
 }
 
 type InstallmentView struct {
@@ -365,6 +375,9 @@ type TransactionDetail struct {
 	Counterpart *TransactionView `json:"counterpartTransaction"`
 	Purchase    *PurchaseView    `json:"purchase"`
 	History     DescriptionStats `json:"history"`
+	// Duplicates are the transactions it may be the same movement as: for
+	// one I added, the synced ones; for a synced one, the ones I added.
+	Duplicates []TransactionView `json:"duplicates"`
 }
 
 // DescriptionStats counts a description, month by month, oldest first.

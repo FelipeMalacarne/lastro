@@ -150,3 +150,14 @@ func TestReconcileDuplicatesInABatch(t *testing.T) {
 		t.Fatalf("the last occurrence wins: %+v", rec.result)
 	}
 }
+
+func TestReconcileKeepsWhatIAdded(t *testing.T) {
+	acc := checking(t)
+	pix := imported(t, "manual-1", -179000)
+	pix.BankRef = ""
+	added := newTx(t, acc, pix)
+	rec, all := importOnce(t, acc, []*Transaction{added}, ImportBatch{Account: acc.ExternalID(), From: oct(1), Transactions: []ImportedTransaction{imported(t, "t1", -100)}})
+	if rec.result.Removed != 0 || all["manual-1"].IsRemoved() {
+		t.Fatal("the source never sends what I added, so a sync must not remove it")
+	}
+}

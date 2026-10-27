@@ -462,6 +462,7 @@ func transactionView(row db.ListTransactionViewsRow) TransactionView {
 		SplitCategories: row.SplitCategories,
 		CountedCents:    row.CountedCents,
 		MarkedTransfer:  row.MarkedTransfer,
+		Manual:          row.Manual,
 	}
 	if v.Tags == nil {
 		v.Tags = []string{}
@@ -797,4 +798,29 @@ func (r *PostgresRepository) ReplaceSnapshot(ctx context.Context, s BalanceSnaps
 	return r.q.ReplaceBalanceSnapshot(ctx, db.ReplaceBalanceSnapshotParams{
 		AccountID: string(s.AccountID), Date: s.Date, BalanceCents: s.Balance.Cents(), Currency: string(s.Balance.Currency()), TakenAt: s.At,
 	})
+}
+
+// PossibleDuplicates returns the pairs of a transaction I added and a synced
+// one that may be the same movement, closest dates first; with an id, only
+// the pairs it is in.
+func (r *PostgresRepository) PossibleDuplicates(ctx context.Context, id TransactionID) ([][2]TransactionID, error) {
+	p := db.ListPossibleDuplicatesParams{MaxDays: duplicateWindow}
+	if id != "" {
+		s := string(id)
+		p.ID = &s
+	}
+	rows, err := r.q.ListPossibleDuplicates(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	out := make([][2]TransactionID, len(rows))
+	for i, row := range rows {
+		out[i] = [2]TransactionID{TransactionID(row.ManualID), TransactionID(row.SyncedID)}
+	}
+	return out, nil
+}
+
+// KeepApart remembers that the two are different movements.
+func (r *PostgresRepository) KeepApart(ctx context.Context, manual, synced TransactionID) error {
+	return r.q.KeepApart(ctx, db.KeepApartParams{ManualID: string(manual), SyncedID: string(synced)})
 }

@@ -134,6 +134,12 @@ type LedgerCategoryLine struct {
 	AmountCents int64
 }
 
+type LedgerKeptApart struct {
+	ManualID  string
+	SyncedID  string
+	CreatedAt time.Time
+}
+
 type LedgerSplit struct {
 	TransactionID string
 	Position      int16

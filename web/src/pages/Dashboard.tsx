@@ -536,8 +536,9 @@ function Recent({ list, byId, month }: { list?: TransactionList; byId: Map<strin
 }
 
 function meta(t: Transaction): string {
-  if (t.counterpart) return `${t.account.institution} ${typeLabel[t.account.type]} ${t.amountCents < 0 ? "→" : "←"} ${t.counterpart.institution} ${typeLabel[t.counterpart.type]}`;
-  return `${t.account.institution} · ${typeLabel[t.account.type]}`;
+  const by = t.manual && t.account.type !== "cash" ? " · added by you" : "";
+  if (t.counterpart) return `${t.account.institution} ${typeLabel[t.account.type]} ${t.amountCents < 0 ? "→" : "←"} ${t.counterpart.institution} ${typeLabel[t.counterpart.type]}${by}`;
+  return `${t.account.institution} · ${typeLabel[t.account.type]}${by}`;
 }
 
 function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map<string, Category>; monthName: string }) {

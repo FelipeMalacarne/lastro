@@ -40,6 +40,9 @@ func NewTag(s string) (Tag, error) {
 	return Tag(s), nil
 }
 
+// maxTags is how many tags a transaction carries at most.
+const maxTags = 10
+
 // NewTags validates a transaction's tags: at most 10, each once, sorted.
 func NewTags(in []string) ([]Tag, error) {
 	out := make([]Tag, 0, len(in))
@@ -52,8 +55,8 @@ func NewTags(in []string) ([]Tag, error) {
 			out = append(out, t)
 		}
 	}
-	if len(out) > 10 {
-		return nil, fmt.Errorf("%w: at most 10 tags", ErrInvalid)
+	if len(out) > maxTags {
+		return nil, fmt.Errorf("%w: at most %d tags", ErrInvalid, maxTags)
 	}
 	slices.Sort(out)
 	return out, nil

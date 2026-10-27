@@ -15,8 +15,16 @@ import (
 var ErrInvalid = errors.New("ledger: invalid value")
 
 // ExternalID is the id a source system gives an account or a transaction
-// (today, Pluggy). The ledger never interprets it, it only compares it.
+// (today, Pluggy). The ledger only compares it, except to tell what I typed
+// in, which it ids itself with manualPrefix.
 type ExternalID struct{ v string }
+
+// manualPrefix starts the external id of what I type in: accounts outside
+// Open Finance and transactions I add by hand.
+const manualPrefix = "manual-"
+
+// newManualID is a fresh external id for something I type in.
+func newManualID() ExternalID { return ExternalID{v: manualPrefix + newID()} }
 
 // NewExternalID trims s and rejects an empty, overlong or multi-line id.
 func NewExternalID(s string) (ExternalID, error) {
@@ -29,6 +37,9 @@ func NewExternalID(s string) (ExternalID, error) {
 
 func (e ExternalID) String() string { return e.v }
 func (e ExternalID) IsZero() bool   { return e.v == "" }
+
+// IsManual reports whether I typed it in, rather than a source sending it.
+func (e ExternalID) IsManual() bool { return strings.HasPrefix(e.v, manualPrefix) }
 
 // Kind says what a movement is for the reports. Only expenses and income
 // count; transfers between my own accounts and card bill payments never do,

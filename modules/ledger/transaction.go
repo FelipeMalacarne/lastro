@@ -287,6 +287,7 @@ func (t *Transaction) Installment() Installment       { return t.installment }
 func (t *Transaction) Counterpart() TransactionID     { return t.counterpart }
 func (t *Transaction) IsPaired() bool                 { return t.counterpart != "" }
 func (t *Transaction) IsRemoved() bool                { return !t.removedAt.IsZero() }
+func (t *Transaction) IsManual() bool                 { return t.externalID.IsManual() }
 func (t *Transaction) Category() (CategoryID, Source) { return t.category, t.categorySrc }
 
 // civilDate keeps only the calendar day of d, in d's own location.

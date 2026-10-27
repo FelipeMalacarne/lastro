@@ -98,3 +98,24 @@ func TestFilterRange(t *testing.T) {
 		t.Errorf("one day: %v %v", from, to)
 	}
 }
+
+func TestDuplicateEndpointValidatesTheBody(t *testing.T) {
+	mux := http.NewServeMux()
+	New(nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const id = "0b7f2c58-1d3e-4a4b-9c55-0e6f1f2a3b4c"
+	tests := []struct {
+		path, body, want string
+	}{
+		{"/api/v1/transactions/1/duplicate", `{"of":"` + id + `","same":true}`, "id must be a transaction id"},
+		{"/api/v1/transactions/" + id + "/duplicate", `{"of":"x","same":true}`, "of must be a transaction id"},
+		{"/api/v1/transactions/" + id + "/duplicate", `{"of":"` + id + `"}`, "same true or false"},
+		{"/api/v1/transactions/" + id + "/duplicate", `{"of":`, "of and same"},
+	}
+	for _, tt := range tests {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body)))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+			t.Errorf("%s %s: got %d %s", tt.path, tt.body, rec.Code, rec.Body.String())
+		}
+	}
+}

@@ -470,11 +470,13 @@ function dayTotal(rows: Transaction[]): string {
 /** "Nubank · credit card", or for a pair "Nubank checking → Itaú checking". */
 function meta(t: Transaction): string {
   const here = `${t.account.institution} ${typeLabel[t.account.type]}`;
+  // One I added to a synced account says so, so it never passes for one the bank sent.
+  const by = t.manual && t.account.type !== "cash" ? " · added by you" : "";
   if (t.counterpart) {
     const there = `${t.counterpart.institution} ${typeLabel[t.counterpart.type]}`;
-    return t.amountCents < 0 ? `${here} → ${there}` : `${here} ← ${there}`;
+    return (t.amountCents < 0 ? `${here} → ${there}` : `${here} ← ${there}`) + by;
   }
-  return `${t.account.institution} · ${typeLabel[t.account.type]}`;
+  return `${t.account.institution} · ${typeLabel[t.account.type]}${by}`;
 }
 
 /** The row's category: its name and colour, or null while it waits for one. */
