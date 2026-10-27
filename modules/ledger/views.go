@@ -88,6 +88,39 @@ type CategoryTotal struct {
 	Count    int    `json:"count"`
 }
 
+// CategoryMonth is one month's live expenses or income in one category
+// (empty: none yet) and kind.
+type CategoryMonth struct {
+	Month    time.Time // the month's first day
+	Category string
+	Kind     string // "expense" or "income"
+	OutCents int64  // positive
+	InCents  int64
+	Count    int
+}
+
+// MonthKind is one month's live transactions of one kind and direction,
+// paired with one in another of my accounts or not.
+type MonthKind struct {
+	Month  time.Time // the month's first day
+	Kind   string
+	Inflow bool
+	Paired bool
+	Cents  int64 // negative for outflows
+	Count  int
+	Last   time.Time // the latest day among them
+}
+
+// Charge is a live expense outside installments, for recurring charges.
+type Charge struct {
+	ID          TransactionID
+	Description string
+	Date        time.Time
+	AmountCents int64  // positive
+	Category    string // empty: none yet
+	Account     string // "Nubank Ultravioleta"
+}
+
 // AccountRef names an account inside another view.
 type AccountRef struct {
 	ID          AccountID `json:"id"`

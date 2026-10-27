@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"lastro/modules/budget"
 	"lastro/modules/categorize"
 	"lastro/modules/ingest"
 	"lastro/modules/ledger"
@@ -39,6 +40,7 @@ type App struct {
 	Ledger     *ledger.Service
 	Ingest     *ingest.Service
 	Categorize *categorize.Service
+	Budget     *budget.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -68,6 +70,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
 	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
+	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
 
 	// The rules categorize each import as it commits. After every sync they
 	// also reach whatever is still without a category: transactions imported
@@ -119,6 +122,7 @@ func (a *App) Handler() http.Handler {
 	a.Ledger.RegisterRoutes(api, a.Logger)
 	a.Ingest.RegisterRoutes(api, a.Logger)
 	a.Categorize.RegisterRoutes(api, a.Logger)
+	a.Budget.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())

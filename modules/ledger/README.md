@@ -41,6 +41,8 @@
 
 For `categorize`, the Service answers what automation may categorize: live expenses and income whose category nobody chose by hand. `Categorizable(ids)` filters the given transactions; `Uncategorized()` returns every one still without a category. Transfers and card bill payments are never handed over.
 
+For `budget`, the Service sums what the budget is built on: `CategoryMonths(from, to)` (expenses and income by month, category and kind), `MonthKinds(from, to)` (every transaction by month, kind, direction and pairing: income, and transfers out to accounts outside lastro) and `Charges(from)` (expenses outside installments, where recurring charges are found).
+
 ## Events
 
 - Publishes: `TransactionsImported` (ids of new or changed transactions, after the import commits), `TransactionCategorized` (recorded by the aggregate, published after the commit).

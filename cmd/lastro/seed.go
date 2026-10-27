@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"lastro/app"
+	"lastro/modules/budget"
+	"lastro/modules/categorize"
 	"lastro/modules/ledger"
 	"lastro/money"
 	"lastro/platform/config"
@@ -55,6 +57,97 @@ func runSeed(ctx context.Context, args []string) error {
 		return fmt.Errorf("seed: %w", err)
 	}
 	fmt.Printf("Paired %d transfers and card bill payments\n", n)
+	if err := seedRules(ctx, a); err != nil {
+		return fmt.Errorf("seed: %w", err)
+	}
+	if err := seedBudget(ctx, a, s.start, now); err != nil {
+		return fmt.Errorf("seed: %w", err)
+	}
+	return nil
+}
+
+// seedRules teaches the rules a few weeks of corrections would, leaving
+// some merchants for the review queue.
+func seedRules(ctx context.Context, a *app.App) error {
+	cats, err := a.Categorize.Categories(ctx)
+	if err != nil {
+		return err
+	}
+	byName := map[string]ledger.CategoryID{}
+	for _, c := range cats {
+		byName[c.Name] = c.ID
+	}
+	rules := []struct{ text, category string }{
+		{"IFOOD", "Restaurants"}, {"UBER EATS", "Restaurants"}, {"OUTBACK STEAKHOUSE", "Restaurants"},
+		{"UBER TRIP", "Transport"}, {"POSTO IPIRANGA", "Transport"},
+		{"PAO DE ACUCAR", "Groceries"},
+		{"ALUGUEL", "Housing"}, {"CONDOMINIO", "Housing"}, {"CLARO INTERNET", "Housing"}, {"ENEL ENERGIA", "Housing"},
+		{"SMART FIT", "Health"},
+		{"NETFLIX COM", "Leisure"}, {"SPOTIFY", "Leisure"},
+		{"AMAZON MARKETPLACE", "Shopping"}, {"FAST SHOP", "Shopping"}, {"MAGAZINE LUIZA", "Shopping"},
+		{"SALARIO", "Income"},
+	}
+	for _, r := range rules {
+		p, err := categorize.NewPattern(categorize.PatternContains, r.text)
+		if err != nil {
+			return err
+		}
+		c, ok := byName[r.category]
+		if !ok {
+			continue // renamed in this database
+		}
+		if err := a.Categorize.Learn(ctx, p, "", c); err != nil {
+			return err
+		}
+	}
+	n, err := a.Categorize.CategorizeUncategorized(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Taught %d rules, which categorized %d transactions\n", len(rules), n)
+	return nil
+}
+
+// seedBudget saves a budget five months back, with pay yourself first and
+// the usual limits, and raises one limit two months ago, so months inherit
+// and roll over.
+func seedBudget(ctx context.Context, a *app.App, start, now time.Time) error {
+	cats, err := a.Categorize.Categories(ctx)
+	if err != nil {
+		return err
+	}
+	first := budget.MonthOf(now).Add(-5)
+	if first.Before(budget.MonthOf(start)) {
+		first = budget.MonthOf(start)
+	}
+	payday, _ := budget.NewPayday(5)
+	if err := a.Budget.SetPayYourselfFirst(ctx, first, money.BRLCents(300000), payday); err != nil {
+		return err
+	}
+	limits := map[string]struct {
+		cents    int64
+		rollover bool
+	}{
+		"Housing": {420000, false}, "Groceries": {80000, true}, "Restaurants": {70000, true}, "Transport": {70000, false},
+		"Health": {15000, false}, "Leisure": {15000, true}, "Shopping": {50000, false}, "Other": {10000, false},
+	}
+	for _, c := range cats {
+		l, ok := limits[c.Name]
+		if !ok || c.Archived || !c.Budgeted {
+			continue
+		}
+		if err := a.Budget.SetLimit(ctx, first, c.ID, money.BRLCents(l.cents), l.rollover); err != nil {
+			return err
+		}
+	}
+	for _, c := range cats {
+		if c.Name == "Restaurants" && !c.Archived {
+			if err := a.Budget.SetLimit(ctx, budget.MonthOf(now).Add(-2), c.ID, money.BRLCents(75000), true); err != nil {
+				return err
+			}
+		}
+	}
+	fmt.Printf("Saved a budget from %s\n", first)
 	return nil
 }
 

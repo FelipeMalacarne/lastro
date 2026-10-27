@@ -57,6 +57,9 @@ type Repository interface {
 	Automatable(ctx context.Context) ([]Categorizable, error)
 	DescriptionCounts(ctx context.Context) ([]DescriptionCount, error)
 	CategoryTotals(ctx context.Context, from, to time.Time) ([]CategoryTotal, error)
+	CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error)
+	MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error)
+	Charges(ctx context.Context, from time.Time) ([]Charge, error)
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -249,6 +252,36 @@ func (s *Service) CategoryTotals(ctx context.Context, month time.Time) ([]Catego
 	out, err := s.repo.CategoryTotals(ctx, from, from.AddDate(0, 1, 0))
 	if err != nil {
 		return nil, fmt.Errorf("ledger: category totals: %w", err)
+	}
+	return out, nil
+}
+
+// CategoryMonths sums live expenses and income by month, category and kind,
+// from the month of from through the month of to.
+func (s *Service) CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error) {
+	out, err := s.repo.CategoryMonths(ctx, monthOf(from), monthOf(to).AddDate(0, 1, 0))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: category months: %w", err)
+	}
+	return out, nil
+}
+
+// MonthKinds sums every live transaction by month, kind, direction and
+// pairing, from the month of from through the month of to.
+func (s *Service) MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error) {
+	out, err := s.repo.MonthKinds(ctx, monthOf(from), monthOf(to).AddDate(0, 1, 0))
+	if err != nil {
+		return nil, fmt.Errorf("ledger: month kinds: %w", err)
+	}
+	return out, nil
+}
+
+// Charges lists live expenses since a day, outside installments, oldest
+// first.
+func (s *Service) Charges(ctx context.Context, from time.Time) ([]Charge, error) {
+	out, err := s.repo.Charges(ctx, from)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: charges: %w", err)
 	}
 	return out, nil
 }

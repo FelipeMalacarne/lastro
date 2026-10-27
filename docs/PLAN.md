@@ -66,8 +66,8 @@ Every transaction has a category or is waiting in the review queue, and every co
 
 ## M3: the month at a glance (F4, F5, dashboard)
 
-- [ ] ADR: category limits first, envelopes only if they prove insufficient (closes the open question in `FEATURES.md`)
-- [ ] `budget`: `MonthlyBudget`, pay yourself first and rollover, with tests
+- [x] ADR: category limits first, envelopes only if they prove insufficient (closes the open question in `FEATURES.md`)
+- [x] `budget`: `MonthlyBudget`, pay yourself first and rollover, with tests
 - [ ] Budget screen
 - [ ] Dashboard: the month so far, spending by category against the 6-month average, spending through the month, and the review queue
 - [ ] Recurring charges detection and the fixed costs panel

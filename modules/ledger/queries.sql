@@ -242,3 +242,40 @@ FROM ledger.transactions
 WHERE removed_at IS NULL AND kind IN ('expense', 'income')
   AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
 GROUP BY category_id;
+
+-- name: ListCategoryMonths :many
+-- Live expenses and income by month, category (null: none yet) and kind:
+-- money out, money in and how many. What budgets and averages are built on.
+SELECT date_trunc('month', date)::date AS month, category_id, kind,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
+
+-- name: ListMonthKinds :many
+-- Every live transaction by month, kind, direction and whether it is paired
+-- with one in another of my accounts: the month's income, and transfers out
+-- to accounts outside lastro (the broker).
+SELECT date_trunc('month', date)::date AS month, kind, amount_cents > 0 AS inflow,
+    (counterpart_id IS NOT NULL)::boolean AS paired,
+    sum(amount_cents)::bigint AS cents, count(*)::int AS n, max(date)::date AS last
+FROM ledger.transactions
+WHERE removed_at IS NULL AND amount_cents <> 0
+  AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2, 3, 4;
+
+-- name: ListCharges :many
+-- Live expenses since a day, outside installments: what recurring charges
+-- are found in.
+SELECT t.id, t.description, t.date, t.amount_cents, t.category_id, a.name AS account_name, a.institution
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+WHERE t.removed_at IS NULL AND t.kind = 'expense' AND t.amount_cents < 0
+  AND t.installment_total IS NULL
+  AND t.date >= sqlc.arg(date_from)::date
+ORDER BY t.date, t.id;

@@ -634,6 +634,45 @@ func (r *PostgresRepository) DescriptionCounts(ctx context.Context) ([]Descripti
 	return out, nil
 }
 
+func (r *PostgresRepository) CategoryMonths(ctx context.Context, from, to time.Time) ([]CategoryMonth, error) {
+	rows, err := r.q.ListCategoryMonths(ctx, db.ListCategoryMonthsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CategoryMonth, len(rows))
+	for i, row := range rows {
+		out[i] = CategoryMonth{Month: row.Month, Category: deref(row.CategoryID), Kind: row.Kind, OutCents: row.OutCents, InCents: row.InCents, Count: int(row.N)}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) MonthKinds(ctx context.Context, from, to time.Time) ([]MonthKind, error) {
+	rows, err := r.q.ListMonthKinds(ctx, db.ListMonthKindsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MonthKind, len(rows))
+	for i, row := range rows {
+		out[i] = MonthKind{Month: row.Month, Kind: row.Kind, Inflow: row.Inflow, Paired: row.Paired, Cents: row.Cents, Count: int(row.N), Last: row.Last}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) Charges(ctx context.Context, from time.Time) ([]Charge, error) {
+	rows, err := r.q.ListCharges(ctx, civilDate(from))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Charge, len(rows))
+	for i, row := range rows {
+		out[i] = Charge{
+			ID: TransactionID(row.ID), Description: row.Description, Date: row.Date, AmountCents: -row.AmountCents,
+			Category: deref(row.CategoryID), Account: row.Institution + " " + row.AccountName,
+		}
+	}
+	return out, nil
+}
+
 func (r *PostgresRepository) CategoryTotals(ctx context.Context, from, to time.Time) ([]CategoryTotal, error) {
 	rows, err := r.q.ListCategoryTotals(ctx, db.ListCategoryTotalsParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
 	if err != nil {

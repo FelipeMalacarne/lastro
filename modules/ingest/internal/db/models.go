@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+type BudgetLine struct {
+	Month      time.Time
+	CategoryID string
+	LimitCents int64
+	Rollover   bool
+}
+
+type BudgetMonth struct {
+	Month     time.Time
+	Payday    int16
+	PyfCents  int64
+	Currency  string
+	UpdatedAt time.Time
+}
+
 type CategorizeCategory struct {
 	ID         string
 	Name       string

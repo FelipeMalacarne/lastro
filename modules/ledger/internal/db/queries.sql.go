@@ -329,6 +329,61 @@ func (q *Queries) ListCategorizable(ctx context.Context, ids []string) ([]ListCa
 	return items, nil
 }
 
+const listCategoryMonths = `-- name: ListCategoryMonths :many
+SELECT date_trunc('month', date)::date AS month, category_id, kind,
+    COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
+    count(*)::int AS n
+FROM ledger.transactions
+WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND date >= $1::date AND date < $2::date
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+`
+
+type ListCategoryMonthsParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListCategoryMonthsRow struct {
+	Month      time.Time
+	CategoryID *string
+	Kind       string
+	OutCents   int64
+	InCents    int64
+	N          int32
+}
+
+// Live expenses and income by month, category (null: none yet) and kind:
+// money out, money in and how many. What budgets and averages are built on.
+func (q *Queries) ListCategoryMonths(ctx context.Context, arg ListCategoryMonthsParams) ([]ListCategoryMonthsRow, error) {
+	rows, err := q.db.Query(ctx, listCategoryMonths, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategoryMonthsRow
+	for rows.Next() {
+		var i ListCategoryMonthsRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.CategoryID,
+			&i.Kind,
+			&i.OutCents,
+			&i.InCents,
+			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCategoryTotals = `-- name: ListCategoryTotals :many
 SELECT category_id,
     COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
@@ -368,6 +423,56 @@ func (q *Queries) ListCategoryTotals(ctx context.Context, arg ListCategoryTotals
 			&i.OutCents,
 			&i.InCents,
 			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCharges = `-- name: ListCharges :many
+SELECT t.id, t.description, t.date, t.amount_cents, t.category_id, a.name AS account_name, a.institution
+FROM ledger.transactions t
+JOIN ledger.accounts a ON a.id = t.account_id
+WHERE t.removed_at IS NULL AND t.kind = 'expense' AND t.amount_cents < 0
+  AND t.installment_total IS NULL
+  AND t.date >= $1::date
+ORDER BY t.date, t.id
+`
+
+type ListChargesRow struct {
+	ID          string
+	Description string
+	Date        time.Time
+	AmountCents int64
+	CategoryID  *string
+	AccountName string
+	Institution string
+}
+
+// Live expenses since a day, outside installments: what recurring charges
+// are found in.
+func (q *Queries) ListCharges(ctx context.Context, dateFrom time.Time) ([]ListChargesRow, error) {
+	rows, err := q.db.Query(ctx, listCharges, dateFrom)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChargesRow
+	for rows.Next() {
+		var i ListChargesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Description,
+			&i.Date,
+			&i.AmountCents,
+			&i.CategoryID,
+			&i.AccountName,
+			&i.Institution,
 		); err != nil {
 			return nil, err
 		}
@@ -653,6 +758,63 @@ func (q *Queries) ListMonthFlows(ctx context.Context, accountID string) ([]ListM
 			&i.CounterpartAccountType,
 			&i.Cents,
 			&i.N,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMonthKinds = `-- name: ListMonthKinds :many
+SELECT date_trunc('month', date)::date AS month, kind, amount_cents > 0 AS inflow,
+    (counterpart_id IS NOT NULL)::boolean AS paired,
+    sum(amount_cents)::bigint AS cents, count(*)::int AS n, max(date)::date AS last
+FROM ledger.transactions
+WHERE removed_at IS NULL AND amount_cents <> 0
+  AND date >= $1::date AND date < $2::date
+GROUP BY 1, 2, 3, 4
+ORDER BY 1, 2, 3, 4
+`
+
+type ListMonthKindsParams struct {
+	DateFrom time.Time
+	DateTo   time.Time
+}
+
+type ListMonthKindsRow struct {
+	Month  time.Time
+	Kind   string
+	Inflow bool
+	Paired bool
+	Cents  int64
+	N      int32
+	Last   time.Time
+}
+
+// Every live transaction by month, kind, direction and whether it is paired
+// with one in another of my accounts: the month's income, and transfers out
+// to accounts outside lastro (the broker).
+func (q *Queries) ListMonthKinds(ctx context.Context, arg ListMonthKindsParams) ([]ListMonthKindsRow, error) {
+	rows, err := q.db.Query(ctx, listMonthKinds, arg.DateFrom, arg.DateTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMonthKindsRow
+	for rows.Next() {
+		var i ListMonthKindsRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.Kind,
+			&i.Inflow,
+			&i.Paired,
+			&i.Cents,
+			&i.N,
+			&i.Last,
 		); err != nil {
 			return nil, err
 		}
