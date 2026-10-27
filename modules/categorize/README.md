@@ -41,7 +41,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - The LLM answer must be an existing category. If it is not, the transaction is marked "to review".
 - A manual correction always becomes a rule, so the same mistake does not happen twice.
 - If the LLM is unavailable (zaros is off, for example), the transaction waits; it never gets a guessed category.
-- Every choice can be undone: it answers with what puts it back (the rule as it was, removed if the choice created it, and each transaction it changed with its earlier category and who chose it), and undoing restores exactly that, a manual choice included.
+- Every choice can be undone: it answers with what puts it back (the rule as it was, removed if the choice created it, and each transaction it changed with its earlier category and who chose it), and undoing restores exactly that, a manual choice included, skipping a transaction the bank removed since.
 
 ## API
 

@@ -13,28 +13,31 @@ func TestManualAccounts(t *testing.T) {
 	if _, err := NewManualAccount("Conta", AccountChecking, money.BRLCents(0), now); !errors.Is(err, ErrInvalid) {
 		t.Errorf("only a wallet or an asset is typed in: %v", err)
 	}
-	pgbl, err := NewManualAccount(" Brasilprev PGBL ", AccountAsset, money.BRLCents(4552825), now.AddDate(0, -6, 0))
+	pgbl, err := NewManualAccount(" Brasilprev PGBL ", AccountAsset, money.BRLCents(4552825), now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pgbl.Institution() != ManualInstitution || pgbl.Name() != "Brasilprev PGBL" {
 		t.Errorf("account %+v", pgbl)
 	}
-	if _, err := pgbl.SetBalance(money.BRLCents(4831277), now); err != nil {
-		t.Fatal(err)
+	jul, err := pgbl.Counted(money.BRLCents(4710865), time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC), now)
+	if err != nil || jul.Date.Format(time.DateOnly) != "2026-07-26" {
+		t.Fatalf("a counted balance is its day's: %+v %v", jul, err)
 	}
-	snap, err := pgbl.SetBalance(money.BRLCents(4710865), now.AddDate(0, -3, 0))
-	if err != nil || snap.Date.Format(time.DateOnly) != "2026-07-26" {
-		t.Fatalf("an earlier balance is a snapshot of its day: %+v %v", snap, err)
+	// Typed later, a correction of an earlier day never becomes the balance;
+	// the latest day's does.
+	oct, _ := pgbl.Counted(money.BRLCents(4831277), time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC), now.Add(-time.Hour))
+	if err := pgbl.Latest([]BalanceSnapshot{oct, jul}); err != nil || pgbl.Balance().Cents() != 4831277 {
+		t.Errorf("the latest day: %d %v", pgbl.Balance().Cents(), err)
 	}
-	if pgbl.Balance().Cents() != 4831277 {
-		t.Errorf("an earlier balance never replaces the latest: %d", pgbl.Balance().Cents())
+	if err := pgbl.Latest(nil); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an asset keeps a balance: %v", err)
 	}
 	if err := pgbl.Move(money.BRLCents(-100), now); !errors.Is(err, ErrInvalid) {
 		t.Errorf("an asset takes no entries: %v", err)
 	}
 	usd, _ := money.New(100, money.USD)
-	if _, err := pgbl.SetBalance(usd, now); !errors.Is(err, ErrCurrencyChanged) {
+	if _, err := pgbl.Counted(usd, now, now); !errors.Is(err, ErrCurrencyChanged) {
 		t.Errorf("same currency: %v", err)
 	}
 
@@ -42,8 +45,10 @@ func TestManualAccounts(t *testing.T) {
 	if err := wallet.Move(money.BRLCents(-6400), now.Add(time.Hour)); err != nil || wallet.Balance().Cents() != 23600 {
 		t.Errorf("an entry moves the wallet: %d %v", wallet.Balance().Cents(), err)
 	}
-	bank := checking(t)
-	if _, err := bank.SetBalance(money.BRLCents(1), now); !errors.Is(err, ErrInvalid) {
+	if _, err := wallet.Counted(money.BRLCents(1), now, now); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a wallet's balance comes from its entries: %v", err)
+	}
+	if _, err := checking(t).Counted(money.BRLCents(1), now, now); !errors.Is(err, ErrInvalid) {
 		t.Errorf("a synced account's balance comes from the bank: %v", err)
 	}
 }

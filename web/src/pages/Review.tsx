@@ -68,9 +68,10 @@ export function Review() {
   async function choose(g: ReviewGroup, category: string, teach: Pattern | null) {
     setBusy(true);
     setError(null);
+    setUndo(null); // a new choice: the last one's undo no longer applies
+    let token: Undo | null = null;
     try {
       let n: number;
-      let token: Undo | null = null;
       if (teach) {
         const r = await send<Change>("POST", "/api/v1/review", { pattern: teach, category });
         n = r.categorized;
@@ -91,6 +92,8 @@ export function Review() {
         });
     } catch (e) {
       setError((e as Error).message);
+      // What was saved before the failure can still be taken back.
+      if (token) setUndo({ token, what: "What was saved before the error is back as it was." });
     } finally {
       setBusy(false);
     }
@@ -117,7 +120,7 @@ export function Review() {
         >
           {!error && (undo ? <Check className="size-4 text-inflow" aria-hidden /> : <RotateCcw className="size-4 text-ink-muted" aria-hidden />)}
           <span className="min-w-0 flex-[1_1_320px]">{error ? `Could not save: ${error}.` : done}</span>
-          {undo && !error && (
+          {undo && (
             <Button variant="ghost" size="sm" onClick={() => void takeBack()} disabled={busy}>
               Undo {wide && <Kbd>U</Kbd>}
             </Button>

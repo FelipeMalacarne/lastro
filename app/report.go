@@ -302,13 +302,15 @@ func abs(v int64) int64 {
 	return v
 }
 
-// SendReport pushes last month's report once, on the first sync of a new
-// month, when a channel is set up. It reports whether it sent one.
+// SendReport pushes last month's report once, on the first sync from the
+// 2nd of a month on (the last day's card and Pix items reach Pluggy late),
+// when a channel is set up. It reports whether it sent one.
 func (a *App) SendReport(ctx context.Context) (bool, error) {
-	if !a.Notify.Enabled() {
+	today := a.Portfolio.Today()
+	if !a.Notify.Enabled() || today.Day() < 2 {
 		return false, nil
 	}
-	last := budget.MonthOf(a.Portfolio.Today()).Add(-1)
+	last := budget.MonthOf(today).Add(-1)
 	key := []budget.AlertView{{Key: "report:" + last.String()}}
 	fresh, err := a.Budget.Unsent(ctx, key)
 	if err != nil || len(fresh) == 0 {

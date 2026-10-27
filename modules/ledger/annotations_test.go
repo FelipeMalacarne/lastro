@@ -60,7 +60,9 @@ func TestNewNote(t *testing.T) {
 
 func TestSplitInto(t *testing.T) {
 	groceries, shopping, housing := mustCategory(t, "groceries"), mustCategory(t, "shopping"), mustCategory(t, "housing")
-	part := func(c CategoryID, cents int64) SplitPart { return SplitPart{Category: c, Amount: money.BRLCents(cents)} }
+	part := func(c CategoryID, cents int64) SplitPart {
+		return SplitPart{Category: c, Amount: money.BRLCents(cents)}
+	}
 	for _, c := range []struct {
 		name  string
 		parts []SplitPart

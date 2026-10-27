@@ -104,6 +104,8 @@ SELECT
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
     t.note, t.tags,
     COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
+    -- What counts under a category filter: a split's part in it, or the whole.
+    COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text), t.amount_cents)::bigint AS counted_cents,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -313,8 +315,8 @@ VALUES (sqlc.arg(transaction_id), sqlc.arg(position), sqlc.arg(category_id), sql
 -- Every tag in use, with how much money it holds: what the tag picker
 -- offers and the tag filter sums.
 SELECT tag::text AS tag, count(*)::int AS n,
-    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.amount_cents < 0), 0)::bigint AS out_cents,
-    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.amount_cents > 0), 0)::bigint AS in_cents,
+    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents > 0), 0)::bigint AS in_cents,
     max(t.date)::date AS last
 FROM ledger.transactions t, unnest(t.tags) AS tag
 WHERE t.removed_at IS NULL
@@ -328,9 +330,17 @@ SELECT COALESCE(category_id, '')::text AS category_id,
     COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
     count(*)::int AS n
 FROM ledger.category_lines
-WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND sqlc.arg(tag)::text = ANY (tags)
+WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND currency = 'BRL' AND sqlc.arg(tag)::text = ANY (tags)
 GROUP BY 1
 ORDER BY 2 DESC;
 
 -- name: DeleteBalanceSnapshot :execrows
 DELETE FROM ledger.balance_snapshots WHERE account_id = $1 AND date = $2;
+
+-- name: ReplaceBalanceSnapshot :exec
+-- A balance I counted replaces that day's, whenever I typed it.
+INSERT INTO ledger.balance_snapshots (account_id, date, balance_cents, currency, taken_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (account_id, date) DO UPDATE SET
+    balance_cents = EXCLUDED.balance_cents,
+    taken_at = EXCLUDED.taken_at;

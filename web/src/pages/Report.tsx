@@ -38,7 +38,7 @@ export function Report() {
     <>
       <PageHeader
         title={`${name} in review`}
-        caption={isCurrent ? "So far: the month is not over, so these numbers will still move" : "From the closed month · sent to Telegram on the first sync after it, when set up"}
+        caption={isCurrent ? "So far: the month is not over, so these numbers will still move" : "From the closed month · sent to Telegram from the 2nd of the next month, when set up"}
       />
       {r.error && !d && <p className="m-0 type-body text-ink-muted">Could not load the report: {r.error}.</p>}
       {!d && !r.error && <p className="m-0 type-body text-ink-muted">Loading…</p>}

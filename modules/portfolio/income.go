@@ -96,7 +96,7 @@ func (s *Service) Dividends(ctx context.Context) (DividendsView, error) {
 	years := map[int]int64{}
 	byTicker := map[string]*DividendStockView{}
 	for _, p := range Earned(divs, history, today) {
-		if p.Day().After(today) {
+		if p.PaymentDate.IsZero() || p.PaymentDate.After(today) {
 			v.Upcoming = append(v.Upcoming, paymentView(p))
 			continue
 		}
@@ -128,7 +128,7 @@ func (s *Service) Dividends(ctx context.Context) (DividendsView, error) {
 			st.YieldBps = market.YieldBps(st.TrailingMicro, q.Close.Cents())
 		}
 		v.ForwardCents += perShare(st.TrailingMicro, x.Quantity)
-		if n := nextPayment(ds, today, x.Quantity); n != nil {
+		if n := nextPayment(ds, today, x.Ticker, x.Quantity, history); n != nil {
 			n.Ticker = x.Ticker
 			st.Next = n
 		}
@@ -153,13 +153,23 @@ func stockOf(m map[string]*DividendStockView, t string) *DividendStockView {
 }
 
 // nextPayment is the first payment still to come: approved with a com date
-// today or later, or earned and paid after today.
-func nextPayment(ds []market.Dividend, today time.Time, q Quantity) *PaymentView {
+// today or later (at today's shares), or earned and not paid yet (at the
+// shares held on its com date).
+func nextPayment(ds []market.Dividend, today time.Time, ticker string, q Quantity, h HeldHistory) *PaymentView {
 	for _, d := range ds {
-		if !d.ComDate.Before(today) || d.PaymentDate.After(today) {
-			p := paymentView(Payment{Label: d.Label, ComDate: d.ComDate, PaymentDate: d.PaymentDate, RateMicro: d.RateMicro, Cents: perShare(d.RateMicro, q)})
-			return &p
+		held := q
+		switch {
+		case !d.ComDate.Before(today):
+		case d.PaymentDate.IsZero() || d.PaymentDate.After(today):
+			var known bool
+			if held, known = h.On(ticker, d.ComDate); !known || held.IsZero() {
+				continue // not earned: bought after its com date
+			}
+		default:
+			continue
 		}
+		p := paymentView(Payment{Label: d.Label, ComDate: d.ComDate, PaymentDate: d.PaymentDate, RateMicro: d.RateMicro, Cents: perShare(d.RateMicro, held)})
+		return &p
 	}
 	return nil
 }

@@ -519,8 +519,12 @@ func TestRepositoryManualAccounts(t *testing.T) {
 	if err := svc.SetManualBalance(ctx, pgbl, oct(1), money.BRLCents(4600000)); err != nil {
 		t.Fatal(err)
 	}
+	// A correction of an earlier day, typed later in the day, replaces it.
+	if err := svc.SetManualBalance(ctx, pgbl, oct(1), money.BRLCents(4650000)); err != nil {
+		t.Fatal(err)
+	}
 	h, err := svc.BalanceHistory(ctx, pgbl)
-	if err != nil || len(h.Points) < 2 {
+	if err != nil || len(h.Points) < 2 || h.Points[0].Date != "2026-10-01" || h.Points[0].BalanceCents != 4650000 {
 		t.Fatalf("history: %+v %v", h, err)
 	}
 	if a, _ := svc.Account(ctx, pgbl); a.BalanceCents != 4831277 {
@@ -529,8 +533,11 @@ func TestRepositoryManualAccounts(t *testing.T) {
 	if err := svc.DeleteManualBalance(ctx, pgbl, oct(27)); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := svc.Account(ctx, pgbl); a.BalanceCents == 4831277 {
+	if a, _ := svc.Account(ctx, pgbl); a.BalanceCents != 4650000 {
 		t.Errorf("after deleting the latest, the one before: %d", a.BalanceCents)
+	}
+	if err := svc.DeleteManualBalance(ctx, wallet, oct(27)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a wallet's balance comes from its entries, never deleted by hand: %v", err)
 	}
 	if _, err := svc.AddManualTransaction(ctx, pgbl, oct(27), "x", money.BRLCents(-1)); !errors.Is(err, ErrInvalid) {
 		t.Errorf("an asset takes no transactions: %v", err)

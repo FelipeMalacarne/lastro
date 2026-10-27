@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	_ "time/tzdata" // days turn in São Paulo, even without the system's zoneinfo
 
 	"lastro/money"
 	"lastro/platform/events"
@@ -25,19 +26,39 @@ func NewManualAccount(name string, typ AccountType, balance money.Money, at time
 	return NewAccount(AccountDetails{ExternalID: ext, Name: name, Institution: ManualInstitution, Type: typ, Balance: balance, BalanceAt: at})
 }
 
-// SetBalance is a balance I typed, as of a moment. An earlier one only adds
-// to the history; the account keeps its latest.
-func (a *Account) SetBalance(b money.Money, at time.Time) (BalanceSnapshot, error) {
-	if !a.typ.IsManual() {
-		return BalanceSnapshot{}, fmt.Errorf("%w: only an account typed in takes a balance by hand", ErrInvalid)
+// Counted is a balance I counted on a day, for an asset: it replaces that
+// day's balance in the history (see Latest for the account's own).
+func (a *Account) Counted(b money.Money, day, at time.Time) (BalanceSnapshot, error) {
+	if a.typ != AccountAsset {
+		return BalanceSnapshot{}, fmt.Errorf("%w: only an asset takes a balance by hand", ErrInvalid)
 	}
 	if b.Currency() != a.currency {
 		return BalanceSnapshot{}, fmt.Errorf("%w: account %s is in %s", ErrCurrencyChanged, a.externalID, a.currency)
 	}
-	if !at.Before(a.balanceAt) {
-		a.balance, a.balanceAt = b, at
+	return BalanceSnapshot{AccountID: a.id, Date: civilDate(day), Balance: b, At: at}, nil
+}
+
+// Latest makes an asset's balance the one of its latest day.
+func (a *Account) Latest(snaps []BalanceSnapshot) error {
+	if a.typ != AccountAsset {
+		return fmt.Errorf("%w: only an asset takes its balance from what I counted", ErrInvalid)
 	}
-	return BalanceSnapshot{AccountID: a.id, Date: civilDate(at), Balance: b, At: at}, nil
+	if len(snaps) == 0 {
+		return fmt.Errorf("%w: an asset keeps at least one balance", ErrInvalid)
+	}
+	last := snaps[0]
+	for _, sn := range snaps[1:] {
+		if sn.Date.After(last.Date) || (sn.Date.Equal(last.Date) && sn.At.After(last.At)) {
+			last = sn
+		}
+	}
+	a.balance, a.balanceAt = last.Balance, last.At
+	return nil
+}
+
+// on is the account's balance as a snapshot of a given day.
+func (a *Account) on(day time.Time) BalanceSnapshot {
+	return BalanceSnapshot{AccountID: a.id, Date: civilDate(day), Balance: a.balance, At: a.balanceAt}
 }
 
 // Move is a wallet's balance changing by an entry I added or removed.
@@ -69,7 +90,7 @@ func (s *Service) CreateManualAccount(ctx context.Context, name string, typ Acco
 		if err := r.SaveAccount(ctx, a); err != nil {
 			return err
 		}
-		return r.SaveSnapshot(ctx, a.Snapshot())
+		return r.SaveSnapshot(ctx, a.on(s.today()))
 	})
 	if err != nil {
 		return "", fmt.Errorf("ledger: create account: %w", err)
@@ -77,22 +98,22 @@ func (s *Service) CreateManualAccount(ctx context.Context, name string, typ Acco
 	return a.ID(), nil
 }
 
-// SetManualBalance records a balance I counted on a day: today's is the
-// account's balance from now on, an earlier day's goes into the history.
+// SetManualBalance records a balance I counted on a day for an asset: it
+// replaces that day's, and the latest day's is the account's balance.
 func (s *Service) SetManualBalance(ctx context.Context, id AccountID, day time.Time, balance money.Money) error {
 	err := s.repo.Tx(ctx, func(r Repository) error {
 		a, err := accountByID(ctx, r, id)
 		if err != nil {
 			return err
 		}
-		snap, err := a.SetBalance(balance, s.moment(day))
+		snap, err := a.Counted(balance, day, s.now())
 		if err != nil {
 			return err
 		}
-		if err := r.SaveAccount(ctx, a); err != nil {
+		if err := r.ReplaceSnapshot(ctx, snap); err != nil {
 			return err
 		}
-		return r.SaveSnapshot(ctx, snap)
+		return s.takeLatest(ctx, r, a)
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: set balance: %w", err)
@@ -100,35 +121,37 @@ func (s *Service) SetManualBalance(ctx context.Context, id AccountID, day time.T
 	return nil
 }
 
-// DeleteManualBalance removes a day's balance; the account takes the latest
-// one left.
+// DeleteManualBalance removes a day's balance from an asset; the account
+// takes the latest one left.
 func (s *Service) DeleteManualBalance(ctx context.Context, id AccountID, day time.Time) error {
 	err := s.repo.Tx(ctx, func(r Repository) error {
 		a, err := accountByID(ctx, r, id)
 		if err != nil {
 			return err
 		}
-		if !a.typ.IsManual() {
-			return fmt.Errorf("%w: only an account typed in loses a balance by hand", ErrInvalid)
+		if a.typ != AccountAsset {
+			return fmt.Errorf("%w: only an asset loses a balance by hand", ErrInvalid)
 		}
 		if err := r.DeleteSnapshot(ctx, id, day); err != nil {
 			return err
 		}
-		snaps, err := r.Snapshots(ctx, id)
-		if err != nil {
-			return err
-		}
-		if len(snaps) == 0 {
-			return fmt.Errorf("%w: an account keeps at least one balance", ErrInvalid)
-		}
-		last := snaps[len(snaps)-1]
-		a.balance, a.balanceAt = last.Balance, last.At
-		return r.SaveAccount(ctx, a)
+		return s.takeLatest(ctx, r, a)
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: delete balance: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) takeLatest(ctx context.Context, r Repository, a *Account) error {
+	snaps, err := r.Snapshots(ctx, a.ID())
+	if err != nil {
+		return err
+	}
+	if err := a.Latest(snaps); err != nil {
+		return err
+	}
+	return r.SaveAccount(ctx, a)
 }
 
 // AddManualTransaction adds a wallet entry: money out is negative. It goes
@@ -164,14 +187,14 @@ func (s *Service) AddManualTransaction(ctx context.Context, id AccountID, day ti
 		if err := r.SaveAccount(ctx, a); err != nil {
 			return err
 		}
-		return r.SaveSnapshot(ctx, a.Snapshot())
+		return r.SaveSnapshot(ctx, a.on(s.today()))
 	})
 	if err != nil {
 		return "", fmt.Errorf("ledger: add transaction: %w", err)
 	}
-	if _, err := s.MatchTransfers(ctx, day.AddDate(0, 0, -transferWindow)); err != nil {
-		return tx.ID(), err
-	}
+	// The entry is saved: a withdrawal it fails to pair now pairs on the next
+	// sync, which runs the matcher again.
+	_, _ = s.MatchTransfers(ctx, day.AddDate(0, 0, -transferWindow))
 	return tx.ID(), s.bus.Publish(ctx, TransactionsImported{TransactionIDs: []TransactionID{tx.ID()}})
 }
 
@@ -218,7 +241,7 @@ func (s *Service) RemoveManualTransaction(ctx context.Context, id TransactionID)
 		if err := r.SaveAccount(ctx, a); err != nil {
 			return err
 		}
-		return r.SaveSnapshot(ctx, a.Snapshot())
+		return r.SaveSnapshot(ctx, a.on(s.today()))
 	})
 	if err != nil {
 		return fmt.Errorf("ledger: remove transaction: %w", err)
@@ -239,13 +262,10 @@ func accountByID(ctx context.Context, r Repository, id AccountID) (*Account, err
 	return nil, fmt.Errorf("%w: account %s", ErrNotFound, id)
 }
 
-// moment is when a balance typed for a day was read: now for today, noon of
-// the day otherwise.
-func (s *Service) moment(day time.Time) time.Time {
-	now := s.now()
-	if civilDate(now).Equal(civilDate(day)) {
-		return now
-	}
-	y, m, d := day.Date()
-	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC)
+// today is the calendar day in São Paulo, where the days of what I type
+// turn.
+func (s *Service) today() time.Time {
+	return civilDate(s.now().In(saoPaulo))
 }
+
+var saoPaulo, _ = time.LoadLocation("America/Sao_Paulo")

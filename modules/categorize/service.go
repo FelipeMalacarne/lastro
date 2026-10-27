@@ -349,6 +349,9 @@ func (s *Service) SetCategory(ctx context.Context, tx ledger.TransactionID, cate
 	if err != nil {
 		return Change{}, fmt.Errorf("categorize: set category: %w", err)
 	}
+	if len(d.Transaction.SplitCategories) > 0 {
+		return Change{}, fmt.Errorf("%w: the transaction is split; remove the split to give it one category", ErrInvalid)
+	}
 	before[tx] = beforeOf(tx, d.Transaction.Category)
 	if err := s.ledger.Categorize(ctx, tx, category, ledger.SourceManual); err != nil {
 		return Change{}, fmt.Errorf("categorize: set category: %w", err)

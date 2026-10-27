@@ -27,6 +27,8 @@ type Repository interface {
 	SaveSnapshot(ctx context.Context, s BalanceSnapshot) error
 	Snapshots(ctx context.Context, account AccountID) ([]BalanceSnapshot, error)
 	DeleteSnapshot(ctx context.Context, account AccountID, day time.Time) error
+	// ReplaceSnapshot stores a day's balance whatever the one stored.
+	ReplaceSnapshot(ctx context.Context, s BalanceSnapshot) error
 
 	// TransactionsForImport returns the account's transactions dated on or
 	// after from (none for a zero from) plus any with one of the external

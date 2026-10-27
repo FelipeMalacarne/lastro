@@ -50,16 +50,20 @@ func TestParseFilter(t *testing.T) {
 }
 
 func TestSummarize(t *testing.T) {
+	v := func(cents int64, kind, status string) TransactionView {
+		return TransactionView{AmountCents: cents, CountedCents: cents, Kind: kind, Status: status}
+	}
 	s := summarize([]TransactionView{
-		{AmountCents: -4890, Kind: "expense", Status: "posted"},
-		{AmountCents: -2310, Kind: "expense", Status: "pending"},
-		{AmountCents: 5990, Kind: "expense", Status: "posted"}, // a refund
-		{AmountCents: 850000, Kind: "income", Status: "posted"},
-		{AmountCents: -100000, Kind: "transfer", Status: "posted"},
-		{AmountCents: 148237, Kind: "bill_payment", Status: "posted"},
+		v(-4890, "expense", "posted"),
+		v(-2310, "expense", "pending"),
+		v(5990, "expense", "posted"), // a refund
+		v(850000, "income", "posted"),
+		v(-100000, "transfer", "posted"),
+		v(148237, "bill_payment", "posted"),
+		{AmountCents: -50000, CountedCents: -30000, Kind: "expense", Status: "posted"}, // a split's part under a filter
 	})
-	if s != (ListSummary{Count: 6, Pending: 1, InCents: 855990, OutCents: -7200}) {
-		t.Fatalf("transfers and bill payments never count: %+v", s)
+	if s != (ListSummary{Count: 7, Pending: 1, InCents: 855990, OutCents: -37200}) {
+		t.Fatalf("transfers and bill payments never count, a split counts its part: %+v", s)
 	}
 }
 

@@ -74,8 +74,20 @@ func changed(before, after snapshot) []Before {
 }
 
 // Undo takes a choice back (see the Undo type). It returns how many
-// transactions went back to their earlier category.
+// transactions went back to their earlier category. A transaction the bank
+// removed since is skipped, so an undo never stops halfway.
 func (s *Service) Undo(ctx context.Context, u Undo) (int, error) {
+	n := 0
+	for _, b := range u.Before {
+		err := s.ledger.Restore(ctx, b.Transaction, b.Category, b.Source)
+		switch {
+		case errors.Is(err, ledger.ErrRemoved), errors.Is(err, ledger.ErrNotFound):
+		case err != nil:
+			return n, fmt.Errorf("categorize: undo: %w", err)
+		default:
+			n++
+		}
+	}
 	if u.Rule != "" {
 		if u.WasRule.IsZero() {
 			if err := s.repo.deleteRule(ctx, u.Rule); err != nil && !errors.Is(err, ErrRuleNotFound) {
@@ -85,12 +97,7 @@ func (s *Service) Undo(ctx context.Context, u Undo) (int, error) {
 			return 0, fmt.Errorf("categorize: undo: %w", err)
 		}
 	}
-	for i, b := range u.Before {
-		if err := s.ledger.Restore(ctx, b.Transaction, b.Category, b.Source); err != nil {
-			return i, fmt.Errorf("categorize: undo: %w", err)
-		}
-	}
-	return len(u.Before), nil
+	return n, nil
 }
 
 func (s *Service) retarget(ctx context.Context, id RuleID, to ledger.CategoryID) error {

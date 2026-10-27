@@ -266,11 +266,13 @@ function CategorySection({ t }: { t: Transaction }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [undo, setUndo] = useState<Undo | null>(null);
   const current = t.category ? byId.get(t.category.id) : undefined;
+  useEffect(() => setOpen(!t.category), [t.id, t.category]);
+  // A choice's message and its Undo stay until another transaction opens,
+  // even as the saved category comes back from the server.
   useEffect(() => {
-    setOpen(!t.category);
     setMsg(null);
-  }, [t.id, t.category]);
-  useEffect(() => setUndo(null), [t.id]);
+    setUndo(null);
+  }, [t.id]);
 
   async function takeBack() {
     if (!undo) return;

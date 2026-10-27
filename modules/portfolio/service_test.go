@@ -167,7 +167,8 @@ func TestDividendsAndPriceDrops(t *testing.T) {
 			{Symbol: "WEGE3", ComDate: date("2026-02-10"), Label: "JCP", RateMicro: 100_000, PaymentDate: date("2026-03-01")}, // before lastro knew
 			{Symbol: "WEGE3", ComDate: date("2026-04-10"), Label: "JCP", RateMicro: 100_000, PaymentDate: date("2026-05-01")}, // 100 shares
 			{Symbol: "WEGE3", ComDate: date("2026-09-30"), Label: "JCP", RateMicro: 157_843, PaymentDate: date("2026-12-12")}, // 150, not paid yet
-			{Symbol: "WEGE3", ComDate: date("2026-11-20"), Label: "DIVIDENDO", RateMicro: 50_000},                              // not earned yet
+			{Symbol: "WEGE3", ComDate: date("2026-11-20"), Label: "DIVIDENDO", RateMicro: 50_000},                             // not earned yet
+			{Symbol: "WEGE3", ComDate: date("2026-08-20"), Label: "DIVIDENDO", RateMicro: 10_000},                             // earned, no payment date yet
 		}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -177,10 +178,10 @@ func TestDividendsAndPriceDrops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.Since == nil || *v.Since != "2026-03-01" || v.YearCents != 1000 || len(v.Upcoming) != 1 || v.Upcoming[0].Cents != 2368 {
-		t.Errorf("R$ 0,10 × 100 paid, R$ 0,157843 × 150 to come: %+v", v)
+	if v.Since == nil || *v.Since != "2026-03-01" || v.YearCents != 1000 || len(v.Upcoming) != 2 || v.Upcoming[1].Cents != 2368 || v.Upcoming[0].PaymentDate != nil {
+		t.Errorf("R$ 0,10 × 100 paid; R$ 0,01 × 150 with no date and R$ 0,157843 × 150 to come: %+v", v)
 	}
-	if len(v.Tickers) != 1 || v.Tickers[0].TrailingMicro != 357_843 || v.Tickers[0].YieldBps != 94 {
+	if len(v.Tickers) != 1 || v.Tickers[0].TrailingMicro != 367_843 || v.Tickers[0].YieldBps != 96 {
 		t.Errorf("trailing and yield: %+v", v.Tickers)
 	}
 

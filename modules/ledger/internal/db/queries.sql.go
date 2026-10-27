@@ -981,7 +981,7 @@ SELECT COALESCE(category_id, '')::text AS category_id,
     COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
     count(*)::int AS n
 FROM ledger.category_lines
-WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND $1::text = ANY (tags)
+WHERE removed_at IS NULL AND kind IN ('expense', 'income') AND currency = 'BRL' AND $1::text = ANY (tags)
 GROUP BY 1
 ORDER BY 2 DESC
 `
@@ -1021,8 +1021,8 @@ func (q *Queries) ListTagCategories(ctx context.Context, tag string) ([]ListTagC
 
 const listTags = `-- name: ListTags :many
 SELECT tag::text AS tag, count(*)::int AS n,
-    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.amount_cents < 0), 0)::bigint AS out_cents,
-    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.amount_cents > 0), 0)::bigint AS in_cents,
+    COALESCE(sum(-t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents < 0), 0)::bigint AS out_cents,
+    COALESCE(sum(t.amount_cents) FILTER (WHERE t.kind IN ('expense', 'income') AND t.currency = 'BRL' AND t.amount_cents > 0), 0)::bigint AS in_cents,
     max(t.date)::date AS last
 FROM ledger.transactions t, unnest(t.tags) AS tag
 WHERE t.removed_at IS NULL
@@ -1073,6 +1073,8 @@ SELECT
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
     t.note, t.tags,
     COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
+    -- What counts under a category filter: a split's part in it, or the whole.
+    COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text), t.amount_cents)::bigint AS counted_cents,
     a.id AS account_id, a.name AS account_name, a.institution AS account_institution, a.type AS account_type,
     ca.id AS counterpart_account_id, ca.name AS counterpart_account_name,
     ca.institution AS counterpart_institution, ca.type AS counterpart_account_type
@@ -1081,15 +1083,15 @@ JOIN ledger.accounts a ON a.id = t.account_id
 LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
 LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
 WHERE t.removed_at IS NULL
-  AND ($1::uuid IS NULL OR t.id = $1::uuid)
-  AND ($2::date IS NULL OR t.date >= $2::date)
-  AND ($3::date IS NULL OR t.date < $3::date)
-  AND ($4::uuid IS NULL OR t.account_id = $4::uuid)
+  AND ($2::uuid IS NULL OR t.id = $2::uuid)
+  AND ($3::date IS NULL OR t.date >= $3::date)
+  AND ($4::date IS NULL OR t.date < $4::date)
+  AND ($5::uuid IS NULL OR t.account_id = $5::uuid)
   AND (
-      $5::text IS NULL
-      OR ($5::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
-      OR t.category_id = $5::text
-      OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $5::text)
+      $1::text IS NULL
+      OR ($1::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+      OR t.category_id = $1::text
+      OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text)
   )
   AND ($6::text IS NULL OR $6::text = ANY (t.tags))
   AND (
@@ -1108,11 +1110,11 @@ LIMIT $9
 `
 
 type ListTransactionViewsParams struct {
+	Category  *string
 	ID        *string
 	DateFrom  *time.Time
 	DateTo    *time.Time
 	AccountID *string
-	Category  *string
 	Tag       *string
 	Flow      *string
 	Search    *string
@@ -1135,6 +1137,7 @@ type ListTransactionViewsRow struct {
 	Note                   string
 	Tags                   []string
 	SplitCategories        []string
+	CountedCents           int64
 	AccountID              string
 	AccountName            string
 	AccountInstitution     string
@@ -1154,11 +1157,11 @@ type ListTransactionViewsRow struct {
 // still without one.
 func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionViewsParams) ([]ListTransactionViewsRow, error) {
 	rows, err := q.db.Query(ctx, listTransactionViews,
+		arg.Category,
 		arg.ID,
 		arg.DateFrom,
 		arg.DateTo,
 		arg.AccountID,
-		arg.Category,
 		arg.Tag,
 		arg.Flow,
 		arg.Search,
@@ -1187,6 +1190,7 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 			&i.Note,
 			&i.Tags,
 			&i.SplitCategories,
+			&i.CountedCents,
 			&i.AccountID,
 			&i.AccountName,
 			&i.AccountInstitution,
@@ -1326,6 +1330,34 @@ func (q *Queries) ListUncategorized(ctx context.Context) ([]ListUncategorizedRow
 		return nil, err
 	}
 	return items, nil
+}
+
+const replaceBalanceSnapshot = `-- name: ReplaceBalanceSnapshot :exec
+INSERT INTO ledger.balance_snapshots (account_id, date, balance_cents, currency, taken_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (account_id, date) DO UPDATE SET
+    balance_cents = EXCLUDED.balance_cents,
+    taken_at = EXCLUDED.taken_at
+`
+
+type ReplaceBalanceSnapshotParams struct {
+	AccountID    string
+	Date         time.Time
+	BalanceCents int64
+	Currency     string
+	TakenAt      time.Time
+}
+
+// A balance I counted replaces that day's, whenever I typed it.
+func (q *Queries) ReplaceBalanceSnapshot(ctx context.Context, arg ReplaceBalanceSnapshotParams) error {
+	_, err := q.db.Exec(ctx, replaceBalanceSnapshot,
+		arg.AccountID,
+		arg.Date,
+		arg.BalanceCents,
+		arg.Currency,
+		arg.TakenAt,
+	)
+	return err
 }
 
 const saveAccount = `-- name: SaveAccount :exec

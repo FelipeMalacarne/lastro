@@ -70,7 +70,7 @@ type Payment struct {
 }
 
 // Day is when the payment counts: when it is paid, or its com date while
-// no payment date is set.
+// no payment date is set (it is then still to be paid).
 func (p Payment) Day() time.Time {
 	if p.PaymentDate.IsZero() {
 		return p.ComDate

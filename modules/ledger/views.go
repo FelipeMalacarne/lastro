@@ -52,6 +52,9 @@ type TransactionView struct {
 	// SplitCategories are a split transaction's categories, largest part
 	// first; empty when it is not split.
 	SplitCategories []string `json:"splitCategories"`
+	// CountedCents is what counts in the list's totals: under a category
+	// filter, a split's part in that category; otherwise the amount.
+	CountedCents int64 `json:"countedCents"`
 }
 
 type InstallmentView struct {
@@ -229,10 +232,10 @@ func summarize(txs []TransactionView) ListSummary {
 		if !Kind(t.Kind).Counts() {
 			continue
 		}
-		if t.AmountCents > 0 {
-			s.InCents += t.AmountCents
+		if t.CountedCents > 0 {
+			s.InCents += t.CountedCents
 		} else {
-			s.OutCents += t.AmountCents
+			s.OutCents += t.CountedCents
 		}
 	}
 	return s

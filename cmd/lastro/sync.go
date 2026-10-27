@@ -80,7 +80,7 @@ func runSync(ctx context.Context, args []string) error {
 	} else if n > 0 {
 		fmt.Printf("Sent %d alerts\n", n)
 	}
-	// Last month's report, once, on the first sync of a month.
+	// Last month's report, once, from the 2nd of a month on.
 	if sent, err := a.SendReport(ctx); err != nil {
 		a.Logger.WarnContext(ctx, "monthly report not sent", "err", err)
 	} else if sent {

@@ -458,6 +458,7 @@ func transactionView(row db.ListTransactionViewsRow) TransactionView {
 		Note:            row.Note,
 		Tags:            row.Tags,
 		SplitCategories: row.SplitCategories,
+		CountedCents:    row.CountedCents,
 	}
 	if v.Tags == nil {
 		v.Tags = []string{}
@@ -787,4 +788,10 @@ func (r *PostgresRepository) DeleteSnapshot(ctx context.Context, account Account
 		return fmt.Errorf("%w: no balance on %s", ErrNotFound, day.Format(time.DateOnly))
 	}
 	return nil
+}
+
+func (r *PostgresRepository) ReplaceSnapshot(ctx context.Context, s BalanceSnapshot) error {
+	return r.q.ReplaceBalanceSnapshot(ctx, db.ReplaceBalanceSnapshotParams{
+		AccountID: string(s.AccountID), Date: s.Date, BalanceCents: s.Balance.Cents(), Currency: string(s.Balance.Currency()), TakenAt: s.At,
+	})
 }

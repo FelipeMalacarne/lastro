@@ -86,12 +86,12 @@ export function Dividends() {
           )}
         </div>
         <div className="min-w-0 flex-[7_1_420px]" role="table" aria-label="Dividends by stock">
-          <div role="row" className="grid h-8 grid-cols-[minmax(0,1fr)_100px_100px_64px] items-center gap-3 bg-paper-sunken px-2 type-label text-ink-muted">
+          <div role="row" className="grid h-8 grid-cols-[minmax(0,1fr)_96px_56px] sm:grid-cols-[minmax(0,1fr)_100px_100px_64px] items-center gap-3 bg-paper-sunken px-2 type-label text-ink-muted">
             <span role="columnheader">Stock</span>
             <span role="columnheader" className="text-right">
               {year}
             </span>
-            <span role="columnheader" className="text-right">
+            <span role="columnheader" className="hidden text-right sm:block">
               12 m a share
             </span>
             <span role="columnheader" className="text-right">
@@ -99,7 +99,7 @@ export function Dividends() {
             </span>
           </div>
           {d.tickers.map((t) => (
-            <div key={t.ticker} role="row" className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_100px_100px_64px] items-center gap-3 border-b border-rule px-2 py-1.5">
+            <div key={t.ticker} role="row" className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_96px_56px] sm:grid-cols-[minmax(0,1fr)_100px_100px_64px] items-center gap-3 border-b border-rule px-2 py-1.5">
               <span role="cell" className="flex min-w-0 flex-col">
                 <span className="font-figure text-[14px] font-medium">{t.ticker}</span>
                 {t.next && (
@@ -112,7 +112,7 @@ export function Dividends() {
               <span role="cell" className="text-right">
                 <Amount cents={t.yearCents} sign="none" size="sm" />
               </span>
-              <span role="cell" className="text-right type-figure-sm">
+              <span role="cell" className="hidden text-right type-figure-sm sm:block">
                 {t.trailingMicro ? formatPerShare(t.trailingMicro) : "—"}
               </span>
               <span role="cell" className="text-right type-figure-sm">
