@@ -8,7 +8,7 @@ Guide for coding agents (Claude Code, Codex, Cursor and the like). It applies to
 
 ## Current state
 
-M0 (skeleton and first deploy) is done and M1 (see my money) is built: Pluggy sync, ledger, transfer pairing and the Transactions screen. What is left of M1 needs the owner (the spike with real connections, the backup and the Pluggy credentials on saradomin). The next task is always the first unchecked box in `docs/PLAN.md`.
+M0 (skeleton and first deploy) and M1 (see my money) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing and the Transactions screen, with `postgres-main` backed up to R2. M2 (categorization) is next. The next task is always the first unchecked box in `docs/PLAN.md`.
 
 ## Commands
 
