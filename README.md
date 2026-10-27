@@ -25,7 +25,7 @@ Opening `http://localhost:5173` should show "Signed in as dev@localhost".
 
 ```
 lastro serve        API + embedded frontend
-lastro sync         pull accounts and transactions from Pluggy (M1)
+lastro sync         pull accounts and transactions from Pluggy (--full for the whole history, --reprocess to rebuild from stored payloads)
 lastro contribute   show where this month's contribution should go (M4)
 lastro migrate      apply pending migrations
 lastro fixtures     download Pluggy responses, print a report safe to share and anonymize them into test fixtures
@@ -53,7 +53,7 @@ The app is served at `https://lastro.ftm.dev.br`, through the saradomin Cloudfla
 2. Argo CD on saradomin follows that overlay on `main`, so the new image goes live without further steps.
 3. The cluster side lives in the [gielinor](https://github.com/FelipeMalacarne/gielinor) repository, in `clusters/saradomin/apps/lastro`. It holds the Argo CD `Application`, the `lastro` namespace and the SOPS-encrypted `lastro-secrets`. The database is `lastro` on saradomin's shared CloudNativePG cluster, `postgres-main` in `clusters/saradomin/apps/postgres`. The tunnel route, DNS record and Access application are in its `terraform/cloudflare/main.tf`. Its README there lists the steps to turn it on.
 
-The Deployment runs `lastro migrate` as an initContainer before `lastro serve`. The sync CronJob starts suspended and is turned on in M1.
+The Deployment runs `lastro migrate` as an initContainer before `lastro serve`. The sync CronJob runs `lastro sync` four times a day.
 
 ## Architecture
 

@@ -3,10 +3,12 @@ kind: CronJob
 metadata:
   name: lastro-sync
 spec:
-  schedule: "0 */6 * * *"
+  # Meu Pluggy refreshes each bank once a day; reading four times a day keeps
+  # lastro at most six hours behind it. Reads are cheap: they come from
+  # Pluggy's copy, not from the bank.
+  schedule: "17 */6 * * *"
   timeZone: America/Sao_Paulo
-  # Turned on in M1, once `lastro sync` exists.
-  suspend: true
+  suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -32,6 +34,12 @@ spec:
                     name: lastro-config
                 - secretRef:
                     name: lastro-secrets
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

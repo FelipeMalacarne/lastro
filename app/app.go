@@ -12,6 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"lastro/modules/ingest"
+	"lastro/modules/ledger"
 	"lastro/platform/auth"
 	"lastro/platform/config"
 	"lastro/platform/db"
@@ -30,9 +32,9 @@ type App struct {
 
 	auth func(http.Handler) http.Handler
 
-	// M1 on: one field per module, wired in New in dependency order.
-	// Ledger *ledger.Service
-	// Ingest *ingest.Service
+	// One field per module, wired in New in dependency order.
+	Ledger *ledger.Service
+	Ingest *ingest.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -59,10 +61,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		auth:   authMW,
 	}
 
-	// M1 on: wire the modules here. For example:
-	//   a.Ledger = ledger.New(pool, a.Bus)
-	//   a.Ingest = ingest.New(cfg.Pluggy, a.Ledger, a.Bus)
-	//   events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
+	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
+	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
+	// M2 on: subscriptions, e.g. events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
 
 	return a, nil
 }

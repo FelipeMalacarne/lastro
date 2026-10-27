@@ -7,8 +7,14 @@
 ## Concepts
 
 - Pluggy client in `internal/pluggy/`. No other module sees Pluggy types.
-- Sync state per item: when the last sync ran and how far it got.
-- Raw payloads stored in the `ingest` schema, so data can be reprocessed without calling the API again.
+- Sync state per item (`ingest.items`): Pluggy's status for the connection, when Pluggy last refreshed it from the bank, when the Meu Pluggy authorization ends, and how lastro's own last read went.
+- `Connection` (`connection.go`): the health the screens show, in the `SyncStatus` states: `ok`, `syncing`, `stale` (the bank's data is more than 2 days old) and `reauth` (Meu Pluggy needs me to log in again, or the authorization ended).
+- Raw payloads (`ingest.raw_records`): every record as Pluggy sent it, rewritten only when it changes, and marked gone when Pluggy stops returning it. `lastro sync --reprocess` rebuilds the ledger from them without calling the API.
+- Which ledger account each Pluggy account became (`ingest.item_accounts`).
+
+## Sync
+
+`lastro sync` (the CronJob, four times a day) reads each item in `LASTRO_PLUGGY_ITEM_IDS`: the item, its accounts, every transaction of each account dated in the window, and its investments (stored only, until M4). The window is everything on an item's first sync or with `--full`, and otherwise the last 90 days, stretched to a week before the last good sync. One item failing does not stop the others; an advisory lock keeps two syncs from running at once.
 
 ## Mapping (`mapping.go`)
 
@@ -24,6 +30,8 @@ Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains
 
 - Reprocessing the same payload produces exactly the same result in `ledger`.
 - The Meu Pluggy API does not list items: item IDs come from configuration (`LASTRO_PLUGGY_ITEM_IDS`).
+- An item whose Meu Pluggy authorization ended is not read: its reads come back empty, which would look like every transaction vanished.
+- A read that could not map some transaction imports without a window, so nothing is removed on its account that run.
 - Private pension plans (PGBL/VGBL) do not come through Open Finance. If they are ever added, it will be by manual import.
 - On the free plan, only accounts under your own CPF, up to 5 connections.
 
