@@ -111,12 +111,12 @@ func TestPlanContributionReachesTheBand(t *testing.T) {
 }
 
 func TestTickerAndQuantity(t *testing.T) {
-	for _, tt := range []struct{ in, want string }{{"itub4f", "ITUB4"}, {"IVVB11", "IVVB11"}, {" petr4 ", "PETR4"}, {"AAPL34", "AAPL34"}} {
+	for _, tt := range []struct{ in, want string }{{"itub4f", "ITUB4"}, {"IVVB11", "IVVB11"}, {" petr4 ", "PETR4"}, {"AAPL34", "AAPL34"}, {"B5P211", "B5P211"}, {"5GTK11", "5GTK11"}, {"b5p211f", "B5P211"}} {
 		if got, err := NewTicker(tt.in); err != nil || got.String() != tt.want {
 			t.Errorf("%q = %q, %v", tt.in, got, err)
 		}
 	}
-	for _, bad := range []string{"PETR", "PETR123", "4PETR", ""} {
+	for _, bad := range []string{"PETR", "PETR123", "4PETR", "", "123411", "PE-R4"} {
 		if _, err := NewTicker(bad); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%q: %v", bad, err)
 		}

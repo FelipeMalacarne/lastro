@@ -218,10 +218,19 @@ var globalETFs = map[string]bool{
 	"BNDX11": true, "GOLD11": true, "HASH11": true, "QBTC11": true, "BITH11": true, "ETHE11": true,
 }
 
+// ipcaETFs are B3 ETFs that hold inflation-linked Treasury bonds (IMA-B
+// and IMA-B 5); bondETFs hold the other Treasury bonds (Selic and
+// fixed-rate).
+var (
+	ipcaETFs = map[string]bool{"IMAB11": true, "IMBB11": true, "B5P211": true, "IB5M11": true, "B5MB11": true}
+	bondETFs = map[string]bool{"LFTS11": true, "IRFM11": true, "FIXA11": true}
+)
+
 // Classify puts an investment in a class by what it is: inflation-linked
-// bonds in IPCA+, the rest of fixed income in CDI, ETFs of stocks abroad
-// and BDRs in global, and Brazilian stocks, FIIs and ETFs in Brazilian
-// stocks. I can always move one by hand.
+// bonds, and ETFs of them, in IPCA+; the rest of fixed income, and ETFs of
+// it, in CDI; ETFs of stocks abroad and BDRs in global; and Brazilian
+// stocks, FIIs and stock ETFs in Brazilian stocks. I can always move one by
+// hand.
 func Classify(kind Kind, idx Indexer, t Ticker, name string) Class {
 	n := strings.ToUpper(name)
 	switch kind {
@@ -238,8 +247,13 @@ func Classify(kind Kind, idx Indexer, t Ticker, name string) Class {
 	case KindBDR:
 		return ClassGlobal
 	case KindETF:
-		if globalETFs[t.String()] {
+		switch s := t.String(); {
+		case globalETFs[s]:
 			return ClassGlobal
+		case ipcaETFs[s], strings.Contains(n, "IMA-B"), strings.Contains(n, "IMAB"), idx == IndexerIPCA:
+			return ClassIPCA
+		case bondETFs[s]:
+			return ClassCDI
 		}
 		return ClassBR
 	case KindStock:

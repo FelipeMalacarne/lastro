@@ -13,19 +13,24 @@ import (
 // ErrInvalid means a value broke one of the portfolio's rules.
 var ErrInvalid = errors.New("portfolio: invalid")
 
-// Ticker is a B3 ticker: four letters and a share-class number (PETR4,
-// IVVB11, AAPL34). The odd-lot ticker is the same asset, so ITUB4F becomes
-// ITUB4.
+// Ticker is a B3 ticker: a four-character root and a share-class number
+// (PETR4, IVVB11, AAPL34). The root is usually letters, but may hold digits
+// too (B5P211, 5GTK11), never only digits. The odd-lot ticker is the same
+// asset, so ITUB4F becomes ITUB4.
 type Ticker struct{ s string }
 
-var tickerRe = regexp.MustCompile(`^[A-Z]{4}[0-9]{1,2}$`)
+var tickerRe = regexp.MustCompile(`^[A-Z0-9]{4}[0-9]{1,2}$`)
+
+func validTicker(t string) bool {
+	return tickerRe.MatchString(t) && strings.ContainsAny(t[:4], "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+}
 
 func NewTicker(s string) (Ticker, error) {
 	t := strings.ToUpper(strings.TrimSpace(s))
-	if strings.HasSuffix(t, "F") && tickerRe.MatchString(t[:len(t)-1]) {
+	if strings.HasSuffix(t, "F") && validTicker(t[:len(t)-1]) {
 		t = t[:len(t)-1]
 	}
-	if !tickerRe.MatchString(t) {
+	if !validTicker(t) {
 		return Ticker{}, fmt.Errorf("%w: ticker %q", ErrInvalid, s)
 	}
 	return Ticker{s: t}, nil
