@@ -22,14 +22,15 @@ M0 (skeleton and first deploy) is done. The next task is always the first unchec
 | `task app` | the whole app in Docker on :8080 (Postgres, migrations, API with the embedded frontend) |
 | `task web:dev` | frontend on :5173 with a proxy to the API |
 | `task test` | Go tests |
+| `task test:integration` | Go tests plus the integration tests (repositories against a real Postgres; needs Docker) |
 | `task lint` | golangci-lint, including the boundary rules |
-| `task check` | what CI runs; **must pass before a task is considered done** |
+| `task check` | tests and lint; **must pass before a task is considered done** (CI also runs the integration tests) |
 | `task sqlc` | regenerates query code |
 
 ## Repo map
 
 ```
-cmd/lastro/      CLI: serve, sync, contribute, migrate, version
+cmd/lastro/      CLI: serve, sync, contribute, migrate, fixtures, version
 app/             composition root: the only place that knows every module
 modules/<name>/  one Go package per module (ledger, ingest, categorize, budget, market, portfolio, planning)
 money/           shared kernel: Money and Percent

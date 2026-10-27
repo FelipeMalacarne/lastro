@@ -1,6 +1,10 @@
 # golangci-lint v2
 version: "2"
 
+run:
+  # Lint the integration tests too.
+  build-tags: [integration]
+
 linters:
   enable:
     - depguard

@@ -48,6 +48,11 @@ tasks:
     cmds:
       - go test ./...
 
+  test:integration:
+    desc: Run the integration tests too (repositories against a real Postgres; needs Docker)
+    cmds:
+      - go test -tags integration ./...
+
   lint:
     desc: Run golangci-lint (includes the depguard boundary rules)
     cmds:
@@ -60,7 +65,7 @@ tasks:
       - task: lint
 
   sqlc:
-    desc: Generate query code (from M1 on)
+    desc: Generate query code from migrations and each module's queries.sql
     cmds:
       - go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 
