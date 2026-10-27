@@ -61,12 +61,13 @@ func TestMeuPluggyFixtures(t *testing.T) {
 	}
 	// Every "Pagamento recebido" on the card is a bill payment, even the 29
 	// without PAGAMENTO_FATURA. Moves to and from my own investments are
-	// transfers: 131 by operation type, 2 more by description only.
+	// transfers: 131 by operation type and 22 more "Valor recebido de
+	// Investimentos" by description only. "Resgate de Cashback" is income.
 	if kinds[ledger.KindBillPayment] != 35 {
 		t.Errorf("bill payments on the card: %d, want 35", kinds[ledger.KindBillPayment])
 	}
-	if kinds[ledger.KindTransfer] != 133 {
-		t.Errorf("moves to and from my own investments: %d, want 133", kinds[ledger.KindTransfer])
+	if kinds[ledger.KindTransfer] != 153 {
+		t.Errorf("moves to and from my own investments: %d, want 153", kinds[ledger.KindTransfer])
 	}
 
 	paired := ledger.MatchTransfers(all) // the domain service, as the sync runs it

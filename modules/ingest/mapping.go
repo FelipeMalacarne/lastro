@@ -151,8 +151,10 @@ var (
 	// set PAGAMENTO_FATURA: "Pagamento recebido", "Pagamento de fatura".
 	billPaymentRe = regexp.MustCompile(`^PAG(AMENTO|TO)?\b.*\b(RECEBIDO|FATURA)\b`)
 	// Money moving between a checking account and its own investment
-	// (Itaú's automatic investment, Banco do Brasil's Rende Fácil).
-	investmentMoveRe = regexp.MustCompile(`^(APLICACAO|APLIC|RESGATE)\b`)
+	// (Itaú's automatic investment, Banco do Brasil's Rende Fácil, Nubank's
+	// "Valor recebido de Investimentos", only sometimes marked
+	// RESGATE_APLIC_FINANCEIRA).
+	investmentMoveRe = regexp.MustCompile(`^(APLICACAO|APLIC|RESGATE|VALOR RECEBIDO DE INVESTIMENTOS?)\b`)
 )
 
 // kindOf is the kind the source data supports on its own. Transfers between
@@ -166,6 +168,8 @@ func kindOf(t pluggy.Transaction, card bool, cents int64, description string) le
 		return ledger.KindBillPayment
 	case card:
 		return ledger.KindExpense // purchases, and refunds or cashback that reduce spending
+	case inflow && strings.Contains(words, "CASHBACK"):
+		return ledger.KindIncome // "Resgate de Cashback" is a reward, not my own money moving
 	case t.OperationType == "RESGATE_APLIC_FINANCEIRA" || investmentMoveRe.MatchString(words):
 		return ledger.KindTransfer
 	case inflow:

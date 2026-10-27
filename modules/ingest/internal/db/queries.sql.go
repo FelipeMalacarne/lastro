@@ -85,9 +85,14 @@ func (q *Queries) ListItemAccounts(ctx context.Context, itemIds []string) ([]Ing
 }
 
 const listItems = `-- name: ListItems :many
-SELECT id, institution, status, execution_status, error_code, data_updated_at, consent_expires_at, sync_started_at, sync_finished_at, synced_at, sync_error, created_at, updated_at FROM ingest.items WHERE id = ANY ($1::text[]) ORDER BY institution, id
+SELECT id, institution, status, execution_status, error_code, data_updated_at, consent_expires_at, sync_started_at, sync_finished_at, synced_at, sync_error, created_at, updated_at FROM ingest.items i
+WHERE i.id = ANY ($1::text[])
+   OR EXISTS (SELECT 1 FROM ingest.item_accounts a WHERE a.item_id = i.id)
+ORDER BY i.institution, i.id
 `
 
+// The configured items and any other that feeds a ledger account, so a
+// process started without the item ids still shows every account's connection.
 func (q *Queries) ListItems(ctx context.Context, ids []string) ([]IngestItem, error) {
 	rows, err := q.db.Query(ctx, listItems, ids)
 	if err != nil {

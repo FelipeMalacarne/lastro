@@ -373,13 +373,19 @@ type ConnectionView struct {
 	AccountIDs []ledger.AccountID
 }
 
-// Connections returns the health of every configured item.
+// Connections returns the health of every configured item and of any other
+// item that feeds a ledger account. It does not depend on this process's
+// item ids: serve may have started before they were set.
 func (s *Service) Connections(ctx context.Context) ([]ConnectionView, error) {
 	states, err := s.repo.items(ctx, s.itemIDs)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: connections: %w", err)
 	}
-	accounts, err := s.repo.itemAccounts(ctx, s.itemIDs)
+	ids := make([]string, len(states))
+	for i, st := range states {
+		ids[i] = st.ItemID
+	}
+	accounts, err := s.repo.itemAccounts(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: connections: %w", err)
 	}

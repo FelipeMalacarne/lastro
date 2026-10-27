@@ -5,7 +5,12 @@ INSERT INTO ingest.items (id) VALUES ($1) ON CONFLICT (id) DO NOTHING;
 SELECT * FROM ingest.items WHERE id = $1;
 
 -- name: ListItems :many
-SELECT * FROM ingest.items WHERE id = ANY (sqlc.arg(ids)::text[]) ORDER BY institution, id;
+-- The configured items and any other that feeds a ledger account, so a
+-- process started without the item ids still shows every account's connection.
+SELECT * FROM ingest.items i
+WHERE i.id = ANY (sqlc.arg(ids)::text[])
+   OR EXISTS (SELECT 1 FROM ingest.item_accounts a WHERE a.item_id = i.id)
+ORDER BY i.institution, i.id;
 
 -- name: SyncStarted :exec
 UPDATE ingest.items SET sync_started_at = $2, updated_at = now() WHERE id = $1;

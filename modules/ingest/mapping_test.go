@@ -192,3 +192,28 @@ func TestDirectionWithoutType(t *testing.T) {
 		}
 	}
 }
+
+func TestKindByDescription(t *testing.T) {
+	tests := []struct {
+		card        bool
+		cents       int64
+		op          string
+		description string
+		want        ledger.Kind
+	}{
+		{false, 30000, "OUTROS", "Valor recebido de Investimentos", ledger.KindTransfer},
+		{false, 30000, "RESGATE_APLIC_FINANCEIRA", "Valor recebido de Investimentos", ledger.KindTransfer},
+		{false, -30000, "", "APLICACAO AUTOMATICA", ledger.KindTransfer},
+		{false, 30000, "", "Resgate RDB", ledger.KindTransfer},
+		{false, 1500, "OUTROS", "Resgate de Cashback", ledger.KindIncome},
+		{false, 30000, "PIX", "Transferência recebida", ledger.KindIncome},
+		{true, 148237, "", "Pagamento recebido", ledger.KindBillPayment},
+		{true, 1500, "", "Cashback", ledger.KindExpense},
+	}
+	for _, tt := range tests {
+		got := kindOf(pluggy.Transaction{OperationType: tt.op}, tt.card, tt.cents, tt.description)
+		if got != tt.want {
+			t.Errorf("%q on card=%v: got %s, want %s", tt.description, tt.card, got, tt.want)
+		}
+	}
+}

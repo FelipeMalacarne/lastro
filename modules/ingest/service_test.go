@@ -147,6 +147,11 @@ func TestSyncEndToEnd(t *testing.T) {
 	if c := byInst["Itaú"]; c.Health != HealthStale || c.Detail != "Last synced 3 days ago" || len(c.AccountIDs) != 1 {
 		t.Errorf("Itaú's data is from 23 Oct: %+v", c)
 	}
+
+	s.itemIDs = nil // serve started before its Secret existed
+	if conns, err := s.Connections(ctx); err != nil || len(conns) != 2 || len(conns[0].AccountIDs) == 0 {
+		t.Fatalf("every item behind an account still shows: %+v %v", conns, err)
+	}
 }
 
 func TestSyncRecordsFailures(t *testing.T) {
