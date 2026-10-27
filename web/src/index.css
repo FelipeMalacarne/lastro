@@ -1,0 +1,205 @@
+/* Cédula in the app: the design system's tokens, mapped onto Tailwind and
+   onto the variables shadcn/ui components expect. Components use the lastro
+   names (bg-paper-raised, text-ink-muted, border-rule); the shadcn names are
+   there so a component added with `npx shadcn add` already looks right. */
+
+@import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource-variable/source-sans-3/index.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "./styles/tokens.css";
+
+/* The fonts are self-hosted, so the families are fontsource's names. */
+:root {
+  --font-display: "Archivo Variable", "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-text: "Source Sans 3 Variable", "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-figure: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* shadcn/ui → lastro (see the design system README). */
+:root,
+[data-theme] {
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-raised);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--tinta);
+  --primary-foreground: var(--on-tinta);
+  --secondary: var(--paper-sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-sunken);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--paper-sunken);
+  --accent-foreground: var(--ink);
+  --destructive: var(--danger);
+  --border: var(--rule);
+  --input: var(--rule-strong);
+  --ring: var(--tinta);
+  --chart-1: var(--note-100);
+  --chart-2: var(--note-50);
+  --chart-3: var(--note-10);
+  --chart-4: var(--note-1);
+  --chart-5: var(--note-2);
+  --chart-6: var(--note-5);
+  --chart-7: var(--note-20);
+  --chart-8: var(--note-200);
+  --radius: 6px;
+}
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-paper-sunken: var(--paper-sunken);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-tinta: var(--tinta);
+  --color-tinta-strong: var(--tinta-strong);
+  --color-tinta-soft: var(--tinta-soft);
+  --color-on-tinta: var(--on-tinta);
+  --color-inflow: var(--inflow);
+  --color-inflow-soft: var(--inflow-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-guilloche: var(--guilloche);
+  --color-note-1: var(--note-1);
+  --color-note-2: var(--note-2);
+  --color-note-5: var(--note-5);
+  --color-note-10: var(--note-10);
+  --color-note-20: var(--note-20);
+  --color-note-50: var(--note-50);
+  --color-note-100: var(--note-100);
+  --color-note-200: var(--note-200);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+/* Small radii, like the corners of a note. */
+@theme {
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+/* Families, the type scale and the two shadows. Only these sizes exist. */
+@utility font-display {
+  font-family: var(--font-display);
+}
+@utility font-text {
+  font-family: var(--font-text);
+}
+@utility font-figure {
+  font-family: var(--font-figure);
+  font-variant-numeric: tabular-nums;
+}
+@utility type-amount-hero {
+  font: 640 44px/48px var(--font-display);
+  font-stretch: 112%;
+  letter-spacing: -0.01em;
+}
+@utility type-amount-lg {
+  font: 600 28px/32px var(--font-display);
+  font-stretch: 108%;
+  letter-spacing: -0.005em;
+}
+@utility type-title {
+  font: 600 28px/34px var(--font-display);
+  letter-spacing: -0.01em;
+}
+@utility type-heading {
+  font: 600 16px/24px var(--font-text);
+}
+@utility type-body {
+  font: 400 15px/22px var(--font-text);
+}
+@utility type-body-strong {
+  font: 600 15px/22px var(--font-text);
+}
+@utility type-caption {
+  font: 400 13px/18px var(--font-text);
+}
+@utility type-label {
+  font: 600 12px/16px var(--font-text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+@utility type-figure {
+  font: 500 14px/20px var(--font-figure);
+  font-variant-numeric: tabular-nums;
+}
+@utility type-figure-sm {
+  font: 400 12px/16px var(--font-figure);
+  font-variant-numeric: tabular-nums;
+}
+@utility type-code {
+  font: 400 13px/20px var(--font-figure);
+}
+@utility shadow-pop {
+  box-shadow: var(--shadow-pop);
+}
+@utility shadow-segment {
+  box-shadow: var(--shadow-xs);
+}
+/* A 2px paper gap and 2px of tinta, on every control's keyboard focus. */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  box-shadow: var(--focus-ring);
+}
+
+@layer base {
+  html {
+    background: var(--paper);
+  }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 15px/22px var(--font-text);
+    -webkit-font-smoothing: antialiased;
+  }
+  a {
+    color: var(--tinta);
+  }
+  a:hover {
+    color: var(--tinta-strong);
+  }
+  *:focus-visible {
+    outline: 2px solid transparent;
+    box-shadow: var(--focus-ring);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

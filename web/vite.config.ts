@@ -1,9 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // In dev, Vite runs on :5173 and proxies /api to `lastro serve` on :8080.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    // "@/lib/utils" → src/lib/utils; "/src" is relative to the project root.
+    alias: { "@": "/src" },
+  },
   server: {
     proxy: { "/api": "http://localhost:8080" },
   },
