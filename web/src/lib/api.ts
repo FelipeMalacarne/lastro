@@ -289,3 +289,121 @@ export type RecurringCharge = {
 };
 
 export type Recurring = { monthlyCents: number; paidCents: number; upcomingCents: number; new: number; changed: number; charges: RecurringCharge[] };
+
+// portfolio (see modules/portfolio/http.go).
+
+export type AssetClass = "cdi" | "ipca" | "br_stocks" | "global";
+export type BandStatus = "in_band" | "below" | "above";
+
+export const assetClasses: { id: AssetClass; name: string; color: NoteColor }[] = [
+  { id: "cdi", name: "CDI", color: "note-2" },
+  { id: "ipca", name: "IPCA+", color: "note-20" },
+  { id: "br_stocks", name: "Brazilian stocks", color: "note-1" },
+  { id: "global", name: "Global stocks", color: "note-100" },
+];
+
+export type NetWorthPoint = {
+  date: string;
+  cashCents: number;
+  cardsCents: number;
+  investedCents: number;
+  emergencyCents: number;
+  basisCents: number;
+  totalCents: number;
+};
+
+export type Holding = {
+  id: string;
+  name: string;
+  institution: string;
+  kind: string;
+  ticker: string | null;
+  class: AssetClass;
+  autoClass: AssetClass;
+  emergency: boolean;
+  quantity: string;
+  valueCents: number;
+  basisCents: number;
+  returnBp: number | null;
+  indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
+  rateBp: number;
+  maturity: string | null;
+  asOf: string;
+  priced: boolean;
+};
+
+export type Thesis = {
+  ticker: string;
+  thesis: string;
+  breaks: string;
+  nextReport: string | null;
+  reportInDays: number | null;
+  held: boolean;
+  valueCents: number;
+};
+
+export type PortfolioOverview = {
+  asOf: string | null;
+  positions: number;
+  where: string[] | null;
+  investedCents: number;
+  basisCents: number;
+  monthDeltaCents: number | null;
+  putIn12mCents: number | null;
+  returns12mCents: number | null;
+  return12mBp: number | null;
+  since: string | null;
+  netWorth: NetWorthPoint;
+  targets: Record<AssetClass, number>;
+  bandBp: number;
+  classes: {
+    class: AssetClass;
+    valueCents: number;
+    basisCents: number;
+    nowBp: number;
+    targetBp: number;
+    status: BandStatus;
+    return12mBp: number | null;
+    holdings: number;
+  }[];
+  growth: { date: string; valueCents: number; basisCents: number }[];
+  benchmarks: { from: string | null; cdiBp: number | null; ipcaBp: number | null; cdiUntil: string | null; ipcaUntil: string | null };
+  holdings: Holding[];
+  theses: Thesis[];
+};
+
+export type ContributionWhy = "below_band" | "gap" | "target" | "above_band" | "at_target";
+
+export type ContributionPlan = {
+  amountCents: number;
+  totalCents: number;
+  bandBp: number;
+  splits: {
+    class: AssetClass;
+    amountCents: number;
+    why: ContributionWhy;
+    valueCents: number;
+    beforeBp: number;
+    afterBp: number;
+    targetBp: number;
+    buy: string | null;
+  }[];
+};
+
+export type PlannedPurchase = {
+  id: string;
+  plannedOn: string;
+  what: string;
+  class: AssetClass;
+  amountCents: number;
+  condition: string;
+  status: "planned" | "done" | "cancelled";
+  note: string;
+  decidedAt: string | null;
+};
+
+export type MarketIndices = {
+  CDI: { last12mBp: number; last: string | null; latestBp: number };
+  IPCA: { last12mBp: number; last: string | null; latestBp: number };
+  bonds: { title: string; name: string; maturity: string; date: string; buyRateBp: number; priceCents: number }[];
+};

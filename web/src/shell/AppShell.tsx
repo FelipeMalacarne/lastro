@@ -139,7 +139,7 @@ export function AppShell({ accounts, children }: Props) {
               to={d.to}
               label={d.label}
               icon={d.icon}
-              here={path === d.to || (d.to === "/transactions" && path === "/review")}
+              here={path === d.to || (d.to === "/transactions" && path === "/review") || (d.to === "/portfolio" && path === "/contribute")}
               count={d.to === "/transactions" ? waiting : undefined}
               countLabel={waiting ? `${waiting} to review` : undefined}
             />
@@ -183,7 +183,7 @@ export function AppShell({ accounts, children }: Props) {
           {destinations
             .filter((d) => d.phone)
             .map((d) => {
-              const here = path === d.to || (d.to === "/transactions" && path === "/review");
+              const here = path === d.to || (d.to === "/transactions" && path === "/review") || (d.to === "/portfolio" && path === "/contribute");
               return (
                 <Link
                   key={d.to}

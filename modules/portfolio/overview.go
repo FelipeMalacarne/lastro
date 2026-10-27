@@ -130,17 +130,16 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 	}
 	sort.Strings(months)
 	for _, m := range months {
-		if m == today.Format("2006-01") {
+		d := lastOfMonth[m]
+		// From the start of the twelve months on, so the chart and the hero
+		// count the same money.
+		if m == today.Format("2006-01") || (!start.IsZero() && d.Before(start)) {
 			continue
 		}
-		d := lastOfMonth[m]
 		a := byDay[d].invested
 		out.Growth = append(out.Growth, GrowthPoint{Date: day(d), ValueCents: a.Value.Cents(), BasisCents: a.Basis.Cents()})
 	}
 	out.Growth = append(out.Growth, GrowthPoint{Date: day(today), ValueCents: inv.Value.Cents(), BasisCents: inv.Basis.Cents()})
-	if len(out.Growth) > 13 {
-		out.Growth = out.Growth[len(out.Growth)-13:]
-	}
 
 	// CDI and IPCA over the same months.
 	if !start.IsZero() {

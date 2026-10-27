@@ -129,13 +129,13 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to see how my net worth evolved over time, so that I can tell real progress from market noise.
 
 **P0**
-- [ ] Positions per asset class (CDI, global stocks, IPCA+, Brazilian stocks), valued at the latest available price.
-- [ ] The emergency fund is shown separately and is never part of the allocation.
-- [ ] A net worth snapshot is stored every day, building a history from the first sync onward.
+- [x] Positions per asset class (CDI, global stocks, IPCA+, Brazilian stocks), valued at the latest available price.
+- [x] The emergency fund is shown separately and is never part of the allocation.
+- [x] A net worth snapshot is stored every day, building a history from the first sync onward.
 
 **P1**
-- [ ] Net worth chart over time, split by contributions versus returns.
-- [ ] Return per class, compared with CDI and inflation over the same period.
+- [x] Net worth chart over time, split by contributions versus returns.
+- [x] Return per class, compared with CDI and inflation over the same period.
 
 ### F7. Contribution planning
 
@@ -145,14 +145,14 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want rebalancing to happen through new money, so that I avoid selling and paying tax.
 
 **P0**
-- [ ] A target allocation per class, which must add up to 100%.
-- [ ] Given an amount, the planner returns the split per class; it never suggests selling, and the parts add up to exactly the amount.
-- [ ] Classes outside their tolerance band get priority in the split.
-- [ ] Same answer in the web UI and in `lastro contribute --amount <value>`.
+- [x] A target allocation per class, which must add up to 100%.
+- [x] Given an amount, the planner returns the split per class; it never suggests selling, and the parts add up to exactly the amount.
+- [x] Classes outside their tolerance band get priority in the split.
+- [x] Same answer in the web UI and in `lastro contribute --amount <value>`.
 
 **P1**
-- [ ] A purchase schedule: planned buys with date, amount and condition (e.g. "only after the earnings report"), marked as done or cancelled.
-- [ ] A yearly reminder to review the target allocation.
+- [x] A purchase schedule: planned buys with date, amount and condition (e.g. "only after the earnings report"), marked as done or cancelled.
+- [x] A yearly reminder to review the target allocation.
 
 ### F8. Stock analysis and theses
 
@@ -162,8 +162,8 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to know if my stock picking actually beats the index, so that I can drop it if it does not.
 
 **P0**
-- [ ] Each stock in the satellite has a thesis and a break condition, visible next to the position.
-- [ ] Reminder before each company's earnings report, with the thesis shown alongside.
+- [x] Each stock in the satellite has a thesis and a break condition, visible next to the position.
+- [x] Reminder before each company's earnings report, with the thesis shown alongside.
 
 **P1**
 - [ ] Price history chart per stock and ETF.

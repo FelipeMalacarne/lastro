@@ -6,8 +6,10 @@ import { AppShell } from "@/shell/AppShell";
 import { AccountPage } from "@/pages/Account";
 import { Budget } from "@/pages/Budget";
 import { Categories } from "@/pages/Categories";
+import { Contribute } from "@/pages/Contribute";
 import { Dashboard } from "@/pages/Dashboard";
 import { Gallery } from "@/pages/Gallery";
+import { Portfolio } from "@/pages/Portfolio";
 import { Review } from "@/pages/Review";
 import { Settings } from "@/pages/Settings";
 import { Soon } from "@/pages/Soon";
@@ -39,7 +41,9 @@ function page(path: string) {
     case "/budget":
       return <Budget />;
     case "/portfolio":
-      return <Soon title="Portfolio" milestone="M4" what="Positions, net worth and where this month's contribution goes." />;
+      return <Portfolio />;
+    case "/contribute":
+      return <Contribute />;
     case "/_components":
       if (import.meta.env.DEV) return <Gallery />;
       return <Transactions />;

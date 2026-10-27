@@ -1,4 +1,4 @@
-import { Check, Sparkles, TriangleAlert } from "lucide-react";
+import { Check, Clock, Sparkles, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -6,6 +6,7 @@ import { CategoryTag } from "@/components/CategoryTag";
 import { RunningTotal } from "@/components/charts/RunningTotal";
 import { Kbd } from "@/components/Kbd";
 import { Panel } from "@/components/Panel";
+import { Sparkline } from "@/components/Sparkline";
 import { Stat } from "@/components/Stat";
 import { SyncNotice } from "@/components/SyncNotice";
 import { TransactionRow } from "@/components/TransactionRow";
@@ -14,6 +15,7 @@ import {
   typeLabel,
   useResource,
   type BudgetMonth,
+  type NetWorthPoint,
   type Category,
   type DaysView,
   type Recurring,
@@ -57,9 +59,10 @@ export function Dashboard() {
     <>
       <PageHeader title="Dashboard" caption={caption || undefined} />
       <SyncNotice banks={banks} />
+      <ReportReminders />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
-        <Balances />
+        <NetWorth />
         {budget && days ? <MonthSoFar v={budget} days={days} isCurrent={isCurrent} byId={byId} /> : <Panel title={`${monthName} so far`}>Loading…</Panel>}
       </div>
 
@@ -80,6 +83,31 @@ export function Dashboard() {
   );
 }
 
+/** Earnings reports this week for stocks held, with the thesis to read before them (F8). */
+function ReportReminders() {
+  const r = useResource<{ reminders: { ticker: string; date: string; inDays: number; thesis: string; breaks: string }[] }>("/api/v1/reminders").data;
+  if (!r?.reminders.length) return null;
+  return (
+    <section aria-label="Earnings reports this week" className="flex flex-col gap-2 rounded-md border border-warning bg-warning-soft/50 px-4 py-3">
+      {r.reminders.map((m) => (
+        <div key={m.ticker} className="flex flex-col gap-0.5 text-[14px] leading-5">
+          <span className="inline-flex flex-wrap items-center gap-x-2">
+            <Clock className="size-4 text-warning" aria-hidden />
+            <strong className="font-figure font-medium">{m.ticker}</strong>
+            <span>reports {m.inDays === 0 ? "today" : m.inDays === 1 ? "tomorrow" : `in ${m.inDays} days, on ${formatDay(m.date)}`}.</span>
+            <Link to="/portfolio" className="font-semibold">
+              Read the thesis
+            </Link>
+          </span>
+          <span className="pl-6 type-caption text-ink-muted">
+            Thesis: {m.thesis} Breaks if: {m.breaks}
+          </span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 60) return `${mins} min ago`;
@@ -94,33 +122,65 @@ function prevOf(m: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** What the accounts hold now: cash in checking and savings, and what the cards owe. Investments join it with the portfolio. */
-function Balances() {
-  const { banks } = useBanks();
-  const accounts = banks.flatMap((b) => b.accounts);
-  const cash = accounts.filter((a) => a.type !== "credit_card").reduce((s, a) => s + a.balanceCents, 0);
-  const owed = accounts.filter((a) => a.type === "credit_card").reduce((s, a) => s + Math.min(a.balanceCents, 0), 0);
+/** Net worth (F6): everything owned, its last twelve months, and what it is made of. */
+function NetWorth() {
+  const res = useResource<{ points: NetWorthPoint[] }>("/api/v1/net-worth?months=12");
+  const points = res.data?.points ?? [];
+  const now = points.at(-1);
+  if (!now) return <Panel title="Net worth">{res.error ? `Could not load: ${res.error}.` : "Loading…"}</Panel>;
+  const first = points[0];
+  const delta = now.totalCents - first.totalCents;
+  const putIn = now.basisCents - first.basisCents;
+  // What markets added: the change in investments beyond what was put in.
+  const returns = now.investedCents + now.emergencyCents - (first.investedCents + first.emergencyCents) - putIn;
+  const fromLabel = formatMonth(first.date.slice(0, 7), true);
+  const rows = [
+    { label: "Invested", cents: now.investedCents, to: "/portfolio" },
+    { label: "Emergency fund", cents: now.emergencyCents, to: "/portfolio" },
+    { label: "Cash after card bills", cents: now.cashCents + now.cardsCents, to: "/transactions" },
+  ];
   return (
-    <Panel className="max-lg:order-2 lg:p-6" footer="Balances as the banks last reported them. Investments are added with the portfolio.">
+    <Panel className="max-lg:order-2 lg:p-6" footer="Investments at the latest prices; accounts as the banks last reported them.">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <span className="type-label text-ink-muted">Cash after card bills</span>
-          <Amount cents={cash + owed} size="hero" tone={cash + owed < 0 ? "danger" : "ink"} />
-          <span className="type-caption text-ink-muted">
-            {formatBRL(cash)} in accounts, {formatBRL(-owed)} owed on cards
-          </span>
+          <span className="type-label text-ink-muted">Net worth</span>
+          <Amount cents={now.totalCents} size="hero" sign="none" />
+          {points.length > 1 && (
+            <span className={cn("type-caption", delta >= 0 ? "text-inflow" : "text-warning")}>
+              {formatBRL(delta, { sign: "always" })} since {fromLabel}
+            </span>
+          )}
         </div>
+        {points.length > 2 && (
+          <div className="flex w-[300px] max-w-full flex-col gap-1">
+            <Sparkline zero={false} values={points.map((p) => p.totalCents)} width={300} height={56} label={`Net worth since ${fromLabel}, from ${formatBRL(first.totalCents)} to ${formatBRL(now.totalCents)}`} />
+            <div className="flex justify-between type-figure-sm text-ink-muted">
+              <span>{fromLabel}</span>
+              <span>Today</span>
+            </div>
+          </div>
+        )}
+        {points.length > 1 && (
+          <div className="grid grid-cols-2 gap-4 border-t border-rule pt-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="type-caption text-ink-muted">Put in since {fromLabel}</span>
+              <Amount cents={putIn} sign="none" />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="type-caption text-ink-muted">Returns</span>
+              <Amount cents={returns} sign="always" />
+            </div>
+          </div>
+        )}
         <div className="flex flex-col">
-          {accounts.map((a) => (
+          {rows.map((r) => (
             <Link
-              key={a.id}
-              to={`/accounts/${a.id}`}
-              className="-mx-2 flex min-h-10 items-center justify-between gap-3 rounded-sm border-t border-rule px-2 text-[14px] leading-5 text-ink no-underline first:border-t-0 hover:bg-paper-sunken hover:text-ink"
+              key={r.label}
+              to={r.to}
+              className="-mx-2 flex min-h-10 items-center justify-between gap-3 rounded-sm border-t border-rule px-2 text-[14px] leading-5 text-ink no-underline hover:bg-paper-sunken hover:text-ink"
             >
-              <span className="min-w-0 truncate">
-                {a.institution} <span className="text-ink-muted">{typeLabel[a.type]}</span>
-              </span>
-              <Amount cents={a.balanceCents} size="sm" />
+              <span>{r.label}</span>
+              <Amount cents={r.cents} size="sm" />
             </Link>
           ))}
         </div>

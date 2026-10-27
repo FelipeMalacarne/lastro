@@ -2,12 +2,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Check, Clock, ExternalLink, TriangleAlert } from "lucide-react";
 
 import { Badge } from "@/components/Badge";
+import { CategoryTag } from "@/components/CategoryTag";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { SyncStatus } from "@/components/SyncStatus";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
-import { send, typeName, useResource, type BudgetMonth, type Category, type Rule } from "@/lib/api";
-import { formatDay, formatMonth, inputBRL, monthOf, parseBRL } from "@/lib/format";
+import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
+import { formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ type ServerSettings = {
 const sections = [
   { id: "connections", label: "Connections" },
   { id: "budget", label: "Budget" },
+  { id: "investments", label: "Investments" },
   { id: "categorization", label: "Categorization" },
   { id: "appearance", label: "Appearance" },
   { id: "server", label: "Server" },
@@ -105,6 +107,7 @@ export function Settings() {
         <div className="flex min-w-0 max-w-[820px] flex-1 flex-col gap-4 lg:gap-6">
           <Connections />
           <BudgetSettings />
+          <Investments />
           <Categorization />
           <Appearance />
           <Server />
@@ -258,6 +261,99 @@ function PayYourselfFirst({ v }: { v: BudgetMonth }) {
             : state !== "idle" && state !== "busy"
               ? `Could not save: ${state}.`
               : `From ${formatMonth(v.month)} on; earlier months keep theirs.`}
+        </span>
+      </div>
+    </form>
+  );
+}
+
+function Investments() {
+  const res = useResource<PortfolioOverview>("/api/v1/portfolio");
+  const v = res.data;
+  return (
+    <Section id="investments" title="Investments" intro="The targets the contribution planner aims for. It never suggests selling.">
+      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} /> : <p className="m-0 type-body text-ink-muted">Loading…</p>}
+    </Section>
+  );
+}
+
+function TargetsForm({ v }: { v: PortfolioOverview }) {
+  const [values, setValues] = useState<Record<AssetClass, string>>(
+    Object.fromEntries(assetClasses.map((k) => [k.id, String((v.targets[k.id] ?? 0) / 100).replace(".", ",")])) as Record<AssetClass, string>,
+  );
+  const [band, setBand] = useState(String(v.bandBp / 100).replace(".", ","));
+  const [state, setState] = useState<"idle" | "busy" | "saved" | string>("idle");
+  const bps = (t: string) => {
+    const n = Number(t.replace(",", "."));
+    return t.trim() !== "" && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  };
+  const parts = assetClasses.map((k) => bps(values[k.id]));
+  const sum = parts.reduce<number>((s, p) => s + (p ?? 0), 0);
+  const bandBps = bps(band);
+  const valid = parts.every((p) => p !== null) && sum === 10000 && bandBps !== null && bandBps <= 1000;
+  const emergency = v.holdings.filter((h) => h.emergency);
+
+  async function save() {
+    setState("busy");
+    try {
+      await send("PUT", "/api/v1/portfolio/targets", {
+        targets: Object.fromEntries(assetClasses.map((k, i) => [k.id, parts[i]])),
+        bandBp: bandBps,
+      });
+      setState("saved");
+    } catch (e) {
+      setState((e as Error).message);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <Row
+        label="Target allocation"
+        hint={
+          <span className={cn("inline-flex items-center gap-1", sum === 10000 ? "text-inflow" : "text-warning")}>
+            {sum === 10000 ? <Check className="size-3.5" aria-hidden /> : <TriangleAlert className="size-3.5" aria-hidden />}
+            {sum === 10000 ? "Adds up to 100%" : `Adds up to ${formatPercent(sum)}: ${formatPercent(Math.abs(10000 - sum))} ${sum < 10000 ? "missing" : "too much"}`}
+            <span className="text-ink-muted">· the emergency fund stays out</span>
+          </span>
+        }
+      >
+        <div className="grid w-full gap-2 sm:w-[460px] sm:grid-cols-2">
+          {assetClasses.map((k) => (
+            <label key={k.id} className="flex items-center justify-between gap-2">
+              <CategoryTag name={k.name} color={k.color} />
+              <TextField aria-label={`${k.name} target, percent`} numeric inputMode="decimal" value={values[k.id]} suffix="%" className="w-[84px]" onChange={(e) => setValues({ ...values, [k.id]: e.target.value })} />
+            </label>
+          ))}
+        </div>
+      </Row>
+      <Row label="Tolerance band" hint="A class further than this from its target gets new money first, or none.">
+        <TextField aria-label="Band, points either side" numeric inputMode="decimal" value={band} onChange={(e) => setBand(e.target.value)} suffix="points either side" className="w-[200px]" error={bandBps === null || bandBps > 1000 ? "0 to 10" : undefined} />
+      </Row>
+      <Row
+        label="Emergency fund"
+        hint={
+          <>
+            Shown apart and never part of a contribution split. Choose its positions on the <Link to="/portfolio">Portfolio</Link>, by clicking one.
+          </>
+        }
+      >
+        <span className="text-right text-[14px] leading-5">{emergency.length ? emergency.map((h) => h.name).join(", ") : <span className="text-ink-muted">None set</span>}</span>
+      </Row>
+      <Row label="Review the targets" hint="Each January the Portfolio asks you to look at the allocation again, before the year's first contribution.">
+        <span className="text-[14px] text-ink-muted">Every January</span>
+      </Row>
+      <div className="flex flex-wrap items-center gap-3 border-t border-rule pt-4">
+        <Button type="submit" size="sm" variant="primary" disabled={!valid || state === "busy"}>
+          Save targets
+        </Button>
+        <span role="status" className={cn("type-caption", !["idle", "busy", "saved"].includes(state) ? "text-danger" : "text-ink-muted")}>
+          {state === "saved" ? "Saved. The next contribution aims for them." : !["idle", "busy"].includes(state) ? `Could not save: ${state}.` : ""}
         </span>
       </div>
     </form>
