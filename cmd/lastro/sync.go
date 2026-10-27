@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 
 	"lastro/app"
 	"lastro/modules/ingest"
@@ -59,5 +60,19 @@ func runSync(ctx context.Context, args []string) error {
 	if rep.Paired > 0 {
 		fmt.Printf("Paired %d transfers and card bill payments between my accounts\n", rep.Paired)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// Prices and indices after the positions, then the day's valuation. A
+	// market failure is reported; the sync itself already succeeded.
+	mrep, merr := a.RefreshMarket(ctx)
+	fmt.Printf("Market: %d index values, %d quotes, %d Tesouro Direto titles", mrep.Rates, mrep.Quotes, mrep.Bonds)
+	if len(mrep.Failed) > 0 {
+		fmt.Printf("; failed: %s", strings.Join(mrep.Failed, ", "))
+	}
+	fmt.Println()
+	if merr != nil {
+		a.Logger.WarnContext(ctx, "market refresh failed", "err", merr)
+	}
+	return nil
 }

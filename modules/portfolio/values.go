@@ -141,3 +141,18 @@ func NewBand(bps int64) (Band, error) {
 }
 
 func (b Band) Bps() int64 { return b.bps }
+
+// Name is how the class reads on screen.
+func (c Class) Name() string {
+	switch c {
+	case ClassCDI:
+		return "CDI"
+	case ClassIPCA:
+		return "IPCA+"
+	case ClassGlobal:
+		return "Global stocks"
+	case ClassBR:
+		return "Brazilian stocks"
+	}
+	return string(c)
+}

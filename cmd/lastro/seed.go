@@ -12,6 +12,7 @@ import (
 	"lastro/modules/budget"
 	"lastro/modules/categorize"
 	"lastro/modules/ledger"
+	"lastro/modules/portfolio"
 	"lastro/money"
 	"lastro/platform/config"
 )
@@ -63,8 +64,174 @@ func runSeed(ctx context.Context, args []string) error {
 	if err := seedBudget(ctx, a, s.start, now); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
+	if err := seedPortfolio(ctx, a, s.start, now); err != nil {
+		return fmt.Errorf("seed: %w", err)
+	}
 	return nil
 }
+
+// seedPortfolio invests R$ 3.000 every month since start, split by the
+// planner itself, with made-up monthly returns per class, and values each
+// month's end, so the portfolio and net worth have a history. Two stock
+// picks get a thesis and the schedule a few purchases.
+func seedPortfolio(ctx context.Context, a *app.App, start, now time.Time) error {
+	r := rand.New(rand.NewPCG(7, 2026))
+	targets, err := a.Portfolio.Targets(ctx)
+	if err != nil {
+		return err
+	}
+	type holding struct {
+		id, item, inst, name string
+		kind                 portfolio.Kind
+		class                portfolio.Class
+		ticker               string
+		idx                  portfolio.Indexer
+		rate                 int64
+		price                float64 // per unit, for stocks and ETFs
+		qty                  float64
+		value, basis         int64
+	}
+	hs := []*holding{
+		{id: "seed-cdb", item: "seed-nubank", inst: "Nubank", name: "CDB Nubank 100% CDI", kind: portfolio.KindFixedIncome, class: portfolio.ClassCDI, idx: portfolio.IndexerCDI, rate: 10000},
+		{id: "seed-ipca", item: "seed-xp", inst: "XP Investimentos", name: "Tesouro IPCA+ 2035", kind: portfolio.KindTreasury, class: portfolio.ClassIPCA, idx: portfolio.IndexerIPCA, rate: 640},
+		{id: "seed-ivvb", item: "seed-xp", inst: "XP Investimentos", name: "iShares S&P 500", kind: portfolio.KindETF, class: portfolio.ClassGlobal, ticker: "IVVB11", price: 310},
+		{id: "seed-wege", item: "seed-xp", inst: "XP Investimentos", name: "WEG ON", kind: portfolio.KindStock, class: portfolio.ClassBR, ticker: "WEGE3", price: 38},
+		{id: "seed-itub", item: "seed-xp", inst: "XP Investimentos", name: "Itaú Unibanco PN", kind: portfolio.KindStock, class: portfolio.ClassBR, ticker: "ITUB4", price: 31},
+	}
+	// A head start, as if investing began before lastro.
+	for _, h := range hs {
+		h.value = map[portfolio.Class]int64{portfolio.ClassCDI: 1800000, portfolio.ClassIPCA: 1500000, portfolio.ClassGlobal: 2600000, portfolio.ClassBR: 450000}[h.class]
+		if h.price > 0 {
+			h.qty = float64(h.value) / 100 / h.price
+		}
+		h.basis = h.value
+	}
+	reserve := &holding{id: "seed-reserva", item: "seed-nubank", inst: "Nubank", name: "Caixinha Reserva", kind: portfolio.KindFixedIncome, class: portfolio.ClassCDI, idx: portfolio.IndexerCDI, rate: 10000, value: 1500000, basis: 1500000}
+	monthly := map[portfolio.Class][2]float64{ // mean and spread of a month's return
+		portfolio.ClassCDI: {0.0095, 0}, portfolio.ClassIPCA: {0.009, 0.006}, portfolio.ClassGlobal: {0.013, 0.035}, portfolio.ClassBR: {0.008, 0.05},
+	}
+	report := func(h *holding, asOf time.Time) portfolio.Report {
+		rep := portfolio.Report{
+			ExternalID: h.id, Item: h.item, Institution: h.inst, Kind: h.kind, Name: h.name, Indexer: h.idx,
+			Rate: money.FromBps(h.rate), Value: money.BRLCents(h.value), AsOf: asOf, Active: true,
+		}
+		if h.ticker != "" {
+			rep.Ticker, _ = portfolio.NewTicker(h.ticker)
+			rep.Quantity, _ = portfolio.ParseQuantity(fmt.Sprintf("%.6f", h.qty))
+		} else {
+			b := money.BRLCents(h.basis)
+			rep.Invested = &b
+		}
+		if h.kind == portfolio.KindTreasury {
+			m := time.Date(2035, 5, 15, 0, 0, 0, 0, time.UTC)
+			rep.Maturity = &m
+		}
+		return rep
+	}
+	for m := start; !m.After(now); m = m.AddDate(0, 1, 0) {
+		day := m.AddDate(0, 1, -1)
+		if day.After(now) {
+			day = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		}
+		// The month's returns.
+		for _, h := range hs {
+			mr := monthly[h.class]
+			ret := mr[0] + (r.Float64()*2-1)*mr[1]
+			if h.price > 0 {
+				h.price *= 1 + ret
+				h.value = int64(h.qty * h.price * 100)
+			} else {
+				h.value = int64(float64(h.value) * (1 + ret))
+			}
+		}
+		reserve.value = int64(float64(reserve.value) * 1.0095)
+		// The month's R$ 3.000, where the planner says.
+		values := map[portfolio.Class]money.Money{}
+		for _, h := range hs {
+			values[h.class] = money.BRLCents(values[h.class].Cents() + h.value)
+		}
+		plan, err := portfolio.PlanContribution(values, targets.Allocation, targets.Band, money.BRLCents(300000))
+		if err != nil {
+			return err
+		}
+		for _, sp := range plan.Splits {
+			// The class's first holding takes it; in Brazilian stocks, alternate.
+			var pick *holding
+			for _, h := range hs {
+				if h.class == sp.Class && (pick == nil || (sp.Class == portfolio.ClassBR && m.Month()%2 == 0)) {
+					pick = h
+				}
+			}
+			if pick == nil || sp.Amount.IsZero() {
+				continue
+			}
+			pick.value += sp.Amount.Cents()
+			pick.basis += sp.Amount.Cents()
+			if pick.price > 0 {
+				pick.qty += float64(sp.Amount.Cents()) / 100 / pick.price
+			}
+		}
+		for _, item := range []string{"seed-nubank", "seed-xp"} {
+			var reps []portfolio.Report
+			for _, h := range append(hs, reserve) {
+				if h.item == item {
+					reps = append(reps, report(h, day))
+				}
+			}
+			if _, err := a.Portfolio.SyncPositions(ctx, item, reps); err != nil {
+				return err
+			}
+		}
+		if err := a.Portfolio.UpdatePosition(ctx, reserve.id, nil, ptrTo(true)); err != nil {
+			return err
+		}
+		if _, err := a.Portfolio.Valuate(ctx, day); err != nil {
+			return err
+		}
+	}
+
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	wege, itub := today.AddDate(0, 0, 2), today.AddDate(0, 0, 9)
+	if err := a.Portfolio.SaveThesis(ctx, "WEGE3", "Compounds at high returns on capital as electrification spreads, at home and abroad.", "Return on capital below 20% for two years, or a large acquisition paid in debt.", &wege); err != nil {
+		return err
+	}
+	if err := a.Portfolio.SaveThesis(ctx, "ITUB4", "The most profitable large bank, paying out most of what it earns.", "Return on equity below 18%, or bad loans above 4% of the book.", &itub); err != nil {
+		return err
+	}
+	if ps, err := a.Portfolio.Purchases(ctx); err == nil && len(ps) == 0 {
+		next := time.Date(now.Year(), now.Month(), 5, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
+		planned := []struct {
+			on        time.Time
+			what      string
+			class     portfolio.Class
+			cents     int64
+			condition string
+			decide    portfolio.PurchaseStatus
+			note      string
+		}{
+			{next, "Tesouro IPCA+ 2035", portfolio.ClassIPCA, 120000, "On payday", "", ""},
+			{next, "CDB Nubank 100% CDI", portfolio.ClassCDI, 100000, "On payday", "", ""},
+			{wege, "WEGE3", portfolio.ClassBR, 40000, "Only after the earnings report, and only if the thesis still holds", "", ""},
+			{today.AddDate(0, -2, 8), "ITUB4", portfolio.ClassBR, 50000, "After the report", portfolio.Done, ""},
+			{today.AddDate(0, -1, -3), "BOVA11", portfolio.ClassBR, 30000, "If the index falls 5%", portfolio.Cancelled, "It did not fall."},
+		}
+		for _, p := range planned {
+			v, err := a.Portfolio.PlanPurchase(ctx, p.on, p.what, p.class, money.BRLCents(p.cents), p.condition)
+			if err != nil {
+				return err
+			}
+			if p.decide != "" {
+				if err := a.Portfolio.DecidePurchase(ctx, v.ID, p.decide, p.note); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	fmt.Println("Invested R$ 3.000 a month since", start.Format("Jan 2006"))
+	return nil
+}
+
+func ptrTo[T any](v T) *T { return &v }
 
 // seedRules teaches the rules a few weeks of corrections would, leaving
 // some merchants for the review queue.

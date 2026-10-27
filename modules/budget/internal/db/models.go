@@ -159,3 +159,70 @@ type MarketRate struct {
 	Source    string
 	FetchedAt time.Time
 }
+
+type PortfolioNetWorth struct {
+	Date           time.Time
+	CashCents      int64
+	CardsCents     int64
+	InvestedCents  int64
+	EmergencyCents int64
+	BasisCents     int64
+	UpdatedAt      time.Time
+}
+
+type PortfolioPosition struct {
+	ExternalID    string
+	ItemID        string
+	Institution   string
+	Kind          string
+	Name          string
+	Ticker        *string
+	QuantityMicro int64
+	ValueCents    int64
+	InvestedCents *int64
+	BasisCents    int64
+	Indexer       string
+	RateBps       int32
+	Maturity      *time.Time
+	AsOf          time.Time
+	ClassOverride *string
+	Emergency     bool
+	FirstSeen     time.Time
+	ClosedAt      *time.Time
+	UpdatedAt     time.Time
+}
+
+type PortfolioPurchase struct {
+	ID          string
+	PlannedOn   time.Time
+	What        string
+	Class       string
+	AmountCents int64
+	Condition   string
+	Status      string
+	Note        string
+	CreatedAt   time.Time
+	DecidedAt   *time.Time
+}
+
+type PortfolioSetting struct {
+	ID        int16
+	Targets   []byte
+	BandBps   int32
+	UpdatedAt time.Time
+}
+
+type PortfolioThesis struct {
+	Ticker     string
+	Thesis     string
+	Breaks     string
+	NextReport *time.Time
+	UpdatedAt  time.Time
+}
+
+type PortfolioValuation struct {
+	Date       time.Time
+	Class      string
+	ValueCents int64
+	BasisCents int64
+}

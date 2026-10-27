@@ -14,7 +14,7 @@
 
 ## Sync
 
-`lastro sync` (the CronJob, four times a day) reads each item in `LASTRO_PLUGGY_ITEM_IDS`: the item, its accounts, every transaction of each account dated in the window, and its investments (stored only, until M4). The window is everything on an item's first sync or with `--full`, and otherwise the last 90 days, stretched to a week before the last good sync. One item failing does not stop the others; an advisory lock keeps two syncs from running at once.
+`lastro sync` (the CronJob, four times a day) reads each item in `LASTRO_PLUGGY_ITEM_IDS`: the item, its accounts, every transaction of each account dated in the window, and its investments, which go to `portfolio` as positions (`mapInvestment`: Pluggy's type, rate type, net balance, amount originally invested and due date; fully withdrawn ones close). After the sync, `market` refreshes the quotes of the tickers held and `portfolio` values the day. The window is everything on an item's first sync or with `--full`, and otherwise the last 90 days, stretched to a week before the last good sync. One item failing does not stop the others; an advisory lock keeps two syncs from running at once.
 
 ## Mapping (`mapping.go`)
 

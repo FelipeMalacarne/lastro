@@ -76,7 +76,7 @@ Every transaction has a category or is waiting in the review queue, and every co
 
 - [x] `market`: CDI and IPCA (Banco Central's SGS), quotes (brapi) and Tesouro Direto rates
 - [x] `portfolio`: `Ticker`, `Quantity` and `Allocation`, with tests
-- [ ] Positions from Pluggy investments, plus the B3 trade statement import if the M1 spike shows it is needed
+- [x] Positions from Pluggy investments, plus the B3 trade statement import if the M1 spike shows it is needed
 - [ ] Daily net worth valuation and the net worth card on the dashboard
 - [x] `ContributionPlanner`, with tests
 - [ ] `lastro contribute` in the terminal and the "where to contribute" screen

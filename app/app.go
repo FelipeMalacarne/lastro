@@ -17,6 +17,7 @@ import (
 	"lastro/modules/ingest"
 	"lastro/modules/ledger"
 	"lastro/modules/market"
+	"lastro/modules/portfolio"
 	"lastro/platform/auth"
 	"lastro/platform/config"
 	"lastro/platform/db"
@@ -43,6 +44,7 @@ type App struct {
 	Categorize *categorize.Service
 	Budget     *budget.Service
 	Market     *market.Service
+	Portfolio  *portfolio.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -70,11 +72,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
-	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
-	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
-	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
 	series, quotes, bonds := market.Sources(cfg.BrapiToken)
 	a.Market = market.New(market.NewRepository(pool), series, quotes, bonds, logger)
+	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market)
+	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Portfolio, a.Bus, logger)
+	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
+	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
 
 	// The rules categorize each import as it commits. After every sync they
 	// also reach whatever is still without a category: transactions imported
@@ -94,9 +97,19 @@ func (a *App) categorizeAfterSync(ctx context.Context, _ ingest.SyncCompleted) e
 }
 
 // RefreshMarket brings the indices, Tesouro Direto and the quotes of every
-// ticker held up to date, plus any extra symbols.
+// ticker held up to date, plus any extra symbols, and values the day again
+// at the new prices.
 func (a *App) RefreshMarket(ctx context.Context, extra ...string) (market.Report, error) {
-	return a.Market.Refresh(ctx, extra)
+	held, err := a.Portfolio.Tickers(ctx)
+	if err != nil {
+		return market.Report{}, err
+	}
+	rep, merr := a.Market.Refresh(ctx, append(held, extra...))
+	// The day is valued even without new prices: the banks' values stand.
+	if _, err := a.Portfolio.Valuate(ctx, a.Portfolio.Today()); err != nil {
+		return rep, err
+	}
+	return rep, merr
 }
 
 // NewLogger uses readable text in dev and JSON in prod.
@@ -134,6 +147,7 @@ func (a *App) Handler() http.Handler {
 	a.Categorize.RegisterRoutes(api, a.Logger)
 	a.Budget.RegisterRoutes(api, a.Logger)
 	a.Market.RegisterRoutes(api, a.Logger)
+	a.Portfolio.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())
