@@ -242,6 +242,10 @@ func (a *App) Handler() http.Handler {
 		mux.Handle("GET "+auth.MetadataPath, auth.ProtectedResource(a.resourceMetadata("")))
 		mux.Handle("GET "+auth.MetadataPath+"/mcp", auth.ProtectedResource(a.resourceMetadata("/mcp")))
 	}
+	// Without OIDC there is no metadata: behind auth like everything else, but a
+	// 404 and not the SPA's index.html, so `lastro connect` to a dev server sees
+	// that sign-in is off.
+	mux.Handle("/.well-known/", a.auth.require(http.NotFoundHandler()))
 	mux.Handle("/api/", a.auth.require(api))
 	mux.Handle("/mcp", a.auth.bearer("/mcp")(a.MCPHandler()))
 	mux.Handle("/", a.auth.require(web.Handler()))
