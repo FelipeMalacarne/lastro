@@ -13,6 +13,8 @@ export type Account = {
   currency: string;
   balanceCents: number;
   balanceAt: string;
+  /** A card's limit and bill, each part null when the bank does not report it. */
+  card: { limitCents: number | null; availableCents: number | null; dueDate: string | null; closeDate: string | null } | null;
 };
 
 export type Health = "ok" | "syncing" | "stale" | "reauth";
@@ -44,12 +46,66 @@ export type Transaction = {
   category: { id: string; source: string } | null;
   account: AccountRef;
   counterpart: AccountRef | null;
+  counterpartId: string | null;
 };
 
 export type TransactionList = {
   transactions: Transaction[];
   summary: { count: number; pending: number; inCents: number; outCents: number };
   truncated: boolean;
+};
+
+export type BalanceHistory = {
+  currency: string;
+  asOf: string;
+  points: { date: string; balanceCents: number }[];
+};
+
+export type Flow = {
+  kind: Transaction["kind"];
+  direction: "in" | "out";
+  counterpart: AccountRef | null;
+  cents: number;
+  count: number;
+};
+
+export type MonthView = {
+  month: string;
+  future: boolean;
+  inCents: number;
+  outCents: number;
+  spentCents: number;
+  refundsCents: number;
+  purchases: number;
+  flows: Flow[];
+};
+
+export type Purchase = {
+  description: string;
+  total: number;
+  amountCents: number;
+  current: number;
+  remainingCount: number;
+  remainingCents: number;
+  firstDate: string;
+  lastDate: string;
+  installments: { id: string; number: number; date: string; status: "pending" | "posted" }[];
+};
+
+export type TransactionDetail = {
+  transaction: Transaction;
+  counterpartTransaction: Transaction | null;
+  purchase: Purchase | null;
+  history: { count: number; totalCents: number; months: { month: string; cents: number; count: number }[] };
+};
+
+export type DayView = { date: string; spentCents: number; purchases: number; inCents: number; movedCents: number };
+
+export type DaysView = {
+  month: string;
+  days: DayView[];
+  previous: DayView[];
+  summary: { spentCents: number; inCents: number; movedCents: number; previousToDateCents: number };
 };
 
 type Entry<T> = { data?: T; error?: string; loading: boolean; at: number };
