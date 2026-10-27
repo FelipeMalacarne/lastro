@@ -82,7 +82,10 @@ export function AccountPage({ id }: { id: string }) {
       />
       {all.length > 1 && (
         // Many accounts scroll sideways instead of widening the page.
-        <div className="-mx-4 overflow-x-auto px-4 lg:hidden">
+        <div
+          className="-mx-4 overflow-x-auto px-4 lg:hidden"
+          ref={(el) => el?.querySelector<HTMLElement>('[data-state="on"], [aria-checked="true"]')?.scrollIntoView({ block: "nearest", inline: "center" })}
+        >
           <SegmentedControl
             label="Account"
             className="w-max [&_button]:whitespace-nowrap"
