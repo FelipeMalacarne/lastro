@@ -46,6 +46,25 @@ func (s *Service) Alerts(ctx context.Context) ([]AlertView, error) {
 	}
 	monthName := today.Format("January")
 	out := []AlertView{}
+	if v.Prev != nil {
+		prev, _ := ParseMonth(v.Prev.Month)
+		r := Rest{Month: prev, Closed: v.Prev.Closed, Left: money.BRLCents(v.Prev.LeftCents), Choice: v.Prev.Choice}
+		if a, ok := RestAlert(r); ok {
+			name := prev.First().Format("January")
+			av := AlertView{Key: a.Key, Kind: a.Kind, Link: "/budget"}
+			if a.Kind == AlertRest {
+				av.Severity = "info"
+				av.Title = fmt.Sprintf("%s left %s", name, a.Amount)
+				av.Detail = "Invest it or keep it to spend."
+			} else {
+				av.Severity = "warning"
+				av.Title = fmt.Sprintf("%s went %s past what came in", name, a.Amount)
+				av.Detail = "After pay yourself first. Nothing is left to invest or keep; it came out of what you had saved."
+				av.Link = "/budget?month=" + prev.String()
+			}
+			out = append(out, av)
+		}
+	}
 	for _, a := range FindAlerts(m, today, figures, rec, v.DaysLeft) {
 		av := AlertView{Key: a.Key, Kind: a.Kind, Link: "/budget"}
 		name := names[a.Category.String()]

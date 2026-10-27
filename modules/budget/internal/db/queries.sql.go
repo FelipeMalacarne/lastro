@@ -19,15 +19,29 @@ func (q *Queries) DeleteLines(ctx context.Context, month time.Time) error {
 	return err
 }
 
-const getPreferences = `-- name: GetPreferences :one
-SELECT rollover_new FROM budget.preferences WHERE id
+const deleteRest = `-- name: DeleteRest :exec
+DELETE FROM budget.rests WHERE month = $1
 `
 
-func (q *Queries) GetPreferences(ctx context.Context) (bool, error) {
+func (q *Queries) DeleteRest(ctx context.Context, month time.Time) error {
+	_, err := q.db.Exec(ctx, deleteRest, month)
+	return err
+}
+
+const getPreferences = `-- name: GetPreferences :one
+SELECT rollover_new, rest_default FROM budget.preferences WHERE id
+`
+
+type GetPreferencesRow struct {
+	RolloverNew bool
+	RestDefault string
+}
+
+func (q *Queries) GetPreferences(ctx context.Context) (GetPreferencesRow, error) {
 	row := q.db.QueryRow(ctx, getPreferences)
-	var rollover_new bool
-	err := row.Scan(&rollover_new)
-	return rollover_new, err
+	var i GetPreferencesRow
+	err := row.Scan(&i.RolloverNew, &i.RestDefault)
+	return i, err
 }
 
 const insertLine = `-- name: InsertLine :exec
@@ -125,6 +139,38 @@ func (q *Queries) ListMonths(ctx context.Context, until time.Time) ([]ListMonths
 	return items, nil
 }
 
+const listRests = `-- name: ListRests :many
+SELECT month, choice, invest_cents, decided_at
+FROM budget.rests
+WHERE month <= $1::date
+ORDER BY month
+`
+
+func (q *Queries) ListRests(ctx context.Context, until time.Time) ([]BudgetRest, error) {
+	rows, err := q.db.Query(ctx, listRests, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BudgetRest
+	for rows.Next() {
+		var i BudgetRest
+		if err := rows.Scan(
+			&i.Month,
+			&i.Choice,
+			&i.InvestCents,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSentAlerts = `-- name: ListSentAlerts :many
 SELECT key FROM budget.alerts_sent WHERE key = ANY($1::text[])
 `
@@ -188,11 +234,40 @@ func (q *Queries) SaveMonth(ctx context.Context, arg SaveMonthParams) error {
 }
 
 const savePreferences = `-- name: SavePreferences :exec
-INSERT INTO budget.preferences (id, rollover_new) VALUES (true, $1)
-ON CONFLICT (id) DO UPDATE SET rollover_new = excluded.rollover_new
+INSERT INTO budget.preferences (id, rollover_new, rest_default) VALUES (true, $1, $2)
+ON CONFLICT (id) DO UPDATE SET rollover_new = excluded.rollover_new, rest_default = excluded.rest_default
 `
 
-func (q *Queries) SavePreferences(ctx context.Context, rolloverNew bool) error {
-	_, err := q.db.Exec(ctx, savePreferences, rolloverNew)
+type SavePreferencesParams struct {
+	RolloverNew bool
+	RestDefault string
+}
+
+func (q *Queries) SavePreferences(ctx context.Context, arg SavePreferencesParams) error {
+	_, err := q.db.Exec(ctx, savePreferences, arg.RolloverNew, arg.RestDefault)
+	return err
+}
+
+const saveRest = `-- name: SaveRest :exec
+INSERT INTO budget.rests (month, choice, invest_cents, decided_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (month) DO UPDATE
+SET choice = excluded.choice, invest_cents = excluded.invest_cents, decided_at = excluded.decided_at
+`
+
+type SaveRestParams struct {
+	Month       time.Time
+	Choice      string
+	InvestCents int64
+	DecidedAt   time.Time
+}
+
+func (q *Queries) SaveRest(ctx context.Context, arg SaveRestParams) error {
+	_, err := q.db.Exec(ctx, saveRest,
+		arg.Month,
+		arg.Choice,
+		arg.InvestCents,
+		arg.DecidedAt,
+	)
 	return err
 }

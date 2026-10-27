@@ -104,15 +104,45 @@ func (r *PostgresRepository) markSent(ctx context.Context, keys []string, at tim
 	})
 }
 
-// rolloverNew is whether a new limit rolls over; false until it is set.
-func (r *PostgresRepository) rolloverNew(ctx context.Context) (bool, error) {
-	on, err := r.q.GetPreferences(ctx)
+// preferences are how new limits and closed months start; a new limit
+// does not roll over and a closed month asks until they are set.
+func (r *PostgresRepository) preferences(ctx context.Context) (Preferences, error) {
+	row, err := r.q.GetPreferences(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return Preferences{Rest: RestAsk}, nil
 	}
-	return on, err
+	if err != nil {
+		return Preferences{}, err
+	}
+	rest, err := ParseRestDefault(row.RestDefault)
+	if err != nil {
+		return Preferences{}, err
+	}
+	return Preferences{RolloverNew: row.RolloverNew, Rest: rest}, nil
 }
 
-func (r *PostgresRepository) setRolloverNew(ctx context.Context, on bool) error {
-	return r.q.SavePreferences(ctx, on)
+func (r *PostgresRepository) savePreferences(ctx context.Context, p Preferences) error {
+	return r.q.SavePreferences(ctx, db.SavePreferencesParams{RolloverNew: p.RolloverNew, RestDefault: string(p.Rest)})
+}
+
+// decisions are what I chose for each closed month up to until.
+func (r *PostgresRepository) decisions(ctx context.Context, until Month) (map[Month]Decision, error) {
+	rows, err := r.q.ListRests(ctx, until.First())
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[Month]Decision, len(rows))
+	for _, row := range rows {
+		m := MonthOf(row.Month)
+		out[m] = Decision{Month: m, Choice: RestChoice(row.Choice), Invest: money.BRLCents(row.InvestCents), DecidedAt: row.DecidedAt}
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) saveDecision(ctx context.Context, d Decision) error {
+	return r.q.SaveRest(ctx, db.SaveRestParams{Month: d.Month.First(), Choice: string(d.Choice), InvestCents: d.Invest.Cents(), DecidedAt: d.DecidedAt})
+}
+
+func (r *PostgresRepository) deleteDecision(ctx context.Context, m Month) error {
+	return r.q.DeleteRest(ctx, m.First())
 }

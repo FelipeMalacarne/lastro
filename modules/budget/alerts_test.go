@@ -45,3 +45,27 @@ func TestFindAlerts(t *testing.T) {
 		t.Errorf("September: %+v", sep)
 	}
 }
+
+func TestRestAlert(t *testing.T) {
+	sep := month(t, "2026-09")
+	tests := []struct {
+		name string
+		r    Rest
+		want AlertKind
+	}{
+		{"waits for a choice", Rest{Month: sep, Closed: true, Left: money.BRLCents(1000)}, AlertRest},
+		{"decided", Rest{Month: sep, Closed: true, Left: money.BRLCents(1000), Choice: RestKeep}, ""},
+		{"went past what came in", Rest{Month: sep, Closed: true, Left: money.BRLCents(-4500)}, AlertShort},
+		{"left exactly nothing", Rest{Month: sep, Closed: true, Left: money.BRLCents(0)}, ""},
+		{"still running", Rest{Month: sep, Left: money.BRLCents(1000)}, ""},
+	}
+	for _, tt := range tests {
+		a, ok := RestAlert(tt.r)
+		if ok != (tt.want != "") || a.Kind != tt.want {
+			t.Errorf("%s: %v %v, want %q", tt.name, a.Kind, ok, tt.want)
+		}
+	}
+	if a, _ := RestAlert(Rest{Month: sep, Closed: true, Left: money.BRLCents(-4500)}); a.Amount.Cents() != 4500 || a.Key != "short:2026-09" {
+		t.Errorf("short = %+v", a)
+	}
+}

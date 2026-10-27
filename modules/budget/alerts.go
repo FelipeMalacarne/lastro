@@ -18,6 +18,8 @@ const (
 	AlertUnusual     AlertKind = "unusual"      // far above the category's usual month
 	AlertPriceChange AlertKind = "price_change" // a recurring charge changed price this month
 	AlertNewCharge   AlertKind = "new_charge"   // a recurring charge appeared
+	AlertRest        AlertKind = "rest"         // a closed month left money that waits for a choice
+	AlertShort       AlertKind = "short"        // a closed month spent past what came in after pay yourself first
 )
 
 // Alert is one thing worth telling. Key is stable, so a channel sends it
@@ -83,4 +85,19 @@ func FindAlerts(m Month, today time.Time, figures []Figures, recurring []Recurri
 	rank := map[AlertKind]int{AlertOver: 0, AlertAhead: 1, AlertUnusual: 2, AlertPriceChange: 3, AlertNewCharge: 4}
 	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Kind] < rank[out[j].Kind] })
 	return out
+}
+
+// RestAlert is what the month before left, once it is over: money that
+// waits to be invested or kept, or spending past what came in after pay
+// yourself first. Nothing when it was decided or left exactly nothing.
+func RestAlert(r Rest) (Alert, bool) {
+	switch {
+	case !r.Closed:
+		return Alert{}, false
+	case r.Left.Cents() < 0:
+		return Alert{Key: fmt.Sprintf("short:%s", r.Month), Kind: AlertShort, Amount: r.Left.Neg()}, true
+	case r.Left.Cents() > 0 && r.Choice == "":
+		return Alert{Key: fmt.Sprintf("rest:%s", r.Month), Kind: AlertRest, Amount: r.Left}, true
+	}
+	return Alert{}, false
 }

@@ -141,7 +141,8 @@ func TestBudgetMonth(t *testing.T) {
 	if h.FixedCents != 300000 || h.Pace != PaceOn {
 		t.Errorf("the rent is a fixed charge, out of the pace: %+v", h)
 	}
-	if v.NotAssignedCents != 1000000-200000-390000 {
+	// Not assigned also takes what was spent without a limit: the bakery.
+	if v.NotAssignedCents != 1000000-200000-390000-1500 {
 		t.Errorf("not assigned %d", v.NotAssignedCents)
 	}
 	if len(v.Unlimited) != 1 || v.Unlimited[0].Category != nil || v.Unlimited[0].SpentCents != 1500 {
@@ -268,10 +269,90 @@ func TestCopyAndReplaceLimits(t *testing.T) {
 	if v.RolloverNew {
 		t.Error("rolloverNew should start off")
 	}
-	if err := w.budget.SetRolloverNew(ctx, true); err != nil {
+	if err := w.budget.SetPreferences(ctx, ptr(true), nil); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ = w.budget.Month(ctx, oct); !v.RolloverNew {
 		t.Error("rolloverNew should be on")
 	}
 }
+
+func TestWhatAMonthLeaves(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"ALUGUEL": "Housing", "MERCADO": "Groceries", "SALARIO": "Income"}, []tx{
+		{"2026-09-05", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-09-05", "ALUGUEL APTO", -300000, ""},
+		{"2026-09-14", "MERCADO BOM", -110000, ""}, // 300 past its limit
+		{"2026-09-20", "PADARIA SEM REGRA", -2000, ""},
+		{"2026-10-05", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-10-06", "APLICACAO CORRETORA", -350000, ledger.KindTransfer},
+	})
+	sep, _ := ParseMonth("2026-09")
+	oct, _ := ParseMonth("2026-10")
+	payday, _ := NewPayday(5)
+	if err := w.budget.SetPayYourselfFirst(ctx, sep, money.BRLCents(200000), payday); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, sep, w.cats["Housing"], money.BRLCents(310000), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, sep, w.cats["Groceries"], money.BRLCents(80000), false); err != nil {
+		t.Fatal(err)
+	}
+
+	// September: 10.000 − 2.000 − 3.900 limits − 300 over − 20 without a
+	// category + 100 Housing did not spend = 3.880.
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Prev == nil || !v.Prev.Closed || v.Prev.LeftCents != 388000 || !v.Prev.Pending || v.Prev.OverCents != 30000 || v.Prev.UnspentCents != 10000 {
+		t.Fatalf("September's rest = %+v", v.Prev)
+	}
+	// October runs: nothing kept yet, so Not assigned is 10.000 − 2.000 − 3.900.
+	if v.NotAssignedCents != 410000 || v.Rest == nil || v.Rest.Closed {
+		t.Fatalf("October: not assigned %d, rest %+v", v.NotAssignedCents, v.Rest)
+	}
+
+	if err := w.budget.DecideRest(ctx, oct, RestInvest, money.BRLCents(0)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("deciding a month that runs: %v, want ErrInvalid", err)
+	}
+	if err := w.budget.DecideRest(ctx, sep, RestSplit, money.BRLCents(388001)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("investing more than was left: %v, want ErrInvalid", err)
+	}
+	if err := w.budget.DecideRest(ctx, sep, RestSplit, money.BRLCents(150000)); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = w.budget.Month(ctx, oct)
+	if v.Prev.Pending || v.Prev.Choice != RestSplit || v.Prev.InvestCents != 150000 || v.Prev.KeepCents != 238000 {
+		t.Fatalf("after the split: %+v", v.Prev)
+	}
+	// The kept part is October's; the invested part goes with pay yourself
+	// first, and the 3.500 moved covers both.
+	if v.NotAssignedCents != 410000+238000 || v.Rest.KeptCents != 238000 || v.PayYourselfFirst.FromRestCents != 150000 || v.PayYourselfFirst.DoneOn == nil {
+		t.Fatalf("October after the split: not assigned %d, rest %+v, pay yourself first %+v", v.NotAssignedCents, v.Rest, v.PayYourselfFirst)
+	}
+
+	// Taking it back with "always invest" as the default invests it all.
+	invest := RestInvest
+	if err := w.budget.SetPreferences(ctx, nil, &invest); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.ClearRest(ctx, sep); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = w.budget.Month(ctx, oct)
+	if v.RestDefault != RestInvest || v.Prev.Decided || v.Prev.Choice != RestInvest || v.Prev.InvestCents != 388000 || v.NotAssignedCents != 410000 {
+		t.Fatalf("with the default: %+v, not assigned %d", v.Prev, v.NotAssignedCents)
+	}
+	if v.PayYourselfFirst.DoneOn != nil {
+		t.Error("3.500 moved does not cover 2.000 plus 3.880")
+	}
+	bad := RestChoice("split")
+	if err := w.budget.SetPreferences(ctx, nil, &bad); !errors.Is(err, ErrInvalid) {
+		t.Errorf("split as a default: %v", err)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

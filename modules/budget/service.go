@@ -23,8 +23,19 @@ type Repository interface {
 	Save(ctx context.Context, b *MonthlyBudget) error
 	sent(ctx context.Context, keys []string) (map[string]bool, error)
 	markSent(ctx context.Context, keys []string, at time.Time) error
-	rolloverNew(ctx context.Context) (bool, error)
-	setRolloverNew(ctx context.Context, on bool) error
+	preferences(ctx context.Context) (Preferences, error)
+	savePreferences(ctx context.Context, p Preferences) error
+	decisions(ctx context.Context, until Month) (map[Month]Decision, error)
+	saveDecision(ctx context.Context, d Decision) error
+	deleteDecision(ctx context.Context, m Month) error
+}
+
+// Preferences are how a new limit and a closed month start: whether the
+// limit rolls over, and what happens to what a month left when I do not
+// decide.
+type Preferences struct {
+	RolloverNew bool
+	Rest        RestChoice
 }
 
 // historyMonths is how far back a category's average looks.
@@ -65,7 +76,25 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 	if err != nil {
 		return MonthView{}, fmt.Errorf("budget: month: %w", err)
 	}
-	kinds, err := s.ledger.MonthKinds(ctx, m.First(), m.First())
+	first := m
+	if len(saved) > 0 {
+		first = saved[0].month
+	}
+	all, err := s.ledger.MonthKinds(ctx, first.First(), m.First())
+	if err != nil {
+		return MonthView{}, fmt.Errorf("budget: month: %w", err)
+	}
+	var kinds []ledger.MonthKind
+	for _, k := range all {
+		if MonthOf(k.Month) == m {
+			kinds = append(kinds, k)
+		}
+	}
+	prefs, err := s.repo.preferences(ctx)
+	if err != nil {
+		return MonthView{}, fmt.Errorf("budget: month: %w", err)
+	}
+	decisions, err := s.repo.decisions(ctx, m)
 	if err != nil {
 		return MonthView{}, fmt.Errorf("budget: month: %w", err)
 	}
@@ -90,17 +119,15 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		}
 	}
 	t := Track(saved, spending, m, s.today(), fixed)
-	rollNew, err := s.repo.rolloverNew(ctx)
-	if err != nil {
-		return MonthView{}, fmt.Errorf("budget: month: %w", err)
-	}
+	rests := Rests(saved, spending, incomeByMonth(all), decisions, prefs.Rest, m, s.today())
 	prev, hasPrev := Effective(saved, m.Add(-1))
 	v := MonthView{
 		Month:          m.String(),
 		HasBudget:      t.Budget != nil,
 		Saved:          t.Saved,
 		PrevDiffers:    hasPrev && t.Budget != nil && !sameLines(prev.Lines(), t.Budget.Lines()),
-		RolloverNew:    rollNew,
+		RolloverNew:    prefs.RolloverNew,
+		RestDefault:    prefs.Rest,
 		Days:           m.Days(),
 		DaysLeft:       t.DaysLeft,
 		ElapsedBp:      t.Elapsed.Bps(),
@@ -134,11 +161,18 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			}
 		}
 	}
-	if pyf := v.PayYourselfFirst; pyf.PlannedCents > 0 && pyf.MovedCents >= pyf.PlannedCents {
+	if r, ok := rests[m]; ok {
+		v.Rest = restView(r)
+		v.NotAssignedCents = r.Left.Cents()
+	}
+	if r, ok := rests[m.Add(-1)]; ok && r.Closed {
+		v.Prev = restView(r)
+		v.PayYourselfFirst.FromRestCents = r.Invest.Cents()
+	}
+	if pyf := v.PayYourselfFirst; pyf.PlannedCents+pyf.FromRestCents > 0 && pyf.MovedCents >= pyf.PlannedCents+pyf.FromRestCents {
 		d := last.Format(time.DateOnly)
 		v.PayYourselfFirst.DoneOn = &d
 	}
-	v.NotAssignedCents = v.IncomeCents - v.PayYourselfFirst.PlannedCents - v.LimitsCents
 
 	for _, c := range t.Categories {
 		v.CarriedCents += c.Carried.Cents()
@@ -450,11 +484,64 @@ func (s *Service) CopyLimits(ctx context.Context, to, from Month) (int, error) {
 	return len(lines), nil
 }
 
-// SetRolloverNew is whether a category given a limit for the first time
-// rolls over unless I say otherwise.
-func (s *Service) SetRolloverNew(ctx context.Context, on bool) error {
-	if err := s.repo.setRolloverNew(ctx, on); err != nil {
-		return fmt.Errorf("budget: rollover for new limits: %w", err)
+// SetPreferences changes how new limits and closed months start; a nil
+// field keeps what it was.
+func (s *Service) SetPreferences(ctx context.Context, rolloverNew *bool, rest *RestChoice) error {
+	p, err := s.repo.preferences(ctx)
+	if err != nil {
+		return fmt.Errorf("budget: preferences: %w", err)
+	}
+	if rolloverNew != nil {
+		p.RolloverNew = *rolloverNew
+	}
+	if rest != nil {
+		if p.Rest, err = ParseRestDefault(string(*rest)); err != nil {
+			return fmt.Errorf("budget: preferences: %w", err)
+		}
+	}
+	if err := s.repo.savePreferences(ctx, p); err != nil {
+		return fmt.Errorf("budget: preferences: %w", err)
 	}
 	return nil
+}
+
+// DecideRest chooses what a closed month's rest does: invested with the
+// next contribution, kept for the next month, or split, investing invest.
+func (s *Service) DecideRest(ctx context.Context, m Month, choice RestChoice, invest money.Money) error {
+	v, err := s.Month(ctx, m)
+	if err != nil {
+		return fmt.Errorf("budget: decide the rest: %w", err)
+	}
+	if v.Rest == nil {
+		return fmt.Errorf("budget: decide the rest: %w: %s has no budget", ErrInvalid, m)
+	}
+	d, err := Decide(m, money.BRLCents(v.Rest.LeftCents), choice, invest, s.today(), s.now())
+	if err != nil {
+		return fmt.Errorf("budget: decide the rest: %w", err)
+	}
+	if err := s.repo.saveDecision(ctx, d); err != nil {
+		return fmt.Errorf("budget: decide the rest: %w", err)
+	}
+	return nil
+}
+
+// ClearRest takes back what I chose for a month: the default applies again,
+// or it waits.
+func (s *Service) ClearRest(ctx context.Context, m Month) error {
+	if err := s.repo.deleteDecision(ctx, m); err != nil {
+		return fmt.Errorf("budget: clear the rest: %w", err)
+	}
+	return nil
+}
+
+// incomeByMonth is what came in each month.
+func incomeByMonth(kinds []ledger.MonthKind) map[Month]money.Money {
+	out := map[Month]money.Money{}
+	for _, k := range kinds {
+		if k.Kind == "income" && k.Inflow {
+			m := MonthOf(k.Month)
+			out[m] = money.BRLCents(out[m].Cents() + k.Cents)
+		}
+	}
+	return out
 }

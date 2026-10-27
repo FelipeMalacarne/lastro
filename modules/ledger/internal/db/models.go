@@ -31,6 +31,14 @@ type BudgetMonth struct {
 type BudgetPreference struct {
 	ID          bool
 	RolloverNew bool
+	RestDefault string
+}
+
+type BudgetRest struct {
+	Month       time.Time
+	Choice      string
+	InvestCents int64
+	DecidedAt   time.Time
 }
 
 type CategorizeCategory struct {

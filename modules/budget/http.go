@@ -137,21 +137,62 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		httpx.JSON(w, http.StatusOK, map[string]int{"copied": n})
 	})
 
-	// PUT /api/v1/budget/preferences {"rolloverNew"}: whether a category
-	// given a limit for the first time rolls over.
+	// PUT /api/v1/budget/preferences {"rolloverNew", "rest"}: whether a
+	// category given a limit for the first time rolls over, and what
+	// happens to what a closed month left when I do not decide (ask, invest
+	// or keep). Either may be left out.
 	mux.HandleFunc("PUT /api/v1/budget/preferences", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			RolloverNew *bool `json:"rolloverNew"`
+			RolloverNew *bool       `json:"rolloverNew"`
+			Rest        *RestChoice `json:"rest"`
 		}
-		if err := decode(w, r, &in, "rolloverNew"); err != nil {
+		if err := decode(w, r, &in, "rolloverNew and rest"); err != nil {
 			httpx.WriteError(w, r, logger, err)
 			return
 		}
-		if in.RolloverNew == nil {
-			httpx.WriteError(w, r, logger, httpx.BadRequest("rolloverNew is required"))
+		if in.RolloverNew == nil && in.Rest == nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("rolloverNew or rest is required"))
 			return
 		}
-		if err := s.SetRolloverNew(r.Context(), *in.RolloverNew); err != nil {
+		if err := s.SetPreferences(r.Context(), in.RolloverNew, in.Rest); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// PUT /api/v1/budget/{month}/rest {"choice": "invest" | "keep" | "split",
+	// "investCents"}: what a closed month's rest does; investCents only for
+	// a split.
+	mux.HandleFunc("PUT /api/v1/budget/{month}/rest", func(w http.ResponseWriter, r *http.Request) {
+		m, err := ParseMonth(r.PathValue("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("month must be YYYY-MM"))
+			return
+		}
+		var in struct {
+			Choice      RestChoice `json:"choice"`
+			InvestCents int64      `json:"investCents"`
+		}
+		if err := decode(w, r, &in, "choice and investCents"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if err := s.DecideRest(r.Context(), m, in.Choice, money.BRLCents(in.InvestCents)); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// DELETE /api/v1/budget/{month}/rest: takes the choice back.
+	mux.HandleFunc("DELETE /api/v1/budget/{month}/rest", func(w http.ResponseWriter, r *http.Request) {
+		m, err := ParseMonth(r.PathValue("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("month must be YYYY-MM"))
+			return
+		}
+		if err := s.ClearRest(r.Context(), m); err != nil {
 			httpx.WriteError(w, r, logger, err)
 			return
 		}

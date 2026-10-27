@@ -32,8 +32,23 @@ SELECT key FROM budget.alerts_sent WHERE key = ANY(sqlc.arg(keys)::text[]);
 INSERT INTO budget.alerts_sent (key, sent_at) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;
 
 -- name: GetPreferences :one
-SELECT rollover_new FROM budget.preferences WHERE id;
+SELECT rollover_new, rest_default FROM budget.preferences WHERE id;
 
 -- name: SavePreferences :exec
-INSERT INTO budget.preferences (id, rollover_new) VALUES (true, $1)
-ON CONFLICT (id) DO UPDATE SET rollover_new = excluded.rollover_new;
+INSERT INTO budget.preferences (id, rollover_new, rest_default) VALUES (true, $1, $2)
+ON CONFLICT (id) DO UPDATE SET rollover_new = excluded.rollover_new, rest_default = excluded.rest_default;
+
+-- name: ListRests :many
+SELECT month, choice, invest_cents, decided_at
+FROM budget.rests
+WHERE month <= sqlc.arg(until)::date
+ORDER BY month;
+
+-- name: SaveRest :exec
+INSERT INTO budget.rests (month, choice, invest_cents, decided_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (month) DO UPDATE
+SET choice = excluded.choice, invest_cents = excluded.invest_cents, decided_at = excluded.decided_at;
+
+-- name: DeleteRest :exec
+DELETE FROM budget.rests WHERE month = $1;

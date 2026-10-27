@@ -17,6 +17,14 @@ type MonthView struct {
 	DaysLeft    int   `json:"daysLeft"`  // today included
 	ElapsedBp   int64 `json:"elapsedBp"` // share of the month gone
 
+	// RestDefault is what happens to what a closed month left when I do not
+	// decide: ask, invest or keep (Settings).
+	RestDefault RestChoice `json:"restDefault"`
+	// Rest is this month's: while it runs, its Left is Not assigned. Prev
+	// is the month before's, once it is over, with the choice it waits for.
+	Rest *RestView `json:"rest"`
+	Prev *RestView `json:"prev"`
+
 	Payday           int     `json:"payday"`
 	PayYourselfFirst PYFView `json:"payYourselfFirst"`
 
@@ -45,6 +53,39 @@ type PYFView struct {
 	MovedCents   int64   `json:"movedCents"`
 	Due          string  `json:"due"`    // the payday's date
 	DoneOn       *string `json:"doneOn"` // the last transfer's day, once moved reaches planned
+	// FromRestCents is what the month before left and I chose to invest,
+	// moved with pay yourself first: done needs both.
+	FromRestCents int64 `json:"fromRestCents"`
+}
+
+// RestView is what a month leaves after pay yourself first and its
+// spending, and where it goes.
+type RestView struct {
+	Month          string     `json:"month"`
+	Closed         bool       `json:"closed"`
+	IncomeCents    int64      `json:"incomeCents"`
+	KeptCents      int64      `json:"keptCents"` // brought in from the month before
+	PayFirstCents  int64      `json:"payFirstCents"`
+	LimitsCents    int64      `json:"limitsCents"`
+	OverCents      int64      `json:"overCents"`      // spent past the limits
+	UnlimitedCents int64      `json:"unlimitedCents"` // spent without a limit
+	UnspentCents   int64      `json:"unspentCents"`   // left in limits that do not roll over, once closed
+	LeftCents      int64      `json:"leftCents"`
+	Choice         RestChoice `json:"choice"`  // "" while it waits, or with nothing left
+	Decided        bool       `json:"decided"` // by me, not by the default
+	Pending        bool       `json:"pending"` // closed, something left, nothing chosen
+	InvestCents    int64      `json:"investCents"`
+	KeepCents      int64      `json:"keepCents"` // goes to the next month
+}
+
+func restView(r Rest) *RestView {
+	return &RestView{
+		Month: r.Month.String(), Closed: r.Closed,
+		IncomeCents: r.Income.Cents(), KeptCents: r.Kept.Cents(), PayFirstCents: r.PayFirst.Cents(), LimitsCents: r.Limits.Cents(),
+		OverCents: r.Over.Cents(), UnlimitedCents: r.Unlimited.Cents(), UnspentCents: r.Unspent.Cents(), LeftCents: r.Left.Cents(),
+		Choice: r.Choice, Decided: r.Decided, Pending: r.Closed && r.Left.Cents() > 0 && r.Choice == "",
+		InvestCents: r.Invest.Cents(), KeepCents: r.KeepForNext.Cents(),
+	}
 }
 
 // CategoryView is one limited category in a month.

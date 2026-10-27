@@ -1,6 +1,6 @@
 # ADR-0006: Category limits first, envelopes only if they fall short
 
-**Status:** Accepted
+**Status:** Accepted; how Not assigned is counted, and overspending, amended by [ADR-0008](0008-what-a-month-leaves.md)
 **Date:** 2026-10-27
 **Deciders:** Felipe
 
