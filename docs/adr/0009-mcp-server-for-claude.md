@@ -1,6 +1,6 @@
 # ADR-0009: An MCP server, and Claude reading my financial data
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-27
 **Deciders:** Felipe
 
@@ -22,7 +22,8 @@ I want to ask Claude about my money: "how much did I spend on food this quarter?
   - Prefer summaries: totals by category, the budget's state, the portfolio's allocation.
   - Transactions are listed only with filters (period, category, account).
   - Account numbers, Pluggy IDs and anything secret never leave the server.
-- **Transport:** streamable HTTP at `/mcp`, in `app/`, since the tools read across modules through their `Service`s.
+- **Transport:** streamable HTTP at `/mcp`, stateless, with the official Go SDK (`github.com/modelcontextprotocol/go-sdk`), in `app/mcp.go`, since the tools read across modules through their `Service`s.
+- **Tools:** `monthly_report`, `budget`, `transactions` (by month, with search, category, account, flow or tag), `accounts` (without numbers), `categories`, `portfolio` and `contribution_plan`. Errors from inside lastro reach the model as a plain message; the details stay in the log.
 - **Revocable:** removing the `lastro-claude` application in Zitadel cuts Claude off without touching anything else.
 
 ## Options considered

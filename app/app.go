@@ -243,6 +243,7 @@ func (a *App) Handler() http.Handler {
 		mux.Handle("GET "+auth.MetadataPath+"/mcp", auth.ProtectedResource(a.resourceMetadata("/mcp")))
 	}
 	mux.Handle("/api/", a.auth.require(api))
+	mux.Handle("/mcp", a.auth.bearer("/mcp")(a.MCPHandler()))
 	mux.Handle("/", a.auth.require(web.Handler()))
 
 	return httpx.Recover(a.Logger, mux)
