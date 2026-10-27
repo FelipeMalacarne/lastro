@@ -103,7 +103,7 @@ ORDER BY t.date, t.id;
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
-    t.note, t.tags, t.marked_transfer,
+    t.note, t.tags, t.marked_transfer, (t.external_id LIKE 'manual-%')::boolean AS manual,
     COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
     -- What counts under a category filter: a split's part in it, or the whole.
     COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text), t.amount_cents)::bigint AS counted_cents,
@@ -346,3 +346,23 @@ ON CONFLICT (account_id, date) DO UPDATE SET
     balance_cents = EXCLUDED.balance_cents,
     taken_at = EXCLUDED.taken_at;
 
+
+-- name: ListPossibleDuplicates :many
+-- A transaction I added by hand in a synced account and a synced one that
+-- may be the same movement: same account, same amount, up to max_days apart,
+-- both live, and not a pair I said are two. Closest dates first.
+SELECT m.id AS manual_id, s.id AS synced_id
+FROM ledger.transactions m
+JOIN ledger.accounts a ON a.id = m.account_id
+JOIN ledger.transactions s ON s.account_id = m.account_id AND s.amount_cents = m.amount_cents AND s.id <> m.id
+WHERE m.external_id LIKE 'manual-%' AND s.external_id NOT LIKE 'manual-%'
+  AND a.type NOT IN ('cash', 'asset')
+  AND m.removed_at IS NULL AND s.removed_at IS NULL
+  AND abs(s.date - m.date) <= sqlc.arg(max_days)::int
+  AND (sqlc.narg(id)::uuid IS NULL OR m.id = sqlc.narg(id)::uuid OR s.id = sqlc.narg(id)::uuid)
+  AND NOT EXISTS (SELECT 1 FROM ledger.kept_apart k WHERE k.manual_id = m.id AND k.synced_id = s.id)
+ORDER BY abs(s.date - m.date), m.date DESC, m.id, s.id;
+
+-- name: KeepApart :exec
+INSERT INTO ledger.kept_apart (manual_id, synced_id) VALUES (sqlc.arg(manual_id), sqlc.arg(synced_id))
+ON CONFLICT DO NOTHING;

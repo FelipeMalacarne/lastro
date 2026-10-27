@@ -28,6 +28,19 @@ function Hero({ a, caption }: { a: Account; caption: string }) {
 }
 
 function WalletView({ a }: { a: Account }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
+      <Hero a={a} caption={`Typed in by you · balance updated ${formatDate(a.balanceAt.slice(0, 10))}`} />
+      <AddTransaction a={a} />
+    </div>
+  );
+}
+
+/**
+ * A transaction typed in: a wallet entry, or, with missing, one a synced
+ * account's bank never sent (canvas: "A transaction the bank never sent").
+ */
+export function AddTransaction({ a, missing }: { a: Account; missing?: boolean }) {
   const [day, setDay] = useState(todayISO());
   const [description, setDescription] = useState("");
   const [dir, setDir] = useState<"out" | "in">("out");
@@ -45,46 +58,57 @@ function WalletView({ a }: { a: Account }) {
       await send("POST", `/api/v1/accounts/${a.id}/transactions`, { date: day, description: description.trim(), amountCents: dir === "out" ? -cents! : cents });
       setDescription("");
       setAmount("");
-      setMsg("Added. Rules and the model categorize it like any other.");
+      setMsg(
+        missing
+          ? "Added. If the bank sends it later, lastro asks whether the two are the same."
+          : "Added. Rules and the model categorize it like any other.",
+      );
     } catch (err) {
       setMsg(`Could not add: ${(err as Error).message}.`);
     } finally {
       setBusy(false);
     }
   }
+  const bank = a.institution;
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
-      <Hero a={a} caption={`Typed in by you · balance updated ${formatDate(a.balanceAt.slice(0, 10))}`} />
-      <Panel title="Add a transaction">
-        <form onSubmit={add} className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <TextField label="Date" type="date" value={day} max={todayISO()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
-            <TextField label="Description" placeholder="e.g. Feira de domingo" value={description} onChange={(e) => setDescription(e.target.value)} className="min-w-0 flex-[1_1_200px]" />
+    <Panel title={missing ? "Add a missing transaction" : "Add a transaction"}>
+      <form onSubmit={add} className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <TextField label="Date" type="date" value={day} max={todayISO()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
+          <TextField
+            label="Description"
+            placeholder={missing ? "e.g. Pix sent" : "e.g. Feira de domingo"}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="min-w-0 flex-[1_1_200px]"
+          />
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] leading-[18px] font-semibold">Direction</span>
+            <SegmentedControl
+              label="Direction"
+              value={dir}
+              onChange={(v) => setDir(v as "out" | "in")}
+              options={[
+                { value: "out", label: "Out" },
+                { value: "in", label: "In" },
+              ]}
+            />
           </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[13px] leading-[18px] font-semibold">Direction</span>
-              <SegmentedControl
-                label="Direction"
-                value={dir}
-                onChange={(v) => setDir(v as "out" | "in")}
-                options={[
-                  { value: "out", label: "Out" },
-                  { value: "in", label: "In" },
-                ]}
-              />
-            </div>
-            <TextField label="Amount" placeholder="R$ 0,00" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="min-w-0 flex-[0_1_150px]" />
-            <Button type="submit" variant="primary" disabled={!valid || busy}>
-              Add
-            </Button>
-          </div>
-          <span className="type-caption text-ink-muted">
-            {msg ?? "Money in from a withdrawal at the ATM pairs with the checking side as a transfer, so it never counts twice. Open an entry to remove it."}
-          </span>
-        </form>
-      </Panel>
-    </div>
+          <TextField label="Amount" placeholder="R$ 0,00" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="min-w-0 flex-[0_1_150px]" />
+          <Button type="submit" variant={missing ? "secondary" : "primary"} disabled={!valid || busy}>
+            Add
+          </Button>
+        </div>
+        <span className="type-caption text-ink-muted">
+          {msg ??
+            (missing
+              ? `For one the bank app shows but ${bank} never sent. The balance stays the bank's, which already counts it; the history and the month's totals count it too. A sync never removes it.`
+              : "Money in from a withdrawal at the ATM pairs with the checking side as a transfer, so it never counts twice. Open an entry to remove it.")}
+        </span>
+      </form>
+    </Panel>
   );
 }
 

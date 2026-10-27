@@ -275,3 +275,31 @@ func TestCopyAndReplaceLimits(t *testing.T) {
 		t.Error("rolloverNew should be on")
 	}
 }
+
+func TestPayYourselfFirstIsNetOfRedemptions(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"SALARIO": "Income"}, []tx{
+		{"2026-10-01", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-10-01", "APLICACAO RDB", -300000, ledger.KindTransfer},
+		// Moving from one investment to another puts nothing aside.
+		{"2026-10-20", "RESGATE RDB", 500000, ledger.KindTransfer},
+		{"2026-10-20", "COMPRA DE RENDA VARIAVEL", -500000, ledger.KindTransfer},
+		{"2026-10-22", "RESGATE RDB", 50000, ledger.KindTransfer},
+	})
+	oct, _ := ParseMonth("2026-10")
+	payday, _ := NewPayday(1)
+	if err := w.budget.SetPayYourselfFirst(ctx, oct, money.BRLCents(250000), payday); err != nil {
+		t.Fatal(err)
+	}
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.PayYourselfFirst.MovedCents != 250000 || v.PayYourselfFirst.DoneOn == nil || *v.PayYourselfFirst.DoneOn != "2026-10-20" {
+		t.Errorf("pay yourself first %+v, want 250.000 moved, done on the 20th", v.PayYourselfFirst)
+	}
+	if v.Summary.ContributionCents != 250000 {
+		t.Errorf("contribution %d", v.Summary.ContributionCents)
+	}
+}

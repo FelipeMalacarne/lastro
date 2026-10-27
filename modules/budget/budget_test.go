@@ -286,3 +286,23 @@ func find(t *testing.T, tr Tracking, c string) CategoryStatus {
 	t.Fatalf("%s not tracked in %s", c, tr.Month)
 	return CategoryStatus{}
 }
+
+func TestSetAside(t *testing.T) {
+	tests := []struct {
+		name            string
+		out, back, want int64
+	}{
+		{"only contributions", 300000, 0, 300000},
+		{"part redeemed", 1192277, 707576, 484701},
+		{"a redemption reinvested", 500000, 500000, 0},
+		{"more redeemed than put in", 100000, 250000, 0},
+		{"nothing moved", 0, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SetAside(money.BRLCents(tt.out), money.BRLCents(tt.back)); got.Cents() != tt.want {
+				t.Errorf("SetAside(%d, %d) = %d, want %d", tt.out, tt.back, got.Cents(), tt.want)
+			}
+		})
+	}
+}

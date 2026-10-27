@@ -576,3 +576,86 @@ func TestRepositoryMarkedTransferSurvivesASync(t *testing.T) {
 		t.Errorf("unmarked, it waits for a category again: %+v", c)
 	}
 }
+
+func TestRepositoryMissingTransactionAddedByHand(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newService(t)
+	chk := details(t)
+	accID, err := svc.SyncAccount(ctx, chk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := svc.Account(ctx, accID)
+	// The bank never sent a Pix of R$ 1.790,00 on 10 Oct.
+	pix, err := svc.AddManualTransaction(ctx, accID, oct(10), "Pix sent", money.BRLCents(-179000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := svc.Account(ctx, accID); a.BalanceCents != before.BalanceCents {
+		t.Errorf("the bank's balance already counts it: %d, was %d", a.BalanceCents, before.BalanceCents)
+	}
+	note := "rent"
+	if err := svc.SetNote(ctx, pix, note); err != nil {
+		t.Fatal(err)
+	}
+	gifts, _ := NewCategoryID("gifts")
+	if err := svc.Categorize(ctx, pix, gifts, SourceManual); err != nil {
+		t.Fatal(err)
+	}
+
+	// A sync that does not send it keeps it.
+	other := imported(t, "other", -5000)
+	other.Date = oct(9)
+	batch := ImportBatch{Account: chk.ExternalID, From: oct(1), Transactions: []ImportedTransaction{other}}
+	if _, err := svc.ImportTransactions(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := svc.Transaction(ctx, pix); err != nil || !d.Transaction.Manual || len(d.Duplicates) != 0 {
+		t.Fatalf("still there, with nothing like it: %+v %v", d, err)
+	}
+
+	// The bank catches up two days later, plus another Pix of the same amount.
+	late := imported(t, "late", -179000)
+	late.Date, late.Description = oct(12), "Transferência enviada pelo Pix"
+	again := imported(t, "again", -179000)
+	again.Date = oct(13)
+	batch.Transactions = append(batch.Transactions, late, again)
+	if _, err := svc.ImportTransactions(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	dups, err := svc.PossibleDuplicates(ctx)
+	if err != nil || len(dups) != 2 || dups[0].Manual.ID != pix || dups[0].Synced.Description != "Transferência enviada pelo Pix" {
+		t.Fatalf("both are suggested, the closest first: %+v %v", dups, err)
+	}
+
+	// The 13th is another one; the 12th is mine.
+	lateID, againID := dups[0].Synced.ID, dups[1].Synced.ID
+	if err := svc.KeepApart(ctx, pix, againID); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := svc.PossibleDuplicates(ctx); len(left) != 1 || left[0].Synced.ID != lateID {
+		t.Fatalf("kept apart, never suggested again: %+v", left)
+	}
+	if err := svc.MergeDuplicate(ctx, pix, againID); !errors.Is(err, ErrNotDuplicate) {
+		t.Errorf("a pair kept apart does not merge: %v", err)
+	}
+	if err := svc.MergeDuplicate(ctx, pix, lateID); err != nil {
+		t.Fatal(err)
+	}
+	d, err := svc.Transaction(ctx, lateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Transaction.Category == nil || d.Transaction.Category.ID != "gifts" || d.Transaction.Note != note || d.Transaction.Manual {
+		t.Errorf("the synced one stays, with my category and note: %+v", d.Transaction)
+	}
+	if _, err := svc.Transaction(ctx, pix); !errors.Is(err, ErrNotFound) {
+		t.Errorf("mine is gone: %v", err)
+	}
+	if dups, _ := svc.PossibleDuplicates(ctx); len(dups) != 0 {
+		t.Errorf("nothing left to ask: %+v", dups)
+	}
+	if err := svc.MergeDuplicate(ctx, pix, lateID); !errors.Is(err, ErrRemoved) {
+		t.Errorf("a merged one cannot merge again: %v", err)
+	}
+}

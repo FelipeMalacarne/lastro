@@ -108,6 +108,8 @@ After M6, a design audit against the canvas added what the boards drew and the s
 What living with the app asked for. Each screen change starts on the canvas.
 
 - [x] Caixinha contributions grouped: lots of the same product are one row in Positions, classified together, and the emergency fund is an amount set apart from a group (canvas: "Positions: contributions grouped, the emergency fund as an amount")
+- [x] Pay yourself first counts what went to investments net of what came back, so redeeming an RDB to buy stocks puts nothing aside
+- [x] A transaction the bank never sent (a Pix Meu Pluggy missed) can be added by hand to a synced account; when the bank sends it later, lastro asks whether the two are the same instead of merging on its own (canvas: "A transaction the bank never sent")
 
 ## M7: my own identity (ADR-0008, ADR-0009, ADR-0010)
 

@@ -171,6 +171,21 @@ func (q *Queries) InsertSplitPart(ctx context.Context, arg InsertSplitPartParams
 	return err
 }
 
+const keepApart = `-- name: KeepApart :exec
+INSERT INTO ledger.kept_apart (manual_id, synced_id) VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type KeepApartParams struct {
+	ManualID string
+	SyncedID string
+}
+
+func (q *Queries) KeepApart(ctx context.Context, arg KeepApartParams) error {
+	_, err := q.db.Exec(ctx, keepApart, arg.ManualID, arg.SyncedID)
+	return err
+}
+
 const listAccountViews = `-- name: ListAccountViews :many
 SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts
 ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id
@@ -946,6 +961,53 @@ func (q *Queries) ListPairCandidates(ctx context.Context, windowFrom *time.Time)
 	return items, nil
 }
 
+const listPossibleDuplicates = `-- name: ListPossibleDuplicates :many
+SELECT m.id AS manual_id, s.id AS synced_id
+FROM ledger.transactions m
+JOIN ledger.accounts a ON a.id = m.account_id
+JOIN ledger.transactions s ON s.account_id = m.account_id AND s.amount_cents = m.amount_cents AND s.id <> m.id
+WHERE m.external_id LIKE 'manual-%' AND s.external_id NOT LIKE 'manual-%'
+  AND a.type NOT IN ('cash', 'asset')
+  AND m.removed_at IS NULL AND s.removed_at IS NULL
+  AND abs(s.date - m.date) <= $1::int
+  AND ($2::uuid IS NULL OR m.id = $2::uuid OR s.id = $2::uuid)
+  AND NOT EXISTS (SELECT 1 FROM ledger.kept_apart k WHERE k.manual_id = m.id AND k.synced_id = s.id)
+ORDER BY abs(s.date - m.date), m.date DESC, m.id, s.id
+`
+
+type ListPossibleDuplicatesParams struct {
+	MaxDays int32
+	ID      *string
+}
+
+type ListPossibleDuplicatesRow struct {
+	ManualID string
+	SyncedID string
+}
+
+// A transaction I added by hand in a synced account and a synced one that
+// may be the same movement: same account, same amount, up to max_days apart,
+// both live, and not a pair I said are two. Closest dates first.
+func (q *Queries) ListPossibleDuplicates(ctx context.Context, arg ListPossibleDuplicatesParams) ([]ListPossibleDuplicatesRow, error) {
+	rows, err := q.db.Query(ctx, listPossibleDuplicates, arg.MaxDays, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPossibleDuplicatesRow
+	for rows.Next() {
+		var i ListPossibleDuplicatesRow
+		if err := rows.Scan(&i.ManualID, &i.SyncedID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSplit = `-- name: ListSplit :many
 SELECT category_id, amount_cents FROM ledger.splits
 WHERE transaction_id = $1
@@ -1073,7 +1135,7 @@ const listTransactionViews = `-- name: ListTransactionViews :many
 SELECT
     t.id, t.date, t.description, t.amount_cents, t.currency, t.kind, t.status,
     t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id,
-    t.note, t.tags, t.marked_transfer,
+    t.note, t.tags, t.marked_transfer, (t.external_id LIKE 'manual-%')::boolean AS manual,
     COALESCE((SELECT array_agg(s.category_id ORDER BY abs(s.amount_cents) DESC, s.position) FROM ledger.splits s WHERE s.transaction_id = t.id), '{}')::text[] AS split_categories,
     -- What counts under a category filter: a split's part in it, or the whole.
     COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text), t.amount_cents)::bigint AS counted_cents,
@@ -1139,6 +1201,7 @@ type ListTransactionViewsRow struct {
 	Note                   string
 	Tags                   []string
 	MarkedTransfer         bool
+	Manual                 bool
 	SplitCategories        []string
 	CountedCents           int64
 	AccountID              string
@@ -1193,6 +1256,7 @@ func (q *Queries) ListTransactionViews(ctx context.Context, arg ListTransactionV
 			&i.Note,
 			&i.Tags,
 			&i.MarkedTransfer,
+			&i.Manual,
 			&i.SplitCategories,
 			&i.CountedCents,
 			&i.AccountID,

@@ -39,7 +39,7 @@ type MonthView struct {
 }
 
 // PYFView is pay yourself first: what was planned and what left for
-// accounts outside lastro.
+// accounts outside lastro, net of what came back from them (SetAside).
 type PYFView struct {
 	PlannedCents int64   `json:"plannedCents"`
 	MovedCents   int64   `json:"movedCents"`

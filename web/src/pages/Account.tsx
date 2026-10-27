@@ -7,7 +7,7 @@ import { CardMonthBars } from "@/components/charts/CardMonthBars";
 import { MonthBars } from "@/components/charts/MonthBars";
 import { InstallmentProgress } from "@/components/InstallmentProgress";
 import { LimitBar } from "@/components/LimitBar";
-import { ManualAccountView } from "@/components/ManualAccount";
+import { AddTransaction, ManualAccountView } from "@/components/ManualAccount";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
@@ -102,6 +102,7 @@ export function AccountPage({ id }: { id: string }) {
         </Notice>
       )}
       {a.type === "credit_card" ? <CardView a={a} bank={bank} /> : <CheckingView a={a} bank={bank} />}
+      <AddTransaction a={a} missing />
       <AccountTransactions a={a} />
     </>
   );
@@ -505,7 +506,13 @@ function AccountTransactions({ a }: { a: Account }) {
             to={`/transactions?month=${month}&account=${a.id}&tx=${t.id}`}
             date={formatDay(t.date)}
             description={t.description}
-            meta={t.counterpart ? `${t.amountCents < 0 ? "To" : "From"} ${t.counterpart.institution} ${typeLabel[t.counterpart.type]}` : undefined}
+            meta={
+              t.counterpart
+                ? `${t.amountCents < 0 ? "To" : "From"} ${t.counterpart.institution} ${typeLabel[t.counterpart.type]}`
+                : t.manual && t.account.type !== "cash"
+                  ? "Added by you"
+                  : undefined
+            }
             kind={t.kind}
             amountCents={t.amountCents}
             pending={t.status === "pending"}

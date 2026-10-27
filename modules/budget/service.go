@@ -122,18 +122,22 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 	v.PayYourselfFirst.Due = p.In(m).Format(time.DateOnly)
 
 	var last time.Time
+	var out, back int64
 	for _, k := range kinds {
 		switch {
 		case k.Kind == "income" && k.Inflow:
 			v.IncomeCents += k.Cents
 			v.IncomeCount += k.Count
-		case k.Kind == "transfer" && !k.Inflow && !k.Paired:
-			v.PayYourselfFirst.MovedCents -= k.Cents
+		case k.Kind == "transfer" && !k.Paired && k.Inflow:
+			back += k.Cents
+		case k.Kind == "transfer" && !k.Paired:
+			out -= k.Cents
 			if k.Last.After(last) {
 				last = k.Last
 			}
 		}
 	}
+	v.PayYourselfFirst.MovedCents = SetAside(money.BRLCents(out), money.BRLCents(back)).Cents()
 	if pyf := v.PayYourselfFirst; pyf.PlannedCents > 0 && pyf.MovedCents >= pyf.PlannedCents {
 		d := last.Format(time.DateOnly)
 		v.PayYourselfFirst.DoneOn = &d

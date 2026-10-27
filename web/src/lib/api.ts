@@ -55,6 +55,8 @@ export type Transaction = {
   splitCategories: string[];
   /** A transfer I marked: to an account lastro does not have. */
   markedTransfer: boolean;
+  /** Added by me: a wallet entry, or one the bank never sent. */
+  manual: boolean;
 };
 
 export type TagView = { tag: string; count: number; outCents: number; inCents: number; last: string };
@@ -108,6 +110,8 @@ export type TransactionDetail = {
   counterpartTransaction: Transaction | null;
   purchase: Purchase | null;
   history: { count: number; totalCents: number; months: { month: string; cents: number; count: number }[] };
+  /** What it may be the same movement as: for one I added, the synced ones; for a synced one, mine. */
+  duplicates: Transaction[];
 };
 
 export type DayView = { date: string; spentCents: number; purchases: number; inCents: number; movedCents: number };

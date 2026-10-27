@@ -35,7 +35,8 @@ type reconciliation struct {
 //     transaction, so its category survives the source recreating it;
 //   - any other new external id creates a transaction;
 //   - a transaction dated inside the window that the batch leaves out is
-//     removed (see ImportBatch.From).
+//     removed (see ImportBatch.From), except one I added by hand: the source
+//     never sends it.
 //
 // A batch with the same external id twice keeps the last one.
 func reconcile(acc *Account, existing []*Transaction, b ImportBatch, now time.Time) (reconciliation, error) {
@@ -93,7 +94,7 @@ func reconcile(acc *Account, existing []*Transaction, b ImportBatch, now time.Ti
 	if !b.From.IsZero() && len(batch) > 0 {
 		from := civilDate(b.From)
 		for _, t := range existing {
-			if seen[t.ID()] || t.IsRemoved() || t.Date().Before(from) {
+			if seen[t.ID()] || t.IsRemoved() || t.IsManual() || t.Date().Before(from) {
 				continue
 			}
 			if broken := t.Remove(now); broken != "" {

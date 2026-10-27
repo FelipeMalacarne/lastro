@@ -71,6 +71,10 @@ type Repository interface {
 	SaveSplit(ctx context.Context, id TransactionID, s Split) error
 	Tags(ctx context.Context) ([]TagView, error)
 	TagCategories(ctx context.Context, tag string) ([]CategoryTotal, error)
+
+	// Possible duplicates: a transaction I added and a synced one.
+	PossibleDuplicates(ctx context.Context, id TransactionID) ([][2]TransactionID, error)
+	KeepApart(ctx context.Context, manual, synced TransactionID) error
 }
 
 // Service is the ledger's public facade: the commands ingest and categorize
@@ -619,6 +623,18 @@ func (s *Service) Transaction(ctx context.Context, id TransactionID) (Transactio
 		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
 	}
 	d.History = descriptionStats(months, from)
+	dups, err := s.duplicates(ctx, id)
+	if err != nil {
+		return TransactionDetail{}, fmt.Errorf("ledger: transaction %s: %w", id, err)
+	}
+	d.Duplicates = []TransactionView{}
+	for _, p := range dups {
+		other := p.Synced
+		if other.ID == id {
+			other = p.Manual
+		}
+		d.Duplicates = append(d.Duplicates, other)
+	}
 	return d, nil
 }
 
@@ -653,4 +669,169 @@ func (s *Service) Days(ctx context.Context, month time.Time) (DaysView, error) {
 		}
 	}
 	return v, nil
+}
+
+// PossibleDuplicates returns every transaction I added by hand that may be
+// the same movement as a synced one (PossibleDuplicate), with it, closest
+// dates first: I say whether they are.
+func (s *Service) PossibleDuplicates(ctx context.Context) ([]DuplicateView, error) {
+	out, err := s.duplicates(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("ledger: possible duplicates: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Service) duplicates(ctx context.Context, id TransactionID) ([]DuplicateView, error) {
+	pairs, err := s.repo.PossibleDuplicates(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DuplicateView, 0, len(pairs))
+	for _, p := range pairs {
+		m, err := s.repo.TransactionView(ctx, p[0])
+		if err != nil {
+			return nil, err
+		}
+		sy, err := s.repo.TransactionView(ctx, p[1])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, DuplicateView{Manual: m, Synced: sy})
+	}
+	return out, nil
+}
+
+// MergeDuplicate says a transaction I added and a synced one are the same
+// movement: the synced one stays, with what I gave mine (see Merge), and
+// mine is removed. A pair I kept apart does not merge.
+func (s *Service) MergeDuplicate(ctx context.Context, manual, synced TransactionID) error {
+	var evs []events.Event
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		m, sy, err := duplicatePair(ctx, r, manual, synced)
+		if err != nil {
+			return err
+		}
+		pairs, err := r.PossibleDuplicates(ctx, manual)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(pairs, [2]TransactionID{manual, synced}) {
+			return fmt.Errorf("%w: I said %s and %s are two transactions", ErrNotDuplicate, manual, synced)
+		}
+		mine, err := annotations(ctx, r, m.ID())
+		if err != nil {
+			return err
+		}
+		theirs, err := annotations(ctx, r, sy.ID())
+		if err != nil {
+			return err
+		}
+		merged, broken, err := Merge(m, sy, mine, theirs, s.now())
+		if err != nil {
+			return err
+		}
+		changed := []*Transaction{m, sy}
+		if broken != "" {
+			others, err := r.Transactions(ctx, []TransactionID{broken})
+			if err != nil {
+				return err
+			}
+			for _, o := range others {
+				o.LeavePair()
+				changed = append(changed, o)
+			}
+		}
+		if len(merged.Split) > 0 && len(theirs.Split) == 0 {
+			split, err := sy.SplitInto(merged.Split)
+			if err != nil {
+				return err
+			}
+			if err := r.SaveSplit(ctx, sy.ID(), split); err != nil {
+				return err
+			}
+		}
+		evs = append(m.PullEvents(), sy.PullEvents()...)
+		if err := r.SaveTransactions(ctx, changed); err != nil {
+			return err
+		}
+		if err := r.SetNote(ctx, sy.ID(), merged.Note); err != nil {
+			return err
+		}
+		return r.SetTags(ctx, sy.ID(), merged.Tags)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: merge %s into %s: %w", manual, synced, err)
+	}
+	return s.bus.Publish(ctx, evs...)
+}
+
+// KeepApart says a transaction I added and a synced one are two movements:
+// both stay and they are never suggested again.
+func (s *Service) KeepApart(ctx context.Context, manual, synced TransactionID) error {
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		if _, _, err := duplicatePair(ctx, r, manual, synced); err != nil {
+			return err
+		}
+		return r.KeepApart(ctx, manual, synced)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: keep %s and %s apart: %w", manual, synced, err)
+	}
+	return nil
+}
+
+// duplicatePair loads the two and checks they may be one movement.
+func duplicatePair(ctx context.Context, r Repository, manual, synced TransactionID) (*Transaction, *Transaction, error) {
+	txs, err := r.Transactions(ctx, []TransactionID{manual, synced})
+	if err != nil {
+		return nil, nil, err
+	}
+	var m, sy *Transaction
+	for _, t := range txs {
+		switch t.ID() {
+		case manual:
+			m = t
+		case synced:
+			sy = t
+		}
+	}
+	if m == nil || sy == nil {
+		return nil, nil, fmt.Errorf("%w: transaction %s or %s", ErrNotFound, manual, synced)
+	}
+	if err := PossibleDuplicate(m, sy); err != nil {
+		return nil, nil, err
+	}
+	return m, sy, nil
+}
+
+// annotations reads what I added to a transaction.
+func annotations(ctx context.Context, r Repository, id TransactionID) (Annotations, error) {
+	v, err := r.TransactionView(ctx, id)
+	if err != nil {
+		return Annotations{}, err
+	}
+	a := Annotations{Note: Note(v.Note)}
+	for _, t := range v.Tags {
+		a.Tags = append(a.Tags, Tag(t))
+	}
+	if len(v.SplitCategories) == 0 {
+		return a, nil
+	}
+	parts, err := r.Split(ctx, id)
+	if err != nil {
+		return Annotations{}, err
+	}
+	for _, p := range parts {
+		c, err := NewCategoryID(p.Category)
+		if err != nil {
+			return Annotations{}, err
+		}
+		amount, err := money.New(p.AmountCents, money.Currency(v.Currency))
+		if err != nil {
+			return Annotations{}, err
+		}
+		a.Split = append(a.Split, SplitPart{Category: c, Amount: amount})
+	}
+	return a, nil
 }

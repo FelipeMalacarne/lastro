@@ -19,11 +19,7 @@ func NewManualAccount(name string, typ AccountType, balance money.Money, at time
 	if !typ.IsManual() {
 		return nil, fmt.Errorf("%w: an account typed in is a wallet or an asset", ErrInvalid)
 	}
-	ext, err := NewExternalID("manual-" + newID())
-	if err != nil {
-		return nil, err
-	}
-	return NewAccount(AccountDetails{ExternalID: ext, Name: name, Institution: ManualInstitution, Type: typ, Balance: balance, BalanceAt: at})
+	return NewAccount(AccountDetails{ExternalID: newManualID(), Name: name, Institution: ManualInstitution, Type: typ, Balance: balance, BalanceAt: at})
 }
 
 // Counted is a balance I counted on a day, for an asset: it replaces that
@@ -154,9 +150,12 @@ func (s *Service) takeLatest(ctx context.Context, r Repository, a *Account) erro
 	return r.SaveAccount(ctx, a)
 }
 
-// AddManualTransaction adds a wallet entry: money out is negative. It goes
-// through the rules and the model like a synced one, and a withdrawal from
-// checking pairs with it as a transfer.
+// AddManualTransaction adds a transaction by hand: money out is negative. In
+// a wallet it moves the balance. In a synced account (checking, savings or a
+// card) it is one the source failed to send: the bank's balance already
+// counts it, so it moves nothing, and a sync never removes it. It goes through
+// the rules and the model like a synced one, and a withdrawal from checking
+// pairs with it as a transfer.
 func (s *Service) AddManualTransaction(ctx context.Context, id AccountID, day time.Time, description string, amount money.Money) (TransactionID, error) {
 	var tx *Transaction
 	err := s.repo.Tx(ctx, func(r Repository) error {
@@ -164,24 +163,19 @@ func (s *Service) AddManualTransaction(ctx context.Context, id AccountID, day ti
 		if err != nil {
 			return err
 		}
-		if a.typ != AccountCash {
-			return fmt.Errorf("%w: only a wallet takes transactions by hand", ErrInvalid)
+		if a.typ == AccountAsset {
+			return fmt.Errorf("%w: an asset takes balances, not transactions", ErrInvalid)
 		}
-		ext, err := NewExternalID("manual-" + newID())
-		if err != nil {
-			return err
-		}
-		kind := KindExpense
-		if amount.IsPositive() {
-			kind = KindIncome
-		}
-		if tx, err = NewTransaction(a, ImportedTransaction{ExternalID: ext, Date: day, Description: description, Amount: amount, Kind: kind, Status: StatusPosted}); err != nil {
-			return err
-		}
-		if err := a.Move(amount, s.now()); err != nil {
+		if tx, err = NewTransaction(a, ImportedTransaction{ExternalID: newManualID(), Date: day, Description: description, Amount: amount, Kind: manualKind(a.typ, amount), Status: StatusPosted}); err != nil {
 			return err
 		}
 		if err := r.SaveTransactions(ctx, []*Transaction{tx}); err != nil {
+			return err
+		}
+		if a.typ != AccountCash {
+			return nil
+		}
+		if err := a.Move(amount, s.now()); err != nil {
 			return err
 		}
 		if err := r.SaveAccount(ctx, a); err != nil {
@@ -198,8 +192,17 @@ func (s *Service) AddManualTransaction(ctx context.Context, id AccountID, day ti
 	return tx.ID(), s.bus.Publish(ctx, TransactionsImported{TransactionIDs: []TransactionID{tx.ID()}})
 }
 
-// RemoveManualTransaction takes a wallet entry back, and its amount from the
-// wallet's balance.
+// manualKind is the kind of a transaction I add: money in is income, except
+// on a card, where it is a refund that reduces spending, as ingest reads one.
+func manualKind(typ AccountType, amount money.Money) Kind {
+	if amount.IsPositive() && !typ.IsCard() {
+		return KindIncome
+	}
+	return KindExpense
+}
+
+// RemoveManualTransaction removes a transaction I added; in a wallet its
+// amount goes back.
 func (s *Service) RemoveManualTransaction(ctx context.Context, id TransactionID) error {
 	var evs []events.Event
 	err := s.repo.Tx(ctx, func(r Repository) error {
@@ -215,12 +218,15 @@ func (s *Service) RemoveManualTransaction(ctx context.Context, id TransactionID)
 		if err != nil {
 			return err
 		}
-		if a.typ != AccountCash {
+		if !t.IsManual() {
 			return fmt.Errorf("%w: only a transaction I added can be removed", ErrInvalid)
 		}
 		now := s.now()
-		if err := a.Move(t.Amount().Neg(), now); err != nil {
-			return err
+		wallet := a.typ == AccountCash
+		if wallet {
+			if err := a.Move(t.Amount().Neg(), now); err != nil {
+				return err
+			}
 		}
 		changed := []*Transaction{t}
 		if other := t.Remove(now); other != "" {
@@ -237,6 +243,9 @@ func (s *Service) RemoveManualTransaction(ctx context.Context, id TransactionID)
 		evs = t.PullEvents()
 		if err := r.SaveTransactions(ctx, changed); err != nil {
 			return err
+		}
+		if !wallet {
+			return nil
 		}
 		if err := r.SaveAccount(ctx, a); err != nil {
 			return err
