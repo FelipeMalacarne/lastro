@@ -67,8 +67,8 @@ func TestPatternMatches(t *testing.T) {
 		{PatternContains, "ifood", "PAG*IFOOD SP", true},
 		{PatternContains, "ifood", "iFood", true},
 		{PatternContains, "Uber Trip", "UBER *TRIP HELP.UBER.COM", true},
-		{PatternContains, "bar", "Barbearia do Zé", false}, // whole words only
-		{PatternContains, "trip uber", "UBER *TRIP", false},  // words in order
+		{PatternContains, "bar", "Barbearia do Zé", false},  // whole words only
+		{PatternContains, "trip uber", "UBER *TRIP", false}, // words in order
 		{PatternContains, "pao de acucar", "Pão de Açúcar Loja 12", true},
 		{PatternExact, "Pagamento de fatura", "Pagamento de fatura", true},
 		{PatternExact, "Pagamento de fatura", "pagamento  de   FATURA", true},

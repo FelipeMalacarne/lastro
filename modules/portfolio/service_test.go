@@ -74,8 +74,9 @@ func TestPortfolio(t *testing.T) {
 	if o.Positions != 4 || o.InvestedCents != 8300000 || o.Since == nil || *o.Since != "2025-10-27" {
 		t.Errorf("overview: %d positions, invested %d, since %v", o.Positions, o.InvestedCents, o.Since)
 	}
-	// Put in over the year: WEGE3's 50 at R$ 120, minus the CDB's R$ 24.000 basis that left.
-	if *o.PutIn12mCents != 600000-2400000 {
+	// Put in over the year: WEGE3's 50 at R$ 120, minus the CDB taken out at
+	// its last value, R$ 25.000.
+	if *o.PutIn12mCents != 600000-2500000 {
 		t.Errorf("put in %d", *o.PutIn12mCents)
 	}
 	byClass := map[Class]ClassView{}

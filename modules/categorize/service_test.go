@@ -310,3 +310,32 @@ func TestRulesListEditAndDelete(t *testing.T) {
 		t.Errorf("without it, Uber decides the Eats too: %d %v", n, err)
 	}
 }
+
+// A rule narrowed so it no longer meets a transaction gives that
+// transaction back to the review queue.
+func TestANarrowedRuleLetsGo(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	learn(t, s, PatternContains, "uber", cats["Transport"])
+	importOctober(t, s, []string{"UBER *TRIP", "UBER *EATS"}, nil)
+	if got := categories(t, s)["UBER *TRIP"]; got.ID != cats["Transport"].ID.String() {
+		t.Fatalf("before: %+v", got)
+	}
+	rules, err := s.Rules(ctx)
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("rules %v, %v", rules, err)
+	}
+	p := pattern(t, PatternContains, "uber eats")
+	rc := cats["Restaurants"].ID
+	if _, err := s.UpdateRule(ctx, rules[0].Rule.ID(), RuleChange{Pattern: &p, Category: &rc}); err != nil {
+		t.Fatal(err)
+	}
+	got := categories(t, s)
+	if got["UBER *TRIP"].ID != "" {
+		t.Errorf("UBER *TRIP keeps %+v with no rule behind it", got["UBER *TRIP"])
+	}
+	if got["UBER *EATS"].ID != rc.String() {
+		t.Errorf("UBER *EATS: %+v", got["UBER *EATS"])
+	}
+}

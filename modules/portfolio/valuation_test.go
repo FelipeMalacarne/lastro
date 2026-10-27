@@ -61,3 +61,38 @@ func TestReturn(t *testing.T) {
 		}
 	}
 }
+
+// Money taken out counts at what it was worth: redeeming a CDB that gained
+// nothing since the start is no loss.
+func TestReturnAfterARedemption(t *testing.T) {
+	d0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	d1 := d0.AddDate(0, 6, 0)
+	in := func(c int64) *money.Money { m := money.BRLCents(c); return &m }
+	a, _ := NewPosition(Report{ExternalID: "a", Kind: KindFixedIncome, Value: money.BRLCents(1100000), Invested: in(1000000), AsOf: d0, Active: true}, d0)
+	b, _ := NewPosition(Report{ExternalID: "b", Kind: KindFixedIncome, Value: money.BRLCents(1000000), Invested: in(1000000), AsOf: d0, Active: true}, d0)
+	start := Value([]*Position{a, b}, nil, d0).Classes[ClassCDI]
+
+	a.Close(d1) // redeemed at R$ 11.000, prices unchanged
+	end := Value([]*Position{a, b}, nil, d1).Classes[ClassCDI]
+	if r, ok := Return(start, end); !ok || r.Bps() != 0 {
+		t.Errorf("redeeming at value: %d bps, want 0", r.Bps())
+	}
+	if a.Realized().Cents() != 100000 || a.NetIn().Cents() != -100000 {
+		t.Errorf("realized %d, net in %d", a.Realized().Cents(), a.NetIn().Cents())
+	}
+
+	// Half of 100 shares bought at R$ 50, sold at R$ 100: R$ 2.500 realized.
+	q := func(s string) Quantity { x, _ := ParseQuantity(s); return x }
+	s, _ := NewPosition(Report{ExternalID: "s", Kind: KindStock, Quantity: q("100"), Value: money.BRLCents(500000), AsOf: d0, Active: true}, d0)
+	s0 := Value([]*Position{s}, nil, d0).Classes[ClassBR]
+	_ = s.Update(Report{ExternalID: "s", Kind: KindStock, Quantity: q("100"), Value: money.BRLCents(1000000), AsOf: d1, Active: true}, d1)
+	_ = s.Update(Report{ExternalID: "s", Kind: KindStock, Quantity: q("50"), Value: money.BRLCents(500000), AsOf: d1, Active: true}, d1)
+	if s.Basis().Cents() != 250000 || s.Realized().Cents() != 250000 {
+		t.Errorf("after selling half: basis %d, realized %d", s.Basis().Cents(), s.Realized().Cents())
+	}
+	// The R$ 5.000 earned is all there: value now plus cash out minus what went in.
+	s1 := Value([]*Position{s}, nil, d1).Classes[ClassBR]
+	if gain := s1.Value.Cents() - s0.Value.Cents() - (s1.Basis.Cents() - s0.Basis.Cents()); gain != 500000 {
+		t.Errorf("gain %d, want 500000", gain)
+	}
+}

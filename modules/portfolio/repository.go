@@ -49,7 +49,7 @@ func (r *PostgresRepository) positions(ctx context.Context) ([]*Position, error)
 		if row.ClassOverride != nil {
 			override = Class(*row.ClassOverride)
 		}
-		out = append(out, RestorePosition(rep, money.BRLCents(row.BasisCents), override, row.Emergency, row.FirstSeen, row.ClosedAt))
+		out = append(out, RestorePosition(rep, money.BRLCents(row.BasisCents), money.BRLCents(row.RealizedCents), override, row.Emergency, row.FirstSeen, row.ClosedAt))
 	}
 	return out, nil
 }
@@ -72,6 +72,7 @@ func positionParams(p *Position, now time.Time) db.SavePositionParams {
 		QuantityMicro: p.Quantity.Micro(), ValueCents: p.Value.Cents(), BasisCents: p.Basis().Cents(),
 		Indexer: string(p.Indexer), RateBps: int32(p.Rate.Bps()), Maturity: p.Maturity, AsOf: p.AsOf,
 		Emergency: p.Emergency(), FirstSeen: p.FirstSeen(), ClosedAt: p.ClosedAt(), UpdatedAt: now,
+		RealizedCents: p.Realized().Cents(),
 	}
 	if !p.Ticker.IsZero() {
 		t := p.Ticker.String()

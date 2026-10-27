@@ -56,7 +56,11 @@ type Report struct {
 // put into it (its basis, for returns), and how I classify it.
 type Position struct {
 	Report
-	basis     money.Money
+	basis money.Money // what is still in it, at cost
+	// realized is what came out beyond its cost: cash out minus the basis
+	// that left with it, over the position's life. Returns count money taken
+	// out at what it was worth, not at what it cost.
+	realized  money.Money
 	override  Class // empty: Classify decides
 	emergency bool
 	firstSeen time.Time
@@ -69,7 +73,7 @@ func NewPosition(r Report, now time.Time) (*Position, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-	p := &Position{Report: r, firstSeen: now}
+	p := &Position{Report: r, firstSeen: now, realized: money.BRLCents(0)}
 	p.basis = r.Value
 	if r.Invested != nil {
 		p.basis = *r.Invested
@@ -81,8 +85,8 @@ func NewPosition(r Report, now time.Time) (*Position, error) {
 }
 
 // RestorePosition rebuilds a stored position, for the repository.
-func RestorePosition(r Report, basis money.Money, override Class, emergency bool, firstSeen time.Time, closedAt *time.Time) *Position {
-	return &Position{Report: r, basis: basis, override: override, emergency: emergency, firstSeen: firstSeen, closedAt: closedAt}
+func RestorePosition(r Report, basis, realized money.Money, override Class, emergency bool, firstSeen time.Time, closedAt *time.Time) *Position {
+	return &Position{Report: r, basis: basis, realized: realized, override: override, emergency: emergency, firstSeen: firstSeen, closedAt: closedAt}
 }
 
 func (r Report) validate() error {
@@ -99,43 +103,85 @@ func (r Report) validate() error {
 
 // Update takes a new report. Without the bank's own figure, buying more
 // adds to the basis at today's unit price and selling takes from it in
-// proportion, so returns stay returns.
+// proportion; what a sale brings in beyond that cost is realized. With the
+// bank's figure, a smaller invested amount is a redemption, cashed at the
+// position's value per real invested before it.
 func (p *Position) Update(r Report, now time.Time) error {
 	if err := r.validate(); err != nil {
 		return err
 	}
+	if !r.Active {
+		// Withdrawn: the bank may report nothing left, so the last value is
+		// what came out.
+		cash := r.Value
+		if cash.IsZero() {
+			cash = p.Value
+		}
+		p.Report = r
+		p.close(cash, now)
+		return nil
+	}
+	old := p.basis.Cents()
 	switch {
 	case r.Invested != nil:
+		if in := r.Invested.Cents(); in < old && old > 0 {
+			removed := old - in
+			cash := removed * p.Value.Cents() / old
+			p.realize(cash - removed)
+		}
 		p.basis = *r.Invested
 	case !p.Quantity.IsZero() && r.Quantity != p.Quantity:
-		if r.Quantity.Micro() > p.Quantity.Micro() && !r.Quantity.IsZero() {
+		q0, q1 := p.Quantity.Micro(), r.Quantity.Micro()
+		if q1 > q0 {
 			// The new units cost today's unit price.
-			unit := r.Value.Cents() * 1_000_000 / r.Quantity.Micro()
-			added := QuantityFromMicro(r.Quantity.Micro() - p.Quantity.Micro()).Of(money.BRLCents(unit))
-			p.basis = money.BRLCents(p.basis.Cents() + added.Cents())
+			unit := r.Value.Cents() * 1_000_000 / q1
+			added := QuantityFromMicro(q1 - q0).Of(money.BRLCents(unit))
+			p.basis = money.BRLCents(old + added.Cents())
 		} else {
-			p.basis = money.BRLCents(p.basis.Cents() * r.Quantity.Micro() / p.Quantity.Micro())
+			sold := q0 - q1
+			removed := old * sold / q0
+			// What the sold units were worth: today's unit price, or the
+			// last value when nothing is left to price them by.
+			cash := p.Value.Cents() * sold / q0
+			if q1 > 0 {
+				cash = r.Value.Cents() * sold / q1
+			}
+			p.realize(cash - removed)
+			p.basis = money.BRLCents(old - removed)
 		}
 	}
 	p.Report = r
-	switch {
-	case !r.Active && p.closedAt == nil:
-		p.closedAt = &now
-	case r.Active:
-		p.closedAt = nil
-	}
+	p.closedAt = nil
 	return nil
 }
 
-// Close marks a position the bank no longer reports.
-func (p *Position) Close(now time.Time) {
-	if p.closedAt == nil {
-		p.Active = false
-		p.closedAt = &now
-	}
+func (p *Position) realize(cents int64) {
+	p.realized = money.BRLCents(p.realized.Cents() + cents)
 }
 
-func (p *Position) Basis() money.Money   { return p.basis }
+// close takes the whole position out at a value.
+func (p *Position) close(cash money.Money, now time.Time) {
+	if p.closedAt != nil {
+		return
+	}
+	p.realize(cash.Cents() - p.basis.Cents())
+	p.basis = money.BRLCents(0)
+	p.Active = false
+	p.closedAt = &now
+}
+
+// Close marks a position the bank no longer reports, taken out at its last
+// value.
+func (p *Position) Close(now time.Time) { p.close(p.Value, now) }
+
+func (p *Position) Basis() money.Money    { return p.basis }
+func (p *Position) Realized() money.Money { return p.realized }
+
+// NetIn is what went into the position minus what came out, at value: the
+// flow a return is measured against.
+func (p *Position) NetIn() money.Money {
+	return money.BRLCents(p.basis.Cents() - p.realized.Cents())
+}
 func (p *Position) Emergency() bool      { return p.emergency }
 func (p *Position) Override() Class      { return p.override }
 func (p *Position) FirstSeen() time.Time { return p.firstSeen }

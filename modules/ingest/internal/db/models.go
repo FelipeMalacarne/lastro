@@ -195,6 +195,7 @@ type PortfolioPosition struct {
 	FirstSeen     time.Time
 	ClosedAt      *time.Time
 	UpdatedAt     time.Time
+	RealizedCents int64
 }
 
 type PortfolioPurchase struct {

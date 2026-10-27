@@ -174,6 +174,16 @@ func (t *Transaction) Categorize(c CategoryID, src Source) error {
 	return nil
 }
 
+// Uncategorize takes back a category automation gave, for a rule that no
+// longer meets the transaction. A manual choice is never taken back.
+func (t *Transaction) Uncategorize() error {
+	if t.categorySrc == SourceManual {
+		return fmt.Errorf("%w: %s", ErrManualCategory, t.id)
+	}
+	t.category, t.categorySrc = CategoryID{}, ""
+	return nil
+}
+
 // Pair links the two sides of a movement between my own accounts: out
 // leaves one account and in arrives at another, with the same amount. Into
 // a card it is a bill payment; between bank accounts, a transfer. While

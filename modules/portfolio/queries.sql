@@ -4,15 +4,15 @@ SELECT * FROM portfolio.positions ORDER BY institution, name, external_id;
 -- name: SavePosition :exec
 INSERT INTO portfolio.positions (
     external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents,
-    basis_cents, indexer, rate_bps, maturity, as_of, class_override, emergency, first_seen, closed_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    basis_cents, indexer, rate_bps, maturity, as_of, class_override, emergency, first_seen, closed_at, updated_at, realized_cents
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 ON CONFLICT (external_id) DO UPDATE SET
     item_id = excluded.item_id, institution = excluded.institution, kind = excluded.kind, name = excluded.name,
     ticker = excluded.ticker, quantity_micro = excluded.quantity_micro, value_cents = excluded.value_cents,
     invested_cents = excluded.invested_cents, basis_cents = excluded.basis_cents, indexer = excluded.indexer,
     rate_bps = excluded.rate_bps, maturity = excluded.maturity, as_of = excluded.as_of,
     class_override = excluded.class_override, emergency = excluded.emergency, closed_at = excluded.closed_at,
-    updated_at = excluded.updated_at;
+    updated_at = excluded.updated_at, realized_cents = excluded.realized_cents;
 
 -- name: GetSettings :one
 SELECT targets, band_bps FROM portfolio.settings WHERE id = 1;

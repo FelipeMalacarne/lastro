@@ -46,9 +46,9 @@ type Figures struct {
 // Unusual spending: past the whole month's average by a third and by
 // R$ 100 at least, on a category that usually sees R$ 50 or more.
 const (
-	unusualRatio = 1.3
-	unusualMin   = 10000
-	usualMin     = 5000
+	unusualTenths = 13 // 1,3 times the average
+	unusualMin    = 10000
+	usualMin      = 5000
 )
 
 // FindAlerts lists what is worth telling about a month: categories over
@@ -68,7 +68,7 @@ func FindAlerts(m Month, today time.Time, figures []Figures, recurring []Recurri
 			out = append(out, Alert{Key: fmt.Sprintf("ahead:%s:%s", m, id), Kind: AlertAhead, Category: f.Category, Amount: f.Left, Compare: f.Available, DaysLeft: daysLeft})
 		}
 		avg := f.Average.Cents()
-		if !f.Category.IsZero() && avg >= usualMin && float64(f.Spent.Cents()) >= float64(avg)*unusualRatio && f.Spent.Cents()-avg >= unusualMin {
+		if !f.Category.IsZero() && avg >= usualMin && f.Spent.Cents()*10 >= avg*unusualTenths && f.Spent.Cents()-avg >= unusualMin {
 			out = append(out, Alert{Key: fmt.Sprintf("unusual:%s:%s", m, id), Kind: AlertUnusual, Category: f.Category, Amount: f.Spent, Compare: f.Average})
 		}
 	}

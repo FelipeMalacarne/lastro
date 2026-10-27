@@ -54,7 +54,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - `GET /api/v1/patterns/suggest?description=…`: the pattern a correction of that description would teach.
 - `GET /api/v1/rules`: every rule in the order the engine tries them, each with `order`, `meets` (transactions its pattern matches), `decides` (transactions it settles now) and `last` (the newest of those).
 - `POST /api/v1/rules` `{"pattern", "account", "category"}`: teaches a rule directly; `account` is optional.
-- `PATCH /api/v1/rules/{id}` `{"pattern", "account", "category"}`: reshapes it (an empty `account` means every account) and runs the rules again over what automation categorized. 409 when another rule has the same pattern and account.
+- `PATCH /api/v1/rules/{id}` `{"pattern", "account", "category"}`: reshapes it (an empty `account` means every account) and runs the rules again over what automation categorized: what a rule categorized and no rule meets any more goes back to the review queue. 409 when another rule has the same pattern and account.
 - `DELETE /api/v1/rules/{id}`: 204. The transactions it categorized keep their category.
 
 ## Events

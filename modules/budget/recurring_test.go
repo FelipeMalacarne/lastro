@@ -100,3 +100,26 @@ func keys(m map[string]Recurring) []string {
 	}
 	return out
 }
+
+func TestRecurringAroundTheMonthsEnd(t *testing.T) {
+	d := func(s string) time.Time { x, _ := time.Parse(time.DateOnly, s); return x }
+	c := func(id, day string) Charge {
+		return Charge{ID: ledger.TransactionID(id), Description: "CONDOMINIO SOLAR", Date: d(day), Amount: money.BRLCents(64000)}
+	}
+	// Paid on the 1st, once early on 31 Jul for August.
+	cond := []Charge{c("a", "2026-05-01"), c("b", "2026-06-01"), c("c", "2026-07-01"), c("d", "2026-07-31"), c("e", "2026-09-01"), c("f", "2026-10-01")}
+	got := FindRecurring(cond, d("2026-10-27"))
+	if len(got) != 1 {
+		t.Fatalf("a charge paid a day early is still monthly: %+v", got)
+	}
+
+	// Rent on the 31st comes back on 30 Nov, not on 1 Dec.
+	rent := []Charge{}
+	for i, day := range []string{"2026-07-31", "2026-08-31", "2026-09-30", "2026-10-31"} {
+		rent = append(rent, Charge{ID: ledger.TransactionID(fmt.Sprint(i)), Description: "ALUGUEL", Date: d(day), Amount: money.BRLCents(250000)})
+	}
+	r := FindRecurring(rent, d("2026-11-10"))
+	if len(r) != 1 || r[0].Next.Format(time.DateOnly) != "2026-11-30" {
+		t.Errorf("next rent: %+v", r)
+	}
+}

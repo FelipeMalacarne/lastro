@@ -117,14 +117,11 @@ func recurring(name string, cs []Charge, today time.Time) (Recurring, bool) {
 		return Recurring{}, false
 	}
 
-	order := make([]Month, 0, months)
-	for m := range perMonth {
-		order = append(order, m)
-	}
-	sort.Slice(order, func(i, j int) bool { return order[i].Before(order[j]) })
-	amounts := make([]int64, len(order))
-	for i, m := range order {
-		amounts[i] = perMonth[m]
+	// Each charge's own amount, oldest first: an early payment that lands two
+	// charges in one month is not a price change.
+	amounts := make([]int64, len(cs))
+	for i, c := range cs {
+		amounts[i] = c.Amount.Cents()
 	}
 	steady, ok := steadiness(amounts)
 	if !ok {
@@ -143,7 +140,7 @@ func recurring(name string, cs []Charge, today time.Time) (Recurring, bool) {
 
 	r := Recurring{
 		Name: name, Category: last.Category, Steadiness: steady, Months: months,
-		First: first.Date, Last: last.Date, Next: last.Date.AddDate(0, 1, 0), New: isNew,
+		First: first.Date, Last: last.Date, Next: nextMonthly(last.Date), New: isNew,
 	}
 	for _, c := range cs {
 		r.Charges = append(r.Charges, c.ID)
@@ -167,7 +164,7 @@ func recurring(name string, cs []Charge, today time.Time) (Recurring, bool) {
 			}
 		}
 	} else {
-		// The average of the last three months it was charged in.
+		// The average of the last three charges.
 		recent := amounts[max(0, len(amounts)-3):]
 		var sum int64
 		for _, v := range recent {
@@ -178,9 +175,16 @@ func recurring(name string, cs []Charge, today time.Time) (Recurring, bool) {
 	return r, true
 }
 
+// nextMonthly is a month after a day, the day clamped to that month's end:
+// a charge on 31 Oct comes back on 30 Nov, not on 1 Dec.
+func nextMonthly(d time.Time) time.Time {
+	m := MonthOf(d).Add(1)
+	return time.Date(m.year, m.month, min(d.Day(), m.Days()), 0, 0, 0, 0, d.Location())
+}
+
 // sameDay reports whether every charge falls within dayBy days of the usual
-// day of the month. Days past the 28th count as the 28th, so a charge at
-// the end of the month stays at the end.
+// day of the month, counting around the month's turn. Days past the 28th
+// count as the 28th, so a charge at the end of the month stays at the end.
 func sameDay(cs []Charge) bool {
 	days := make([]int64, len(cs))
 	for i, c := range cs {
@@ -188,7 +192,8 @@ func sameDay(cs []Charge) bool {
 	}
 	usual := median(days)
 	for _, d := range days {
-		if abs(d-usual) > dayBy {
+		// Around the month: the 28th and the 1st are a few days apart.
+		if dist := abs(d - usual); min(dist, 28-dist) > dayBy {
 			return false
 		}
 	}

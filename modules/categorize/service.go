@@ -140,6 +140,7 @@ func (s *Service) askModel(ctx context.Context, txs []ledger.Categorizable, rule
 		return 0, err
 	}
 	asked := 0
+	down := false // once the model fails, stop asking it, but keep its saved answers
 	var decided []Decision
 	for _, g := range GroupForReview(txs) {
 		if g.Pattern.IsZero() {
@@ -147,14 +148,15 @@ func (s *Service) askModel(ctx context.Context, txs []ledger.Categorizable, rule
 		}
 		sug, ok := known[g.Pattern.text]
 		if !ok {
-			if asked == maxAsksPerPass {
+			if down || asked == maxAsksPerPass {
 				continue
 			}
 			asked++
 			var a answer
 			if err := s.llm.GenerateJSON(ctx, classifySystem, classifyPrompt(g.Pattern.text, g.Transactions[0], cats, rules), &a); err != nil {
 				s.logger.WarnContext(ctx, "categorize: the local model did not answer; its merchants wait in To review", "err", err)
-				break
+				down = true
+				continue
 			}
 			sug = Suggestion{Pattern: g.Pattern.text, Model: s.llm.Model(), AskedAt: s.now()}
 			sug.Category, sug.Confidence = parseAnswer(a, cats)
@@ -413,7 +415,9 @@ func (s *Service) Reapply(ctx context.Context) (int, error) {
 		current[t.ID] = t
 	}
 	var changed []Decision
+	decided := map[ledger.TransactionID]bool{}
 	for _, d := range NewEngine(rules).Decide(txs) {
+		decided[d.Transaction] = true
 		if t := current[d.Transaction]; t.Category != d.Category.String() || t.Source != ledger.SourceRule {
 			changed = append(changed, d)
 		}
@@ -421,6 +425,16 @@ func (s *Service) Reapply(ctx context.Context) (int, error) {
 	n, err := s.categorize(ctx, changed, ledger.SourceRule)
 	if err != nil {
 		return n, fmt.Errorf("categorize: reapply: %w", err)
+	}
+	// What a rule categorized and no rule meets any more goes back to the
+	// review queue, rather than keep a category nothing explains.
+	for _, t := range txs {
+		if t.Source == ledger.SourceRule && !decided[t.ID] {
+			if err := s.ledger.Uncategorize(ctx, t.ID); err != nil {
+				return n, fmt.Errorf("categorize: reapply: %w", err)
+			}
+			n++
+		}
 	}
 	return n, nil
 }

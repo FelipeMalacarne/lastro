@@ -128,6 +128,9 @@ func (s *Service) netWorth(ctx context.Context, v Valuation) (NetWorth, error) {
 	nw := NetWorth{Date: v.Date, Invested: v.Invested().Value, Emergency: v.Emergency.Value}
 	var cash, cards int64
 	for _, a := range accs {
+		if a.Currency != "BRL" {
+			continue // net worth is in reais; an account abroad is not converted
+		}
 		if a.Type == string(ledger.AccountCreditCard) {
 			cards += min(a.BalanceCents, 0)
 		} else {

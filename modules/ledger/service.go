@@ -202,6 +202,28 @@ func (s *Service) Categorize(ctx context.Context, id TransactionID, c CategoryID
 	return s.bus.Publish(ctx, evs...)
 }
 
+// Uncategorize takes back an automation-made category, so the transaction
+// waits in the review queue again.
+func (s *Service) Uncategorize(ctx context.Context, id TransactionID) error {
+	err := s.repo.Tx(ctx, func(r Repository) error {
+		txs, err := r.Transactions(ctx, []TransactionID{id})
+		if err != nil {
+			return err
+		}
+		if len(txs) == 0 {
+			return fmt.Errorf("%w: transaction %s", ErrNotFound, id)
+		}
+		if err := txs[0].Uncategorize(); err != nil {
+			return err
+		}
+		return r.SaveTransactions(ctx, txs)
+	})
+	if err != nil {
+		return fmt.Errorf("ledger: uncategorize %s: %w", id, err)
+	}
+	return nil
+}
+
 // Categorizable returns, of these transactions, the ones automation may
 // categorize: live expenses and income whose category nobody chose by hand.
 // Transfers and card bill payments never get a category.

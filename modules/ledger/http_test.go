@@ -94,4 +94,3 @@ func TestFilterRange(t *testing.T) {
 		t.Errorf("one day: %v %v", from, to)
 	}
 }
-

@@ -240,18 +240,21 @@ SELECT category_id,
     count(*)::int AS n
 FROM ledger.transactions
 WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND currency = 'BRL'
   AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
 GROUP BY category_id;
 
 -- name: ListCategoryMonths :many
 -- Live expenses and income by month, category (null: none yet) and kind:
--- money out, money in and how many. What budgets and averages are built on.
+-- money out, money in and how many. What budgets and averages are built on,
+-- in reais only.
 SELECT date_trunc('month', date)::date AS month, category_id, kind,
     COALESCE(sum(-amount_cents) FILTER (WHERE amount_cents < 0), 0)::bigint AS out_cents,
     COALESCE(sum(amount_cents) FILTER (WHERE amount_cents > 0), 0)::bigint AS in_cents,
     count(*)::int AS n
 FROM ledger.transactions
 WHERE removed_at IS NULL AND kind IN ('expense', 'income')
+  AND currency = 'BRL'
   AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3;
@@ -265,6 +268,7 @@ SELECT date_trunc('month', date)::date AS month, kind, amount_cents > 0 AS inflo
     sum(amount_cents)::bigint AS cents, count(*)::int AS n, max(date)::date AS last
 FROM ledger.transactions
 WHERE removed_at IS NULL AND amount_cents <> 0
+  AND currency = 'BRL'
   AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
 GROUP BY 1, 2, 3, 4
 ORDER BY 1, 2, 3, 4;
@@ -276,6 +280,7 @@ SELECT t.id, t.description, t.date, t.amount_cents, t.category_id, a.name AS acc
 FROM ledger.transactions t
 JOIN ledger.accounts a ON a.id = t.account_id
 WHERE t.removed_at IS NULL AND t.kind = 'expense' AND t.amount_cents < 0
+  AND t.currency = 'BRL'
   AND t.installment_total IS NULL
   AND t.date >= sqlc.arg(date_from)::date
 ORDER BY t.date, t.id;

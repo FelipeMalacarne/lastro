@@ -31,7 +31,8 @@ type Valuation struct {
 	Emergency Amounts
 }
 
-// Amounts is a value and its basis.
+// Amounts is a value and its basis: what went in minus what came out, at
+// value, so returns count cashed-out gains.
 type Amounts struct {
 	Value money.Money
 	Basis money.Money
@@ -61,10 +62,10 @@ func (v Valuation) Invested() Amounts {
 // else is what the bank said.
 func Value(positions []*Position, prices map[string]Price, day time.Time) Valuation {
 	v := Valuation{Date: day, Classes: make(map[Class]Amounts, len(Classes))}
-	add := func(a Amounts, h Holding) Amounts {
+	add := func(a Amounts, value int64, p *Position) Amounts {
 		return Amounts{
-			Value: money.BRLCents(a.Value.Cents() + h.Value.Cents()),
-			Basis: money.BRLCents(a.Basis.Cents() + h.Position.Basis().Cents()),
+			Value: money.BRLCents(a.Value.Cents() + value),
+			Basis: money.BRLCents(a.Basis.Cents() + p.NetIn().Cents()),
 		}
 	}
 	for _, c := range Classes {
@@ -72,19 +73,22 @@ func Value(positions []*Position, prices map[string]Price, day time.Time) Valuat
 	}
 	v.Emergency = Amounts{Value: money.BRLCents(0), Basis: money.BRLCents(0)}
 	for _, p := range positions {
-		if !p.Open() {
-			continue
+		// A closed position is worth nothing, but what came out of it still
+		// counts in its class's flows.
+		var value int64
+		if p.Open() {
+			h := Holding{Position: p, Value: p.Value, At: p.AsOf}
+			if q, ok := prices[p.Ticker.String()]; ok && !p.Ticker.IsZero() && !p.Quantity.IsZero() && q.Date.After(p.AsOf) && !q.Date.After(day) {
+				h.Value, h.Priced, h.At = p.Quantity.Of(q.Price), true, q.Date
+			}
+			v.Holdings = append(v.Holdings, h)
+			value = h.Value.Cents()
 		}
-		h := Holding{Position: p, Value: p.Value, At: p.AsOf}
-		if q, ok := prices[p.Ticker.String()]; ok && !p.Ticker.IsZero() && !p.Quantity.IsZero() && q.Date.After(p.AsOf) && !q.Date.After(day) {
-			h.Value, h.Priced, h.At = p.Quantity.Of(q.Price), true, q.Date
-		}
-		v.Holdings = append(v.Holdings, h)
 		if p.Emergency() {
-			v.Emergency = add(v.Emergency, h)
+			v.Emergency = add(v.Emergency, value, p)
 		} else {
 			c := p.Class()
-			v.Classes[c] = add(v.Classes[c], h)
+			v.Classes[c] = add(v.Classes[c], value, p)
 		}
 	}
 	return v

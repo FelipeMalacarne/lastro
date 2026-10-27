@@ -39,7 +39,7 @@
 - `GET /api/v1/transactions/{id}`: one transaction, the other side of its pair, its purchase's installments and how often its description came up in the last six months.
 - `GET /api/v1/transactions/days?month=2026-10`: spending, money in and money moved day by day, every account together, with the month before and what it had spent by the same day.
 
-For `categorize`, the Service answers what automation may categorize: live expenses and income whose category nobody chose by hand. `Categorizable(ids)` filters the given transactions; `Uncategorized()` returns every one still without a category. Transfers and card bill payments are never handed over.
+For `categorize`, the Service answers what automation may categorize: live expenses and income whose category nobody chose by hand. `Categorizable(ids)` filters the given transactions; `Uncategorized()` returns every one still without a category; `Uncategorize(id)` takes back a category automation gave (never a manual one). Transfers and card bill payments are never handed over.
 
 For `budget`, the Service sums what the budget is built on: `CategoryMonths(from, to)` (expenses and income by month, category and kind), `MonthKinds(from, to)` (every transaction by month, kind, direction and pairing: income, and transfers out to accounts outside lastro) and `Charges(from)` (expenses outside installments, where recurring charges are found).
 
