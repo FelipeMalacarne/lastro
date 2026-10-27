@@ -1,6 +1,6 @@
 # ADR-0008: Identity through a self-hosted Zitadel, lastro as a resource server
 
-**Status:** Proposed (supersedes ADR-0004 once accepted). The lastro side is built and stays off until `LASTRO_OIDC_ISSUER` is set; the spike with Zitadel decides.
+**Status:** Accepted on 2026-10-27, after the spike against the Zitadel on saradomin (`docs/zitadel.md`). Supersedes ADR-0004.
 **Date:** 2026-10-27
 **Deciders:** Felipe
 

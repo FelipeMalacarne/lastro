@@ -36,7 +36,7 @@ type tokenHeader struct {
 }
 
 // tokenClaims holds every claim a verifier here reads. Which ones matter
-// depends on the token: an Access JWT, an access token or an ID token.
+// depends on the token: an access token or an ID token.
 type tokenClaims struct {
 	Email    string   `json:"email"`
 	Sub      string   `json:"sub"`

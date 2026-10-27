@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -166,29 +167,23 @@ func newAuth(cfg config.Config, logger *slog.Logger) (authWiring, error) {
 		logger.Warn("authentication disabled: dev only")
 		return authWiring{require: auth.Disabled(), bearer: func(string) func(http.Handler) http.Handler { return auth.Disabled() }}, nil
 	}
-	a := &auth.Authenticator{Logger: logger, PublicURL: cfg.Auth.PublicURL}
-	if o := cfg.Auth.OIDC; o.Enabled() {
-		p, err := auth.NewProvider(auth.OIDCConfig{Issuer: o.Issuer, Audience: o.Audience, OwnerSubject: o.OwnerSubject, WriteClients: o.Writers()})
-		if err != nil {
-			return authWiring{}, err
-		}
-		a.OIDC = p
-		if o.WebClientID != "" {
-			sealer, err := auth.NewSealer(cfg.Auth.SessionKey)
-			if err != nil {
-				return authWiring{}, err
-			}
-			if a.Web, err = auth.NewWeb(p, auth.WebConfig{PublicURL: cfg.Auth.PublicURL, ClientID: o.WebClientID, ClientSecret: o.WebClientSecret, Scopes: o.Scopes}, sealer, logger); err != nil {
-				return authWiring{}, err
-			}
-		}
+	o := cfg.Auth.OIDC
+	if !o.Enabled() {
+		return authWiring{}, errors.New("auth: no sign-in provider: set LASTRO_OIDC_ISSUER")
 	}
-	if cfg.Auth.CloudflareAccess() {
-		v, err := auth.NewVerifier(cfg.Auth.TeamDomain, cfg.Auth.Audience)
+	p, err := auth.NewProvider(auth.OIDCConfig{Issuer: o.Issuer, Audience: o.Audience, OwnerSubject: o.OwnerSubject, WriteClients: o.Writers()})
+	if err != nil {
+		return authWiring{}, err
+	}
+	a := &auth.Authenticator{Logger: logger, OIDC: p, PublicURL: cfg.Auth.PublicURL}
+	if o.WebClientID != "" {
+		sealer, err := auth.NewSealer(cfg.Auth.SessionKey)
 		if err != nil {
 			return authWiring{}, err
 		}
-		a.CF = v
+		if a.Web, err = auth.NewWeb(p, auth.WebConfig{PublicURL: cfg.Auth.PublicURL, ClientID: o.WebClientID, ClientSecret: o.WebClientSecret, Scopes: o.Scopes}, sealer, logger); err != nil {
+			return authWiring{}, err
+		}
 	}
 	return authWiring{require: a.Require, bearer: a.RequireBearer, web: a.Web, oidc: a.OIDC}, nil
 }

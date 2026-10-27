@@ -39,10 +39,10 @@ func TestAuthCannotBeDisabledOutsideDev(t *testing.T) {
 	}
 }
 
-func TestProdRequiresAccessConfig(t *testing.T) {
+func TestProdRequiresTheProvider(t *testing.T) {
 	_, err := LoadFrom(env(map[string]string{"LASTRO_DATABASE_URL": "postgres://x"}))
-	if err == nil || !strings.Contains(err.Error(), "LASTRO_CF_ACCESS_AUD") {
-		t.Fatalf("want an error asking for Cloudflare Access config, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "LASTRO_OIDC_ISSUER") {
+		t.Fatalf("want an error asking for LASTRO_OIDC_ISSUER, got %v", err)
 	}
 }
 
@@ -87,7 +87,6 @@ func TestOIDC(t *testing.T) {
 		{"no public URL", map[string]string{"LASTRO_PUBLIC_URL": ""}, "LASTRO_PUBLIC_URL"},
 		{"web login without a session key", map[string]string{"LASTRO_OIDC_WEB_CLIENT_ID": "web"}, "LASTRO_SESSION_KEY"},
 		{"short session key", map[string]string{"LASTRO_OIDC_WEB_CLIENT_ID": "web", "LASTRO_SESSION_KEY": "c2hvcnQ="}, "LASTRO_SESSION_KEY"},
-		{"half of Access", map[string]string{"LASTRO_CF_ACCESS_AUD": "aud"}, "LASTRO_CF_ACCESS_TEAM_DOMAIN"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

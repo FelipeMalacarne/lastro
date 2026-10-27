@@ -2,9 +2,11 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +29,14 @@ func TestVerifyAccessToken(t *testing.T) {
 		{"another project", rs256, with(idp.accessClaims(cliID), "aud", []string{"other-project"}), 0, ErrInvalidToken},
 		{"another issuer", rs256, with(idp.accessClaims(cliID), "iss", "https://evil.example"), 0, ErrInvalidToken},
 		{"expired", rs256, with(idp.accessClaims(cliID), "exp", time.Now().Add(-time.Hour).Unix()), 0, ErrInvalidToken},
+		{"no expiry", rs256, with(idp.accessClaims(cliID), "exp", nil), 0, ErrInvalidToken},
+		{"not valid yet", rs256, with(idp.accessClaims(cliID), "nbf", time.Now().Add(5*time.Minute).Unix()), 0, ErrInvalidToken},
 		{"alg none", map[string]any{"alg": "none", "kid": "rsa"}, idp.accessClaims(cliID), 0, ErrInvalidToken},
+		{"HS256", map[string]any{"alg": "HS256", "kid": "rsa"}, idp.accessClaims(cliID), 0, ErrInvalidToken},
+		// An RS256 signature checked against the EC key, and the other way round.
+		{"RS256 with the EC kid", map[string]any{"alg": "RS256", "kid": "ec"}, idp.accessClaims(cliID), 0, ErrInvalidToken},
+		{"ES256 with the RSA kid", map[string]any{"alg": "ES256", "kid": "rsa"}, idp.accessClaims(cliID), 0, ErrInvalidToken},
+		{"unknown kid", map[string]any{"alg": "RS256", "kid": "k2"}, idp.accessClaims(cliID), 0, ErrUnknownKey},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -45,6 +54,19 @@ func TestVerifyAccessToken(t *testing.T) {
 				t.Fatalf("identity %+v, want permission %v", id, tt.perm)
 			}
 		})
+	}
+}
+
+func TestVerifyAccessTokenRejectsTamperedPayload(t *testing.T) {
+	idp := newFakeIdP(t)
+	p := idp.provider(t)
+	for _, h := range []map[string]any{rs256, es256} {
+		parts := strings.Split(idp.s.sign(t, h, with(idp.accessClaims(cliID), "sub", "someone-else")), ".")
+		forged, _ := json.Marshal(idp.accessClaims(cliID))
+		token := parts[0] + "." + b64(forged) + "." + parts[2]
+		if _, err := p.VerifyAccessToken(context.Background(), token); !errors.Is(err, ErrInvalidToken) {
+			t.Fatalf("%v: want ErrInvalidToken, got %v", h["alg"], err)
+		}
 	}
 }
 

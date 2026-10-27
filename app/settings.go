@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"net/url"
 
 	"lastro/platform/httpx"
 	"lastro/platform/llm"
@@ -28,9 +29,9 @@ type modelJS struct {
 }
 
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
-	out := settingsJSON{Version: a.Version, Env: a.Config.Env, SignIn: "Cloudflare Access"}
-	if a.Config.Auth.Disabled {
-		out.SignIn = "Off (dev)"
+	out := settingsJSON{Version: a.Version, Env: a.Config.Env, SignIn: "Off (dev)"}
+	if u, err := url.Parse(a.Config.Auth.OIDC.Issuer); !a.Config.Auth.Disabled && err == nil {
+		out.SignIn = u.Host
 	}
 	if a.Notify.Enabled() {
 		out.Alerts = "Telegram"

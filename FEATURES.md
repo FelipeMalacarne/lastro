@@ -208,7 +208,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 - **Fast and keyboard-friendly:** the common flows (review queue, search, contribution) work without the mouse.
 - **Beautiful:** a consistent visual language with charts that explain instead of decorating; light and dark themes.
-- **Works on the phone:** every screen is usable on a phone browser through Cloudflare Access.
+- **Works on the phone:** every screen is usable on a phone browser, signed in through Zitadel.
 - **CLI parity for the frequent actions:** `sync`, `contribute` and, later, quick queries.
 - **Never lies:** stale data, pending transactions and estimates are always labeled as such.
 
