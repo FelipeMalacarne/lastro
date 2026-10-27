@@ -103,7 +103,7 @@ What `FEATURES.md` still lists, in the order that pays most. Each screen change 
 
 After M6, a design audit against the canvas added what the boards drew and the screens lacked: "Sync now" in the sidebar, Dashboard and Settings; marking a transaction as a transfer to an account lastro does not see (in To review and on the transaction); writing a rule by hand and filtering rules by where they came from; copying last month's limits, editing every limit at once and the phone layout on the Budget; the default rollover for new limits in Settings; replacing the contribution plan already on payday; and the target line on the projection.
 
-## M7: my own identity (ADR-0008, ADR-0009)
+## M7: my own identity (ADR-0008, ADR-0009, ADR-0010)
 
 lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clients that are not a browser: the CLI on my laptop, Claude through MCP and, later, a phone app. Boxes marked "gielinor" are done in that repository.
 
@@ -113,8 +113,9 @@ lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clie
 - [ ] `/.well-known/oauth-protected-resource` and `WWW-Authenticate` on `401`
 - [ ] Web login through a BFF: `/auth/login`, `/auth/callback`, `/auth/logout`, sessions in the `auth` schema, and the screen for a signed-out or expired session (on the canvas first)
 - [ ] Switch saradomin to Zitadel: Access application out of gielinor's Terraform, the Cloudflare Access verifier removed, ADR-0004 superseded, `AGENTS.md` security section updated
+- [ ] Split the binaries (ADR-0010): `cmd/lastrod` with `serve`, `sync`, `market`, `migrate`, `fixtures` and `seed`; `cmd/lastro` as a client, kept out of `app` and the modules by depguard; Dockerfile, Kustomize, Taskfile, `AGENTS.md` and README follow
 - [ ] `lastro connect <url>`: discovery from the protected resource metadata, the device flow, tokens in `~/.config/lastro` (0600) with refresh, plus `lastro disconnect` and `lastro whoami`
-- [ ] Remote CLI: `contribute` and "sync now" through the API when connected; `serve`, `sync` and `migrate` stay local roles
+- [ ] Client commands: `lastro sync` (starts a sync on the server and follows it) and `lastro contribute`, with the integration test that runs the client against `app.Handler()`
 - [ ] `/mcp`, read-only: month summary, budget state, transactions with filters, portfolio and allocation, contribution plan. `lastro-claude` pre-registered, and the connector in use from the phone
 
 ## Parked
