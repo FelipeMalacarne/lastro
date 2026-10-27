@@ -21,6 +21,9 @@ type Repository interface {
 	AccountByExternalID(ctx context.Context, id ExternalID) (*Account, error)
 	Accounts(ctx context.Context) ([]*Account, error)
 	SaveAccount(ctx context.Context, a *Account) error
+	// SaveSnapshot stores the balance of a day, unless a later one is stored.
+	SaveSnapshot(ctx context.Context, s BalanceSnapshot) error
+	Snapshots(ctx context.Context, account AccountID) ([]BalanceSnapshot, error)
 
 	// TransactionsForImport returns the account's transactions dated on or
 	// after from (none for a zero from) plus any with one of the external
@@ -47,7 +50,8 @@ func New(repo Repository, bus *events.Bus) *Service {
 }
 
 // SyncAccount creates the account the first time a source reports it and
-// refreshes it afterwards. It returns the ledger's id for the account.
+// refreshes it afterwards, and records the day's balance snapshot. It
+// returns the ledger's id for the account.
 func (s *Service) SyncAccount(ctx context.Context, d AccountDetails) (AccountID, error) {
 	var id AccountID
 	err := s.repo.Tx(ctx, func(r Repository) error {
@@ -65,7 +69,10 @@ func (s *Service) SyncAccount(ctx context.Context, d AccountDetails) (AccountID,
 			}
 		}
 		id = a.ID()
-		return r.SaveAccount(ctx, a)
+		if err := r.SaveAccount(ctx, a); err != nil {
+			return err
+		}
+		return r.SaveSnapshot(ctx, a.Snapshot())
 	})
 	if err != nil {
 		return "", fmt.Errorf("ledger: sync account %s: %w", d.ExternalID, err)

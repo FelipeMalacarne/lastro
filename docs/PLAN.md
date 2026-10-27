@@ -31,7 +31,7 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] `ingest`: Pluggy → ledger mapping, tested against the fixtures
 - [x] `ingest`: raw payloads and sync state per item
 - [x] `lastro sync` end to end, and the CronJob turned on
-- [ ] `ledger`: daily balance snapshot per account, so the net worth history in M4 starts from the first sync
+- [x] `ledger`: daily balance snapshot per account, so the net worth history in M4 starts from the first sync
 - [ ] `ledger`: `TransferMatcher` for transfers between own accounts and card bill payments
 - [ ] web: Tailwind, shadcn/ui and the Cédula tokens (self-hosted fonts, light and dark), and the app shell (sidebar, month switcher, phone tab bar)
 - [ ] web: `Amount`, `Badge`, `CategoryTag`, `TransactionRow` and `SyncStatus` components

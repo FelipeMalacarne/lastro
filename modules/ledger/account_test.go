@@ -93,3 +93,14 @@ func TestAccountRefresh(t *testing.T) {
 		t.Errorf("details of another account must be refused, got %v", err)
 	}
 }
+
+func TestSnapshot(t *testing.T) {
+	d := details(t)
+	brt := time.FixedZone("BRT", -3*3600)
+	d.BalanceAt = time.Date(2026, 10, 26, 23, 30, 0, 0, brt) // 02:30 UTC on the 27th
+	a, _ := NewAccount(d)
+	s := a.Snapshot()
+	if !s.Date.Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)) || s.Balance != d.Balance || s.AccountID != a.ID() || !s.At.Equal(d.BalanceAt) {
+		t.Errorf("the snapshot is of the day the balance was read, where it was read: %+v", s)
+	}
+}

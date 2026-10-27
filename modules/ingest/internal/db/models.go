@@ -56,6 +56,14 @@ type LedgerAccount struct {
 	UpdatedAt    time.Time
 }
 
+type LedgerBalanceSnapshot struct {
+	AccountID    string
+	Date         time.Time
+	BalanceCents int64
+	Currency     string
+	TakenAt      time.Time
+}
+
 type LedgerTransaction struct {
 	ID                string
 	AccountID         string

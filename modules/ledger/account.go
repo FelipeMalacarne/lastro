@@ -115,6 +115,19 @@ func lastDigits(s string, n int) string {
 	return string(digits)
 }
 
+// BalanceSnapshot is an account's balance on a day: the last one known that day.
+type BalanceSnapshot struct {
+	AccountID AccountID
+	Date      time.Time // calendar day of At, in At's location
+	Balance   money.Money
+	At        time.Time // when the source read the balance
+}
+
+// Snapshot is the account's balance on the day it was read.
+func (a *Account) Snapshot() BalanceSnapshot {
+	return BalanceSnapshot{AccountID: a.id, Date: civilDate(a.balanceAt), Balance: a.balance, At: a.balanceAt}
+}
+
 func (a *Account) ID() AccountID            { return a.id }
 func (a *Account) ExternalID() ExternalID   { return a.externalID }
 func (a *Account) Name() string             { return a.name }

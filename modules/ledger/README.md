@@ -8,6 +8,7 @@
 
 - `Account` (aggregate, `account.go`): checking account, savings account or credit card. Its balance is from my point of view: negative on a card (the amount owed on the open bill). Only the last four digits of its number are kept.
 - `Transaction` (aggregate, `transaction.go`): one movement in an account. The amount is negative when money leaves the account, on checking and on cards alike. Its kind is the source's until the transaction is paired; while paired, the pair's.
+- `BalanceSnapshot` (in `account.go`): an account's balance on a day, the last one known that day. Every `SyncAccount` records one, so the net worth history (M4) starts with the first sync.
 - `Pair` (in `transaction.go`): links the two sides of a movement between my own accounts. Into a card it makes both sides a card bill payment; between bank accounts, a transfer.
 - Value objects (`values.go`): `ExternalID` (the source's id, today Pluggy's), `Kind` (expense, income, transfer, card bill payment; only the first two count in totals), `Installment` ("3 of 10"), `CategoryID` (opaque, owned by `categorize`), `Source` (rule, LLM or manual), `Status` (pending or posted) and `AccountType` (checking, savings, credit card). Constructors return an error wrapping `ErrInvalid` instead of an invalid value.
 - `TransferMatcher` (domain service): pairs an outflow in one of my accounts with the matching inflow in another.
@@ -20,7 +21,7 @@
 - A pair joins an outflow and an inflow of the same amount in two different accounts, never out of a card. If one side is removed or its amount changes, the pair breaks on both sides and each gets its source's kind back.
 - A manual category beats an automatic one. Rules and the LLM never overwrite a manual choice (`ErrManualCategory`).
 - Pending transactions may change or disappear on the next sync. A transaction the source stops returning is removed (kept, but out of every list and total); if it comes back, it is restored. Removed transactions cannot be categorized or paired. Only posted transactions go into closed reports.
-- A balance older than the one already known never replaces it.
+- A balance older than the one already known never replaces it, in the account or in its day's snapshot. There is at most one snapshot per account per day.
 
 ## Events
 

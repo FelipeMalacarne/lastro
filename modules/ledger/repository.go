@@ -76,6 +76,32 @@ func (r *PostgresRepository) SaveAccount(ctx context.Context, a *Account) error 
 	})
 }
 
+func (r *PostgresRepository) SaveSnapshot(ctx context.Context, s BalanceSnapshot) error {
+	return r.q.SaveBalanceSnapshot(ctx, db.SaveBalanceSnapshotParams{
+		AccountID:    string(s.AccountID),
+		Date:         s.Date,
+		BalanceCents: s.Balance.Cents(),
+		Currency:     string(s.Balance.Currency()),
+		TakenAt:      s.At,
+	})
+}
+
+func (r *PostgresRepository) Snapshots(ctx context.Context, account AccountID) ([]BalanceSnapshot, error) {
+	rows, err := r.q.ListBalanceSnapshots(ctx, string(account))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BalanceSnapshot, 0, len(rows))
+	for _, row := range rows {
+		bal, err := money.New(row.BalanceCents, money.Currency(row.Currency))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, BalanceSnapshot{AccountID: account, Date: civilDate(row.Date), Balance: bal, At: row.TakenAt})
+	}
+	return out, nil
+}
+
 func (r *PostgresRepository) TransactionsForImport(ctx context.Context, account AccountID, from time.Time, ids []ExternalID, bankRefs []string) ([]*Transaction, error) {
 	var window *time.Time
 	if !from.IsZero() {

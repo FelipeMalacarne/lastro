@@ -58,3 +58,15 @@ ON CONFLICT (id) DO UPDATE SET
     pair_kind = EXCLUDED.pair_kind,
     removed_at = EXCLUDED.removed_at,
     updated_at = now();
+
+-- name: SaveBalanceSnapshot :exec
+-- The latest balance of the day wins; an older read never replaces a newer one.
+INSERT INTO ledger.balance_snapshots (account_id, date, balance_cents, currency, taken_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (account_id, date) DO UPDATE SET
+    balance_cents = EXCLUDED.balance_cents,
+    taken_at = EXCLUDED.taken_at
+WHERE EXCLUDED.taken_at >= ledger.balance_snapshots.taken_at;
+
+-- name: ListBalanceSnapshots :many
+SELECT * FROM ledger.balance_snapshots WHERE account_id = $1 ORDER BY date;

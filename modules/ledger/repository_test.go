@@ -174,3 +174,31 @@ func TestRepositoryPairsSurviveARoundTripAndBreak(t *testing.T) {
 		t.Fatalf("the savings side must be unpaired: %+v", got[0])
 	}
 }
+
+func TestRepositorySnapshotsOnePerDay(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, _ := newService(t)
+	d := details(t)
+	morning := time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)
+	sync := func(at time.Time, cents int64) AccountID {
+		t.Helper()
+		d.BalanceAt, d.Balance = at, money.BRLCents(cents)
+		id, err := svc.SyncAccount(ctx, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	id := sync(morning, 100)
+	sync(morning.Add(6*time.Hour), 200)  // later the same day: replaces
+	sync(morning.Add(-time.Hour), 50)    // an older read: ignored
+	sync(morning.Add(24*time.Hour), 300) // the next day: a new snapshot
+	snaps, err := repo.Snapshots(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) != 2 || snaps[0].Balance != money.BRLCents(200) || snaps[1].Balance != money.BRLCents(300) ||
+		!snaps[0].Date.Equal(oct(26)) || !snaps[1].Date.Equal(oct(27)) {
+		t.Fatalf("want 26 Oct at R$ 2,00 and 27 Oct at R$ 3,00, got %+v", snaps)
+	}
+}

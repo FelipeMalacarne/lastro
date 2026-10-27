@@ -68,7 +68,7 @@ func mapAccount(a pluggy.Account, institution string, at time.Time) (ledger.Acco
 		Type:        typ,
 		Number:      a.Number,
 		Balance:     balance,
-		BalanceAt:   at,
+		BalanceAt:   at.In(saoPaulo), // the balance's day is São Paulo's
 	}, nil
 }
 

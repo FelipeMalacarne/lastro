@@ -125,6 +125,36 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
 	return items, nil
 }
 
+const listBalanceSnapshots = `-- name: ListBalanceSnapshots :many
+SELECT account_id, date, balance_cents, currency, taken_at FROM ledger.balance_snapshots WHERE account_id = $1 ORDER BY date
+`
+
+func (q *Queries) ListBalanceSnapshots(ctx context.Context, accountID string) ([]LedgerBalanceSnapshot, error) {
+	rows, err := q.db.Query(ctx, listBalanceSnapshots, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LedgerBalanceSnapshot
+	for rows.Next() {
+		var i LedgerBalanceSnapshot
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.Date,
+			&i.BalanceCents,
+			&i.Currency,
+			&i.TakenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactionsForImport = `-- name: ListTransactionsForImport :many
 SELECT t.id, t.account_id, t.external_id, t.bank_ref, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status, t.installment_number, t.installment_total, t.category_id, t.category_source, t.counterpart_id, t.pair_kind, t.kind, t.removed_at, t.created_at, t.updated_at, a.type AS account_type
 FROM ledger.transactions t
@@ -234,6 +264,35 @@ func (q *Queries) SaveAccount(ctx context.Context, arg SaveAccountParams) error 
 		arg.Currency,
 		arg.BalanceCents,
 		arg.BalanceAt,
+	)
+	return err
+}
+
+const saveBalanceSnapshot = `-- name: SaveBalanceSnapshot :exec
+INSERT INTO ledger.balance_snapshots (account_id, date, balance_cents, currency, taken_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (account_id, date) DO UPDATE SET
+    balance_cents = EXCLUDED.balance_cents,
+    taken_at = EXCLUDED.taken_at
+WHERE EXCLUDED.taken_at >= ledger.balance_snapshots.taken_at
+`
+
+type SaveBalanceSnapshotParams struct {
+	AccountID    string
+	Date         time.Time
+	BalanceCents int64
+	Currency     string
+	TakenAt      time.Time
+}
+
+// The latest balance of the day wins; an older read never replaces a newer one.
+func (q *Queries) SaveBalanceSnapshot(ctx context.Context, arg SaveBalanceSnapshotParams) error {
+	_, err := q.db.Exec(ctx, saveBalanceSnapshot,
+		arg.AccountID,
+		arg.Date,
+		arg.BalanceCents,
+		arg.Currency,
+		arg.TakenAt,
 	)
 	return err
 }
