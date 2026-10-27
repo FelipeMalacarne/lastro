@@ -9,10 +9,10 @@ import { Categories } from "@/pages/Categories";
 import { Contribute } from "@/pages/Contribute";
 import { Dashboard } from "@/pages/Dashboard";
 import { Gallery } from "@/pages/Gallery";
+import { Planning } from "@/pages/Planning";
 import { Portfolio } from "@/pages/Portfolio";
 import { Review } from "@/pages/Review";
 import { Settings } from "@/pages/Settings";
-import { Soon } from "@/pages/Soon";
 import { Transactions } from "@/pages/Transactions";
 
 export function App() {
@@ -48,7 +48,7 @@ function page(path: string) {
       if (import.meta.env.DEV) return <Gallery />;
       return <Transactions />;
     case "/planning":
-      return <Soon title="Planning" milestone="M5" what="Projections in today's money, and how long until each goal." />;
+      return <Planning />;
     default:
       return <Transactions />;
   }

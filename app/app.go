@@ -17,6 +17,7 @@ import (
 	"lastro/modules/ingest"
 	"lastro/modules/ledger"
 	"lastro/modules/market"
+	"lastro/modules/planning"
 	"lastro/modules/portfolio"
 	"lastro/platform/auth"
 	"lastro/platform/config"
@@ -45,6 +46,7 @@ type App struct {
 	Budget     *budget.Service
 	Market     *market.Service
 	Portfolio  *portfolio.Service
+	Planning   *planning.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -75,6 +77,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	series, quotes, bonds := market.Sources(cfg.BrapiToken)
 	a.Market = market.New(market.NewRepository(pool), series, quotes, bonds, logger)
 	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market)
+	a.Planning = planning.New(a.Portfolio)
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Portfolio, a.Bus, logger)
 	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
 	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
@@ -148,6 +151,7 @@ func (a *App) Handler() http.Handler {
 	a.Budget.RegisterRoutes(api, a.Logger)
 	a.Market.RegisterRoutes(api, a.Logger)
 	a.Portfolio.RegisterRoutes(api, a.Logger)
+	a.Planning.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())

@@ -283,3 +283,17 @@ func fmtPercent(p money.Percent) string {
 	s = strings.TrimSuffix(s, ",")
 	return s + "%"
 }
+
+// Invested is the allocation's value today, the emergency fund left out,
+// and the target weights: what a projection starts from.
+func (s *Service) Invested(ctx context.Context) (money.Money, map[Class]money.Percent, error) {
+	t, err := s.Targets(ctx)
+	if err != nil {
+		return money.Money{}, nil, err
+	}
+	v, _, err := s.value(ctx, s.Today())
+	if err != nil {
+		return money.Money{}, nil, fmt.Errorf("portfolio: invested: %w", err)
+	}
+	return v.Invested().Value, t.Allocation.Weights(), nil
+}

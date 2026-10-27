@@ -18,7 +18,7 @@ const destinations: Destination[] = [
   { to: "/transactions", label: "Transactions", icon: List, phone: true },
   { to: "/budget", label: "Budget", icon: Wallet, phone: true },
   { to: "/portfolio", label: "Portfolio", icon: ChartPie, phone: true },
-  { to: "/planning", label: "Planning", icon: TrendingUp, phone: false },
+  { to: "/planning", label: "Planning", icon: TrendingUp, phone: true },
 ];
 
 function Wordmark({ className }: { className?: string }) {
@@ -87,7 +87,7 @@ type Props = {
  * with the wordmark, search, the navigation with the review count, the
  * accounts with their sync state, then Categories and rules, Settings, the
  * build and the theme. Below: a top bar with the month and Settings, and a
- * bottom tab bar with four destinations.
+ * bottom tab bar with five destinations.
  */
 export function AppShell({ accounts, children }: Props) {
   const { path } = useLocation();
@@ -179,7 +179,7 @@ export function AppShell({ accounts, children }: Props) {
         <main className="px-4 pt-4 pb-24 lg:px-8 lg:pt-8 lg:pb-14">
           <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">{children}</div>
         </main>
-        <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 grid h-16 grid-cols-4 border-t border-rule bg-paper-raised pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 grid h-16 grid-cols-5 border-t border-rule bg-paper-raised pb-[env(safe-area-inset-bottom)] lg:hidden">
           {destinations
             .filter((d) => d.phone)
             .map((d) => {

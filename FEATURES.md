@@ -181,12 +181,12 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to see where my net worth will be in N years with my current contributions, so that I can tell whether I am on track.
 
 **P1**
-- [ ] Projection with monthly contribution, horizon and real interest rate, in pessimistic, base and optimistic scenarios.
-- [ ] Values shown in today's money, with the assumptions listed next to the result.
-- [ ] "How long until X?" for a target amount.
+- [x] Projection with monthly contribution, horizon and real interest rate, in pessimistic, base and optimistic scenarios.
+- [x] Values shown in today's money, with the assumptions listed next to the result.
+- [x] "How long until X?" for a target amount.
 
 **P2**
-- [ ] Monte Carlo simulation using historical return distributions.
+- [x] Monte Carlo simulation using historical return distributions.
 
 ### F10. Insights and questions
 
