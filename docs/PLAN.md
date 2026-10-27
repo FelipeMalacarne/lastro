@@ -36,7 +36,9 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] web: Tailwind, shadcn/ui and the Cédula tokens (self-hosted fonts, light and dark), and the app shell (sidebar, month switcher, phone tab bar)
 - [x] web: `Amount`, `Badge`, `CategoryTag`, `TransactionRow` and `SyncStatus` components
 - [x] `GET /api/v1/transactions` and the Transactions screen (list, filters, search), with each account's sync status and the stale-sync notice
-- [ ] Backup of `postgres-main` in gielinor: Barman to R2
+- [x] Backup of `postgres-main` in gielinor: the Barman Cloud plugin to R2, ready to turn on (gielinor `clusters/saradomin/apps/postgres/backup`)
+- [ ] Turn the backup on: R2 bucket and token, then the component (gielinor `apps/postgres/backup/README.md`; needs me)
+- [ ] Pluggy credentials and item ids in `lastro-secrets` on saradomin, and a first sync (gielinor `apps/lastro/README.md`; needs me)
 
 ## M2: categorized without effort (F3)
 

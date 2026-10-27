@@ -46,13 +46,13 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to know when a connection breaks, so that the data does not go stale silently.
 
 **P0**
-- [ ] Every item in `LASTRO_PLUGGY_ITEM_IDS` syncs on a schedule (CronJob) and on demand (`lastro sync`).
-- [ ] Re-syncing never creates duplicates; changed transactions are updated in place.
-- [ ] Pending transactions that disappear or change on the next sync are handled correctly.
-- [ ] Each account shows when it was last synced successfully.
+- [x] Every item in `LASTRO_PLUGGY_ITEM_IDS` syncs on a schedule (CronJob) and on demand (`lastro sync`).
+- [x] Re-syncing never creates duplicates; changed transactions are updated in place.
+- [x] Pending transactions that disappear or change on the next sync are handled correctly.
+- [x] Each account shows when it was last synced successfully.
 
 **P1**
-- [ ] A visible warning when an item has not synced for more than 2 days or needs re-authentication in Meu Pluggy.
+- [x] A visible warning when an item has not synced for more than 2 days or needs re-authentication in Meu Pluggy.
 - [ ] Import of the B3 trade statement for positions that do not come through Open Finance.
 
 **P2**
@@ -66,10 +66,10 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want transfers between my own accounts and card bill payments to be recognized automatically, so that they never inflate my spending.
 
 **P0**
-- [ ] One list with every account, filterable by period, account, category and type, and searchable by description.
-- [ ] Transfers between my own accounts (Pix to a savings pot, to the brokerage...) are paired and marked as transfers.
-- [ ] Card bill payments are marked as such; the card purchases are what counts as spending.
-- [ ] Installment purchases show "n of m" and count in the month of each installment.
+- [ ] One list with every account, filterable by period, account, category and type, and searchable by description. (Done except the category filter, which arrives with categories in M2.)
+- [x] Transfers between my own accounts (Pix to a savings pot, to the brokerage...) are paired and marked as transfers.
+- [x] Card bill payments are marked as such; the card purchases are what counts as spending.
+- [x] Installment purchases show "n of m" and count in the month of each installment.
 
 **P1**
 - [ ] Split a transaction into several categories.

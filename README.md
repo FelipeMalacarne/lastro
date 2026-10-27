@@ -2,7 +2,7 @@
 
 Personal finance for a single person: syncs accounts through Meu Pluggy (Brazilian Open Finance), categorizes transactions, tracks the budget and the investment portfolio, and runs projections. Runs at home on K3s, behind Cloudflare Access.
 
-> Status: **M0** (skeleton and first deploy) is done; next is **M1**, see my money. The roadmap is in [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **M1**, see my money, is built: accounts and transactions synced from Meu Pluggy, transfers and card bills paired, and the Transactions screen. Turning it on needs the Pluggy credentials and the database backup on saradomin. The roadmap is in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Getting started
 
