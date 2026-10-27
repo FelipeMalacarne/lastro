@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 
@@ -21,6 +22,11 @@ func runSync(ctx context.Context, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+	// A reprocess needs no Pluggy credentials, but without item ids it would
+	// quietly do nothing.
+	if *reprocess && len(cfg.Pluggy.ItemIDs) == 0 {
+		return errors.New("config: set LASTRO_PLUGGY_ITEM_IDS (the items to reprocess)")
 	}
 	if !*reprocess {
 		if err := cfg.Pluggy.Validate(); err != nil {
