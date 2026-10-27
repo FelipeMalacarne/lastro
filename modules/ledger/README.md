@@ -8,7 +8,7 @@
 
 - `Account` (aggregate): checking account, credit card, investment account or savings pot.
 - `Transaction` (aggregate): one movement in an account.
-- Value objects: `ExternalID` (Pluggy ID), `Kind` (expense, income, transfer, card bill payment), `Installment` ("3 of 10"), `CategoryID`, `Source` (rule, LLM or manual).
+- Value objects (`values.go`): `ExternalID` (the source's id, today Pluggy's), `Kind` (expense, income, transfer, card bill payment; only the first two count in totals), `Installment` ("3 of 10"), `CategoryID` (opaque, owned by `categorize`), `Source` (rule, LLM or manual), `Status` (pending or posted) and `AccountType` (checking, savings, credit card). Constructors return an error wrapping `ErrInvalid` instead of an invalid value.
 - `TransferMatcher` (domain service): pairs an outflow in one of your accounts with the matching inflow in another.
 
 ## Invariants

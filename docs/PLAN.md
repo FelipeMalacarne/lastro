@@ -25,7 +25,7 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] `ingest`: Pluggy client in `internal/pluggy` (auth, items, accounts, transactions and investments)
 - [x] Pluggy spike from the docs: `lastro fixtures` (download, a report safe to share, anonymizer), synthetic fixtures and `docs/pluggy.md` answering the open questions
 - [ ] Pluggy spike with my connections: run `lastro fixtures`, commit the anonymized fixtures and fill the "Confirmed" column of `docs/pluggy.md` (needs my credentials, so I run it)
-- [ ] `ledger`: value objects `ExternalID`, `Kind`, `Installment`, `CategoryID` and `Source`, with tests
+- [x] `ledger`: value objects `ExternalID`, `Kind`, `Installment`, `CategoryID` and `Source` (plus `Status` and `AccountType`), with tests
 - [ ] `ledger`: `Account` and `Transaction` aggregates, with invariants and events
 - [ ] `ledger`: migrations, `queries.sql` and `repository.go` with idempotent upsert
 - [ ] `ingest`: Pluggy → ledger mapping, tested against the fixtures
