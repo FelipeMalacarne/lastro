@@ -26,6 +26,16 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		httpx.JSON(w, http.StatusOK, v)
 	})
 
+	// GET /api/v1/scoreboard: the stock picks against the Ibovespa and CDI, by year.
+	mux.HandleFunc("GET /api/v1/scoreboard", func(w http.ResponseWriter, r *http.Request) {
+		v, err := s.Scoreboard(r.Context())
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, v)
+	})
+
 	// GET /api/v1/net-worth?months=12: one point per stored day, and today.
 	mux.HandleFunc("GET /api/v1/net-worth", func(w http.ResponseWriter, r *http.Request) {
 		months := 12

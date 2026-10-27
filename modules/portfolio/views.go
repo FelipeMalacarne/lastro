@@ -131,3 +131,22 @@ type Reminder struct {
 	Thesis string `json:"thesis"`
 	Breaks string `json:"breaks"`
 }
+
+// ScoreView is one calendar year of the stock picks (the Brazilian stocks
+// class, the satellite) against the Ibovespa and CDI (F8).
+type ScoreView struct {
+	Year        int    `json:"year"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Partial     bool   `json:"partial"` // the year is not over, or the history starts in it
+	SatelliteBp *int64 `json:"satelliteBp"`
+	IbovespaBp  *int64 `json:"ibovespaBp"`
+	CDIBp       *int64 `json:"cdiBp"`
+}
+
+type ScoreboardView struct {
+	Years []ScoreView `json:"years"`
+	// Ibovespa is false when there are no Ibovespa quotes (brapi needs
+	// LASTRO_BRAPI_TOKEN for the index).
+	Ibovespa bool `json:"ibovespa"`
+}

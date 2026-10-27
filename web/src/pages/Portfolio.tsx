@@ -88,7 +88,10 @@ export function Portfolio() {
         <Returns v={v} />
       </div>
       <Positions v={v} />
-      <Picks v={v} />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-6">
+        <Picks v={v} />
+        <Scoreboard />
+      </div>
     </>
   );
 }
@@ -680,5 +683,77 @@ function ThesisForm({ ticker, thesis, onDone }: { ticker: string; thesis?: Thesi
         )}
       </div>
     </form>
+  );
+}
+
+type Score = { year: number; from: string; to: string; partial: boolean; satelliteBp: number | null; ibovespaBp: number | null; cdiBp: number | null };
+
+/** The stock picks against the Ibovespa and CDI, year by year (F8). */
+function Scoreboard() {
+  const res = useResource<{ years: Score[]; ibovespa: boolean }>("/api/v1/scoreboard");
+  const d = res.data;
+  if (!d || d.years.length === 0) return null;
+  const latest = d.years.at(-1)!;
+  const verdict = (y: Score) => {
+    if (y.satelliteBp === null) return "";
+    const vs = [
+      y.ibovespaBp !== null ? (y.satelliteBp >= y.ibovespaBp ? "ahead of the Ibovespa" : "behind the Ibovespa") : null,
+      y.cdiBp !== null ? (y.satelliteBp >= y.cdiBp ? "ahead of CDI" : "behind CDI") : null,
+    ].filter(Boolean);
+    return vs.join(" and ");
+  };
+  const v = verdict(latest);
+  const title = v ? `${v.charAt(0).toUpperCase() + v.slice(1)} in ${latest.year}${latest.partial ? " so far" : ""}` : "Stock picks against the index";
+  const all = d.years.flatMap((y) => [y.satelliteBp, y.ibovespaBp, y.cdiBp]).filter((x): x is number => x !== null);
+  const max = Math.max(500, ...all.map(Math.abs));
+  const bars: { key: "satelliteBp" | "ibovespaBp" | "cdiBp"; label: string; color: string }[] = [
+    { key: "satelliteBp", label: "Your picks", color: "var(--note-1)" },
+    { key: "ibovespaBp", label: "Ibovespa", color: "var(--ink-muted)" },
+    { key: "cdiBp", label: "CDI", color: "var(--rule-strong)" },
+  ];
+  return (
+    <Panel
+      title={title}
+      footer={`The Brazilian stocks class, with money put in counted half the year, against the Ibovespa's price and CDI.${d.ibovespa ? "" : " Ibovespa quotes need LASTRO_BRAPI_TOKEN."} In January, decide whether the satellite stays.`}
+    >
+      <div className="flex flex-col gap-4">
+        {d.years.map((y) => (
+          <div key={y.year} className="flex flex-col gap-1.5">
+            <span className="flex items-baseline gap-2">
+              <span className="font-figure text-[14px] font-medium">{y.year}</span>
+              {y.partial && (
+                <span className="type-caption text-ink-muted">
+                  {formatDay(y.from)} to {formatDay(y.to)}
+                </span>
+              )}
+            </span>
+            {bars.map((b) => {
+              const bp = y[b.key];
+              return (
+                <div key={b.key} className="grid grid-cols-[80px_minmax(0,1fr)_64px] items-center gap-2">
+                  <span className="type-caption text-ink-muted">{b.label}</span>
+                  <span className="relative h-3">
+                    <span className="absolute inset-y-0 left-1/2 w-px bg-rule-strong" aria-hidden />
+                    {bp !== null && (
+                      <span
+                        className="absolute inset-y-0.5 rounded-xs"
+                        style={{
+                          background: bp < 0 ? "var(--danger)" : b.color,
+                          left: bp >= 0 ? "50%" : `${50 - (Math.abs(bp) / max) * 50}%`,
+                          width: `${(Math.abs(bp) / max) * 50}%`,
+                        }}
+                      />
+                    )}
+                  </span>
+                  <span className={cn("text-right type-figure-sm", bp !== null && bp < 0 ? "text-danger" : "text-ink")}>
+                    {bp === null ? "—" : formatPercent(bp, { sign: "always" })}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </Panel>
   );
 }

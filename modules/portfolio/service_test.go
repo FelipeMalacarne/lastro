@@ -119,6 +119,16 @@ func TestPortfolio(t *testing.T) {
 	if err := s.DecidePurchase(ctx, pv.ID, Cancelled, ""); !errors.Is(err, ErrDecided) {
 		t.Errorf("decided twice: %v", err)
 	}
+	// The satellite in 2026: R$ 10.000 grew to R$ 18.000 with R$ 6.000 added
+	// (50 WEGE3 at R$ 120): 2.000 on 13.000, counting the 6.000 half the year.
+	sb, err := s.Scoreboard(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sb.Years) != 1 || sb.Years[0].Year != 2026 || sb.Years[0].SatelliteBp == nil || *sb.Years[0].SatelliteBp != 1538 || sb.Ibovespa {
+		t.Errorf("scoreboard %+v", sb)
+	}
+
 	if err := s.SetTargets(ctx, map[Class]money.Percent{ClassCDI: money.FromBps(5000)}, 200); !errors.Is(err, ErrInvalid) {
 		t.Errorf("targets at 50%%: %v", err)
 	}

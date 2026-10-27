@@ -169,7 +169,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - [ ] Price history chart per stock and ETF.
 - [ ] Valuation metrics per stock (P/E, P/B, dividend yield), with their history.
 - [ ] Dividends received, per stock and per year.
-- [ ] Yearly scoreboard: the satellite's return against the Ibovespa and against CDI.
+- [x] Yearly scoreboard: the satellite's return against the Ibovespa and against CDI.
 
 **P2**
 - [ ] Price alerts (e.g. a stock falls more than X% in a day).

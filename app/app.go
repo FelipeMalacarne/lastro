@@ -107,7 +107,7 @@ func (a *App) RefreshMarket(ctx context.Context, extra ...string) (market.Report
 	if err != nil {
 		return market.Report{}, err
 	}
-	rep, merr := a.Market.Refresh(ctx, append(held, extra...))
+	rep, merr := a.Market.Refresh(ctx, append(append(held, portfolio.Ibovespa), extra...))
 	// The day is valued even without new prices: the banks' values stand.
 	if _, err := a.Portfolio.Valuate(ctx, a.Portfolio.Today()); err != nil {
 		return rep, err

@@ -85,7 +85,7 @@ Every transaction has a category or is waiting in the review queue, and every co
 ## M5: planning and insights (F8, F9, F10)
 
 - [x] Projection with monthly contributions and real interest rate, in pessimistic, base and optimistic scenarios
-- [ ] Yearly scoreboard of the stock picks against the Ibovespa and CDI
+- [x] Yearly scoreboard of the stock picks against the Ibovespa and CDI
 - [ ] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (email or Telegram)
 - [x] Monte Carlo (optional)
 

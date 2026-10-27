@@ -28,6 +28,7 @@
 
 - `GET /api/v1/portfolio`: today's valuation (invested, basis, the month's change, twelve months put in, returns and return), net worth (cash, cards, invested, emergency fund), each class against its target and band with its twelve-month return, the growth by month, CDI and IPCA over the same months, the holdings and the theses with days to the next report.
 - `GET /api/v1/net-worth?months=12`: the stored net worth per day, and today's.
+- `GET /api/v1/scoreboard`: each calendar year of the Brazilian stocks class (the satellite) against the Ibovespa (`^BVSP` at brapi, which needs `LASTRO_BRAPI_TOKEN`) and CDI, from the stored valuations.
 - `PUT /api/v1/portfolio/targets` `{"targets": {"cdi": 2500, ...}, "bandBp": 200}`: 400 unless they add up to 100%.
 - `PATCH /api/v1/positions/{id}` `{"class": "ipca" | "", "emergency": true}`: `""` goes back to the automatic class.
 - `GET /api/v1/contribute?amount=300000`: the split, with each class's weight before and after and a suggestion of what to buy.
