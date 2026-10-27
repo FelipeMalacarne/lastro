@@ -43,6 +43,8 @@ linters:
           list-mode: lax
           files:
             - "**/cmd/lastro/**"
+            # Tests may reach the server: they check the client against it.
+            - "!$test"
           deny:
             - pkg: "lastro/app"
               desc: "the client talks to the server through the API, never in process"

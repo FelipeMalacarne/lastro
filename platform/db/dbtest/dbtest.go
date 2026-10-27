@@ -36,6 +36,18 @@ var (
 // New returns a pool to a fresh database, closed when the test ends.
 func New(t testing.TB) *pgxpool.Pool {
 	t.Helper()
+	pool, err := db.Open(context.Background(), NewURL(t))
+	if err != nil {
+		t.Fatalf("dbtest: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// NewURL creates a fresh database and returns its connection string, for
+// tests that open their own pool (the whole app, through app.New).
+func NewURL(t testing.TB) string {
+	t.Helper()
 	once.Do(start)
 	if startErr != nil {
 		t.Fatalf("dbtest: %v", startErr)
@@ -52,12 +64,7 @@ func New(t testing.TB) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("dbtest: create database: %v", err)
 	}
-	pool, err := db.Open(ctx, fmt.Sprintf(baseURL, name))
-	if err != nil {
-		t.Fatalf("dbtest: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
+	return fmt.Sprintf(baseURL, name)
 }
 
 func start() {

@@ -3,7 +3,6 @@
 //
 //	lastrod serve        API + embedded frontend
 //	lastrod sync         pull accounts and transactions from Pluggy
-//	lastrod contribute   show where this month's contribution should go (moves to the client)
 //	lastrod market       refresh CDI, IPCA, Tesouro Direto and quotes
 //	lastrod migrate      apply pending migrations
 //	lastrod fixtures     download Pluggy responses and anonymize them into test fixtures
@@ -37,7 +36,6 @@ func commands() []command {
 	return []command{
 		{"serve", "start the API and the embedded frontend", runServe},
 		{"sync", "pull accounts and transactions from Pluggy", runSync},
-		{"contribute", "show where this month's contribution should go", runContribute},
 		{"market", "refresh CDI, IPCA, Tesouro Direto and the quotes of what is held", runMarket},
 		{"migrate", "apply pending migrations", runMigrate},
 		{"fixtures", "download Pluggy responses and anonymize them into test fixtures", runFixtures},

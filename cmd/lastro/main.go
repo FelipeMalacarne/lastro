@@ -2,11 +2,15 @@
 // server through its HTTP API; the work that runs against the database
 // belongs to lastrod.
 //
-//	lastro version      print the version
+//	lastro connect <url>   point at a server and sign in (device flow)
+//	lastro whoami          who the server sees
+//	lastro disconnect      forget the server and the token
+//	lastro sync            sync on the server and follow it
+//	lastro contribute      where this month's contribution should go
+//	lastro version         print the version
 //
-// connect, sync and contribute arrive with M7. Like lastrod, the CLI uses only
-// the standard library, and depguard keeps it out of app, the modules and
-// platform.
+// The flags are the standard library's, and depguard keeps the CLI out of
+// app, the modules and platform.
 package main
 
 import (
@@ -30,6 +34,11 @@ type command struct {
 
 func commands() []command {
 	return []command{
+		{"connect", "point at a lastro server and sign in: lastro connect <url>", runConnect},
+		{"whoami", "show the server and who it sees", runWhoami},
+		{"disconnect", "forget the server and the token", runDisconnect},
+		{"sync", "sync the banks on the server and follow it (--detach to not wait)", runSync},
+		{"contribute", "show where this month's contribution should go (--amount 3000)", runContribute},
 		{"version", "print the version", runVersion},
 	}
 }

@@ -16,7 +16,7 @@ Two binaries, from the same module and the same repository:
 
 | Binary | Where it runs | Commands |
 |---|---|---|
-| `lastrod` | the image: Deployment, CronJob, initContainer, and dev | `serve`, `sync`, `market`, `migrate`, `fixtures`, `seed`, `version`; `contribute` until the client has it |
+| `lastrod` | the image: Deployment, CronJob, initContainer, and dev | `serve`, `sync`, `market`, `migrate`, `fixtures`, `seed`, `version` |
 | `lastro` | my laptop, and later anywhere | `connect`, `disconnect`, `whoami`, `sync`, `contribute`, `version`, and whatever else gains an endpoint |
 
 - **`lastro` is always a client.** Every command goes through the HTTP API, with the token from `lastro connect`, and is subject to the same authentication and permissions as the web app, the app and MCP. In dev it connects to `http://localhost:8080`, where auth is disabled.
