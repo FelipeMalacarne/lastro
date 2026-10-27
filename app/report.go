@@ -35,7 +35,12 @@ type ReportView struct {
 	NetWorthStartCents *int64 `json:"netWorthStartCents"`
 	NetWorthEndCents   *int64 `json:"netWorthEndCents"`
 	PutInCents         *int64 `json:"putInCents"`     // into investments, net of what was taken out
+	ReturnsCents       *int64 `json:"returnsCents"`   // what the investments earned in the month
 	DividendsCents     int64  `json:"dividendsCents"` // paid in the month
+	// OffTarget is the class furthest under its target now, and by how many
+	// basis points; empty when every class is on its target.
+	OffTarget    string `json:"offTarget"`
+	OffTargetBps int64  `json:"offTargetBps"`
 }
 
 // ReportCategory is a limited category's month.
@@ -48,17 +53,20 @@ type ReportCategory struct {
 
 // reportInput is what the modules said about the month.
 type reportInput struct {
-	month     budget.Month
-	today     time.Time
-	view      budget.MonthView
-	prev      *budget.MonthView
-	names     map[string]string
-	recurring budget.RecurringView
-	waiting   int
-	start     *money.Money // net worth at the end of the month before
-	end       *money.Money
-	putIn     *money.Money
-	dividends int64
+	month        budget.Month
+	today        time.Time
+	view         budget.MonthView
+	prev         *budget.MonthView
+	names        map[string]string
+	recurring    budget.RecurringView
+	waiting      int
+	start        *money.Money // net worth at the end of the month before
+	end          *money.Money
+	putIn        *money.Money
+	returns      *money.Money
+	dividends    int64
+	offTarget    string
+	offTargetBps int64
 }
 
 // buildReport turns what the modules said into the report: plain words,
@@ -117,6 +125,11 @@ func buildReport(in reportInput) ReportView {
 		p := in.putIn.Cents()
 		r.PutInCents = &p
 	}
+	if in.returns != nil {
+		x := in.returns.Cents()
+		r.ReturnsCents = &x
+	}
+	r.OffTarget, r.OffTargetBps = in.offTarget, in.offTargetBps
 
 	var parts []string
 	if r.IncomeCents > 0 {
@@ -234,6 +247,18 @@ func (a *App) Report(ctx context.Context, m budget.Month) (ReportView, error) {
 			in.start = &s
 			p := money.BRLCents(points[*end].BasisCents - points[*start].BasisCents)
 			in.putIn = &p
+			// Invested and the emergency fund are what the basis covers.
+			last, first := points[*end], points[*start]
+			ret := money.BRLCents((last.InvestedCents + last.EmergencyCents - first.InvestedCents - first.EmergencyCents) - p.Cents())
+			in.returns = &ret
+		}
+	}
+	if o, err := a.Portfolio.Overview(ctx); err == nil {
+		for _, c := range o.Classes {
+			// Under half a point is on target, for the report's purpose.
+			if gap := c.TargetBp - c.NowBp; gap >= 50 && gap > in.offTargetBps {
+				in.offTarget, in.offTargetBps = c.Class.Name(), gap
+			}
 		}
 	}
 	div, err := a.Portfolio.Dividends(ctx)

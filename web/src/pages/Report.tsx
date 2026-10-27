@@ -23,7 +23,10 @@ type ReportView = {
   netWorthStartCents: number | null;
   netWorthEndCents: number | null;
   putInCents: number | null;
+  returnsCents: number | null;
   dividendsCents: number;
+  offTarget: string;
+  offTargetBps: number;
 };
 
 /** A month in review (F10; canvas: "Month in review"). */
@@ -113,12 +116,18 @@ export function Report() {
                 <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[14px] leading-5">
                   <dt className="text-ink-muted">Put in</dt>
                   <dd className="m-0 text-right font-figure">{d.putInCents === null ? "—" : formatBRL(d.putInCents)}</dd>
+                  <dt className="text-ink-muted">Returns</dt>
+                  <dd className="m-0 text-right font-figure">{d.returnsCents === null ? "—" : formatBRL(d.returnsCents, { sign: "always" })}</dd>
                   <dt className="text-ink-muted">Net worth change</dt>
                   <dd className="m-0 text-right font-figure">
                     {d.netWorthStartCents === null || d.netWorthEndCents === null ? "—" : formatBRL(d.netWorthEndCents - d.netWorthStartCents, { sign: "always" })}
                   </dd>
                   <dt className="text-ink-muted">Dividends paid</dt>
                   <dd className="m-0 text-right font-figure">{formatBRL(d.dividendsCents)}</dd>
+                  <dt className="text-ink-muted">Furthest off target</dt>
+                  <dd className="m-0 text-right">
+                    {d.offTarget ? `${d.offTarget}, ${formatPercent(d.offTargetBps).replace("%", "")} points under, today` : "Every class on target"}
+                  </dd>
                 </dl>
               </Panel>
             </div>

@@ -175,6 +175,9 @@ export function ValuationLine({ ticker }: { ticker: string }) {
 /** The fall in a day that raises an alert for a ticker (F8 P2). */
 export function PriceAlert({ ticker }: { ticker: string }) {
   const alerts = useResource<{ alerts: Record<string, number> }>("/api/v1/price-alerts").data?.alerts;
+  const closes = useResource<{ closes: { date: string; closeCents: number }[] }>(`/api/v1/quotes/${encodeURIComponent(ticker)}?months=1`).data?.closes ?? [];
+  const [prev, last] = closes.slice(-2);
+  const lastMove = prev && last && prev.closeCents > 0 ? Math.round(((last.closeCents - prev.closeCents) * 10000) / prev.closeCents) : null;
   const current = alerts?.[ticker];
   const [text, setText] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
@@ -228,7 +231,14 @@ export function PriceAlert({ ticker }: { ticker: string }) {
         )}
       </div>
       <span className="type-caption text-ink-muted">
-        {msg ?? (valid ? "It shows on the dashboard with the thesis and goes to Telegram once." : "Between 0,5% and 50%.")}
+        {msg ??
+          (valid
+            ? `It shows on the dashboard with the thesis and goes to Telegram once.${
+                lastMove !== null && last
+                  ? ` Last close: ${formatPercent(lastMove, { sign: "always" })} on ${formatDay(last.date)}${current !== undefined && -lastMove >= current ? ", over the alert" : ""}.`
+                  : ""
+              }`
+            : "Between 0,5% and 50%.")}
       </span>
     </form>
   );

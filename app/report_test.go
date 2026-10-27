@@ -32,6 +32,7 @@ func TestBuildReport(t *testing.T) {
 		waiting: 3,
 		start:   cents(28019772), end: cents(28711012), putIn: cents(400000),
 		dividends: 11240,
+		returns:   cents(291240), offTarget: "IPCA+", offTargetBps: 300,
 	}
 	r := buildReport(in)
 	if !r.Over || r.SpendingChangeBp == nil || *r.SpendingChangeBp != -600 {
@@ -43,6 +44,9 @@ func TestBuildReport(t *testing.T) {
 	}
 	if len(r.Notes) != 4 || !strings.HasPrefix(r.Notes[0], "Restaurants went R$ 204,30 over") || !strings.Contains(r.Notes[1], "Duolingo") || !strings.Contains(r.Notes[2], "Netflix went up") {
 		t.Errorf("notes: %q (Spotify is not new in September)", r.Notes)
+	}
+	if r.ReturnsCents == nil || *r.ReturnsCents != 291240 || r.OffTarget != "IPCA+" || r.OffTargetBps != 300 {
+		t.Errorf("investments: %+v", r)
 	}
 	if r.Categories[0].Name != "Restaurants" {
 		t.Errorf("the most used limit first: %+v", r.Categories)
