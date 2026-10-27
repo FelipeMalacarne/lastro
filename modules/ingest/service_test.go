@@ -4,6 +4,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -181,7 +182,7 @@ func TestOnlyOneSyncAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if _, err := s.Sync(ctx, SyncOptions{}); err != ErrSyncRunning {
+	if _, err := s.Sync(ctx, SyncOptions{}); !errors.Is(err, ErrSyncRunning) {
 		t.Fatalf("want ErrSyncRunning, got %v", err)
 	}
 }
