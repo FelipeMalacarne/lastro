@@ -7,8 +7,8 @@
 ## Concepts
 
 - `Portfolio` (aggregate): positions per asset class (CDI, global stocks, IPCA+, Brazilian stocks) plus the emergency fund.
-- Value objects: `Ticker` (validates the B3 format and normalizes the odd-lot ticker: ITUB4F becomes ITUB4), `Quantity`, `Allocation` (weights as `money.Percent`).
-- `ContributionPlanner` (domain service): takes positions, the target allocation and the contribution amount, and returns how much goes to each class.
+- Value objects: `Ticker` (validates the B3 format and normalizes the odd-lot ticker: ITUB4F becomes ITUB4), `Quantity` (in millionths, since banks report fractions), `Class` (CDI, IPCA+, Brazilian stocks, global stocks), `Allocation` (target weights as `money.Percent`) and `Band` (how far a class may drift from its target).
+- `PlanContribution` (the contribution planner, a domain service): takes each class's value, the targets, the band and the amount. Classes below their band come first, up to the band's lower edge; what is left goes to every class under its target in proportion to its gap; once every gap is closed, the rest follows the targets. A class above its target gets nothing.
 - `Thesis`: the one-line thesis for each stock and what would break it.
 
 ## Invariants

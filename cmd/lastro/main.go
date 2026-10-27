@@ -36,6 +36,7 @@ func commands() []command {
 		{"serve", "start the API and the embedded frontend", runServe},
 		{"sync", "pull accounts and transactions from Pluggy", runSync},
 		{"contribute", "show where this month's contribution should go", runContribute},
+		{"market", "refresh CDI, IPCA, Tesouro Direto and the quotes of what is held", runMarket},
 		{"migrate", "apply pending migrations", runMigrate},
 		{"fixtures", "download Pluggy responses and anonymize them into test fixtures", runFixtures},
 		{"seed", "fill a dev database with fourteen months of made-up money (LASTRO_ENV=dev only)", runSeed},

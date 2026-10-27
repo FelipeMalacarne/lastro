@@ -133,3 +133,29 @@ type LedgerTransaction struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
+
+type MarketBond struct {
+	Name       string
+	Maturity   time.Time
+	Date       time.Time
+	BuyRateBp  int32
+	PriceCents int64
+	FetchedAt  time.Time
+}
+
+type MarketQuote struct {
+	Symbol     string
+	Date       time.Time
+	CloseCents int64
+	Currency   string
+	Source     string
+	FetchedAt  time.Time
+}
+
+type MarketRate struct {
+	Series    string
+	Date      time.Time
+	RatePpb   int64
+	Source    string
+	FetchedAt time.Time
+}

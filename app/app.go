@@ -16,6 +16,7 @@ import (
 	"lastro/modules/categorize"
 	"lastro/modules/ingest"
 	"lastro/modules/ledger"
+	"lastro/modules/market"
 	"lastro/platform/auth"
 	"lastro/platform/config"
 	"lastro/platform/db"
@@ -41,6 +42,7 @@ type App struct {
 	Ingest     *ingest.Service
 	Categorize *categorize.Service
 	Budget     *budget.Service
+	Market     *market.Service
 }
 
 // New wires the app. The caller is responsible for calling Close.
@@ -71,6 +73,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Bus, logger)
 	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
 	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
+	series, quotes, bonds := market.Sources(cfg.BrapiToken)
+	a.Market = market.New(market.NewRepository(pool), series, quotes, bonds, logger)
 
 	// The rules categorize each import as it commits. After every sync they
 	// also reach whatever is still without a category: transactions imported
@@ -87,6 +91,12 @@ func (a *App) categorizeAfterSync(ctx context.Context, _ ingest.SyncCompleted) e
 		a.Logger.InfoContext(ctx, "categorized by rules after the sync", "transactions", n)
 	}
 	return err
+}
+
+// RefreshMarket brings the indices, Tesouro Direto and the quotes of every
+// ticker held up to date, plus any extra symbols.
+func (a *App) RefreshMarket(ctx context.Context, extra ...string) (market.Report, error) {
+	return a.Market.Refresh(ctx, extra)
 }
 
 // NewLogger uses readable text in dev and JSON in prod.
@@ -123,6 +133,7 @@ func (a *App) Handler() http.Handler {
 	a.Ingest.RegisterRoutes(api, a.Logger)
 	a.Categorize.RegisterRoutes(api, a.Logger)
 	a.Budget.RegisterRoutes(api, a.Logger)
+	a.Market.RegisterRoutes(api, a.Logger)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", httpx.Healthz())
