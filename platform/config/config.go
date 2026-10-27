@@ -72,7 +72,7 @@ func (p Pluggy) Validate() error {
 }
 
 // LoadPluggy reads and validates only the Pluggy settings, for commands that
-// talk to Pluggy without a database (lastro fixtures).
+// talk to Pluggy without a database (lastrod fixtures).
 func LoadPluggy() (Pluggy, error) {
 	p := pluggyFrom(func(key, def string) string { return cmp.Or(strings.TrimSpace(os.Getenv(key)), def) })
 	return p, p.Validate()

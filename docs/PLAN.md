@@ -107,15 +107,15 @@ After M6, a design audit against the canvas added what the boards drew and the s
 
 lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clients that are not a browser: the CLI on my laptop, Claude through MCP and, later, a phone app. Boxes marked "gielinor" are done in that repository.
 
+- [x] Split the binaries (ADR-0010): `cmd/lastrod` with `serve`, `sync`, `contribute`, `market`, `migrate`, `fixtures` and `seed`; `cmd/lastro` as a client, kept out of `app`, the modules and `platform` by depguard; Dockerfile, Taskfile, `AGENTS.md` and the READMEs follow
 - [ ] Spike: Zitadel in the dev compose (`task idp`), with the `lastro` project and its applications provisioned from code. It confirms what ADR-0008 lists: `aud` and the roles claim in JWT access tokens, the device flow, and Claude finishing the flow with a pre-registered client. ADR-0008 and ADR-0009 are then accepted or revised
 - [ ] gielinor: Zitadel on saradomin (namespace, a database on `postgres-main` inside its backup, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off, recovery codes in Vaultwarden
 - [ ] `platform/auth`: generic OIDC verifier (discovery, JWKS, RS256 and ES256, issuer, audience, owner role), `Identity` with the client and its permission, `read` for `GET` and `write` for the rest. Cloudflare Access stays as a second issuer until the switch
 - [ ] `/.well-known/oauth-protected-resource` and `WWW-Authenticate` on `401`
 - [ ] Web login through a BFF: `/auth/login`, `/auth/callback`, `/auth/logout`, sessions in the `auth` schema, and the screen for a signed-out or expired session (on the canvas first)
 - [ ] Switch saradomin to Zitadel: Access application out of gielinor's Terraform, the Cloudflare Access verifier removed, ADR-0004 superseded, `AGENTS.md` security section updated
-- [ ] Split the binaries (ADR-0010): `cmd/lastrod` with `serve`, `sync`, `market`, `migrate`, `fixtures` and `seed`; `cmd/lastro` as a client, kept out of `app` and the modules by depguard; Dockerfile, Kustomize, Taskfile, `AGENTS.md` and README follow
 - [ ] `lastro connect <url>`: discovery from the protected resource metadata, the device flow, tokens in `~/.config/lastro` (0600) with refresh, plus `lastro disconnect` and `lastro whoami`
-- [ ] Client commands: `lastro sync` (starts a sync on the server and follows it) and `lastro contribute`, with the integration test that runs the client against `app.Handler()`
+- [ ] Client commands: `lastro sync` (starts a sync on the server and follows it) and `lastro contribute`, which then leaves `lastrod` (the Contribute screen's terminal panel already says `lastro contribute`), with the integration test that runs the client against `app.Handler()`
 - [ ] `/mcp`, read-only: month summary, budget state, transactions with filters, portfolio and allocation, contribution plan. `lastro-claude` pre-registered, and the connector in use from the phone
 
 ## Parked

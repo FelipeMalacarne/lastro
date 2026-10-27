@@ -30,7 +30,8 @@ M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (t
 ## Repo map
 
 ```
-cmd/lastro/      CLI: serve, sync, contribute, migrate, fixtures, seed (dev data), version
+cmd/lastrod/     the server: serve, sync, contribute, market, migrate, fixtures, seed (dev data), version
+cmd/lastro/      the client: talks only to the HTTP API, never to app, modules or platform (ADR-0010)
 app/             composition root: the only place that knows every module
 modules/<name>/  one Go package per module (ledger, ingest, categorize, budget, market, portfolio, planning)
 money/           shared kernel: Money and Percent

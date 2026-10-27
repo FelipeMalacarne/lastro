@@ -94,7 +94,7 @@ type ThesisView struct {
 	ValueCents   int64   `json:"valueCents"`
 }
 
-// PlanView is the Contribute screen and lastro contribute.
+// PlanView is the Contribute screen and lastrod contribute.
 type PlanView struct {
 	AmountCents int64       `json:"amountCents"`
 	TotalCents  int64       `json:"totalCents"`

@@ -21,17 +21,22 @@ To run it the way the cluster does (one container with the embedded frontend, mi
 
 Opening `http://localhost:5173` should show "Signed in as dev@localhost".
 
-## Binary commands
+## Binaries
+
+Two binaries ([ADR-0010](docs/adr/0010-client-cli-and-server-binary.md)). `lastrod` is the server: it runs in the image and works against the database.
 
 ```
-lastro serve        API + embedded frontend
-lastro sync         pull accounts and transactions from Pluggy (--full for the whole history, --reprocess to rebuild from stored payloads)
-lastro contribute   show where this month's contribution should go
-lastro migrate      apply pending migrations
-lastro seed         fill a dev database with fourteen months of made-up money (LASTRO_ENV=dev only)
-lastro fixtures     download Pluggy responses, print a report safe to share and anonymize them into test fixtures
-lastro version      print the version
+lastrod serve        API + embedded frontend
+lastrod sync         pull accounts and transactions from Pluggy (--full for the whole history, --reprocess to rebuild from stored payloads)
+lastrod contribute   show where this month's contribution should go (moves to the client)
+lastrod market       refresh CDI, IPCA, Tesouro Direto and the quotes of what is held (--symbols for more)
+lastrod migrate      apply pending migrations
+lastrod seed         fill a dev database with fourteen months of made-up money (LASTRO_ENV=dev only)
+lastrod fixtures     download Pluggy responses, print a report safe to share and anonymize them into test fixtures
+lastrod version      print the version
 ```
+
+`lastro` is the client: every command goes through the HTTP API of a server. For now it only has `version`; `connect`, `sync` and `contribute` arrive with M7.
 
 ## Configuration
 
@@ -54,14 +59,15 @@ The app is served at `https://lastro.ftm.dev.br`, through the saradomin Cloudfla
 2. Argo CD on saradomin follows that overlay on `main`, so the new image goes live without further steps.
 3. The cluster side lives in the [gielinor](https://github.com/FelipeMalacarne/gielinor) repository, in `clusters/saradomin/apps/lastro`. It holds the Argo CD `Application`, the `lastro` namespace and the SOPS-encrypted `lastro-secrets`. The database is `lastro` on saradomin's shared CloudNativePG cluster, `postgres-main` in `clusters/saradomin/apps/postgres`. The tunnel route, DNS record and Access application are in its `terraform/cloudflare/main.tf`. Its README there lists the steps to turn it on.
 
-The Deployment runs `lastro migrate` as an initContainer before `lastro serve`. The sync CronJob runs `lastro sync` four times a day. "Sync now" in the app (the sidebar, the Dashboard and Settings) runs the same sync inside `lastro serve`, one at a time: `POST /api/v1/sync` starts it (409 while one runs, 503 without Pluggy credentials) and `GET /api/v1/sync` reports how it went.
+The image holds only `lastrod`. The Deployment runs `lastrod migrate` as an initContainer before `lastrod serve`. The sync CronJob runs `lastrod sync` four times a day. "Sync now" in the app (the sidebar, the Dashboard and Settings) runs the same sync inside `lastrod serve`, one at a time: `POST /api/v1/sync` starts it (409 while one runs, 503 without Pluggy credentials) and `GET /api/v1/sync` reports how it went.
 
 ## Architecture
 
 A modular monolith in Go with pragmatic DDD. The rules are in [`AGENTS.md`](AGENTS.md) and the decisions in [`docs/adr/`](docs/adr/). Each module has a README with its responsibilities, invariants and events.
 
 ```
-cmd/lastro/   CLI          modules/   ledger, ingest, categorize, budget, market, portfolio, planning
-app/          wiring       money/     Money and Percent
-platform/     infra        web/       embedded React
+cmd/lastrod/  server       modules/   ledger, ingest, categorize, budget, market, portfolio, planning
+cmd/lastro/   client       money/     Money and Percent
+app/          wiring       web/       embedded React
+platform/     infra
 ```

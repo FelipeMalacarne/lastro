@@ -13,7 +13,7 @@
 
 ## Refresh
 
-`Refresh(symbols)` reads only what is new: CDI and IPCA from the day after the last stored (two years back the first time), each symbol's closes (two years the first time, the last days after), and Tesouro Direto's latest day. A source that fails is logged and named in the report; it never stops the others. `lastro sync` refreshes after every sync with the tickers held, and `lastro market --symbols PETR4,IVVB11` does it by hand.
+`Refresh(symbols)` reads only what is new: CDI and IPCA from the day after the last stored (two years back the first time), each symbol's closes (two years the first time, the last days after), and Tesouro Direto's latest day. A source that fails is logged and named in the report; it never stops the others. `lastrod sync` refreshes after every sync with the tickers held, and `lastrod market --symbols PETR4,IVVB11` does it by hand.
 
 After each symbol's closes, its fundamentals and dividends are read once a day (`fundamental=true&dividends=true`, with the key statistics module when the plan has it; brapi refuses it on the free plan, so the request is made again without it). A failure there is logged and never fails the refresh. `Record` stores closes, dividends and fundamentals that did not come from a refresh (the dev seed's).
 

@@ -8,7 +8,7 @@ import (
 	"lastro/modules/ledger"
 )
 
-// The anonymized dump of a real MeuPluggy connection (lastro fixtures):
+// The anonymized dump of a real MeuPluggy connection (lastrod fixtures):
 // whatever the mapping and the matcher do with it is what they will do with
 // my accounts.
 func TestMeuPluggyFixtures(t *testing.T) {
