@@ -15,7 +15,7 @@ import (
 type DividendsView struct {
 	Since        *string             `json:"since"` // the first day lastro knew the holdings
 	YearCents    int64               `json:"yearCents"`
-	ValueCents   int64               `json:"valueCents"` // what the shares are worth today
+	ValueCents   int64               `json:"valueCents"` // what the tickers that pay are worth today
 	Years        []DividendYearView  `json:"years"`
 	Tickers      []DividendStockView `json:"tickers"`
 	ForwardCents int64               `json:"forwardCents"` // the last 12 months per share at today's quantities
@@ -115,7 +115,8 @@ func (s *Service) Dividends(ctx context.Context) (DividendsView, error) {
 	for _, x := range current {
 		ds := divs[x.Ticker]
 		q, ok := quotes[x.Ticker]
-		if ok {
+		if ok && len(ds) > 0 {
+			// The share's base is what pays: an ETF that reinvests would dilute it.
 			v.ValueCents += x.Quantity.Of(q.Close).Cents()
 		}
 		if len(ds) == 0 {

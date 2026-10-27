@@ -71,13 +71,6 @@ export function Portfolio() {
           </>
         }
       />
-      <div className="lg:hidden">
-        <Button asChild variant="primary" className="w-full">
-          <Link to="/contribute">
-            <PiggyBank className="size-4" aria-hidden /> Where to contribute
-          </Link>
-        </Button>
-      </div>
       {new Date().getMonth() === 0 && (
         <Notice tone="warning" title="January: review the targets." action={<Button asChild variant="ghost" size="sm"><Link to="/settings#investments">Review</Link></Button>}>
           Once a year, before the first contribution, check that the allocation still fits your plans.
@@ -118,7 +111,7 @@ function Hero({ v }: { v: PortfolioOverview }) {
             <Amount cents={v.investedCents} size="hero" sign="none" />
             {v.monthDeltaCents !== null && (
               <span className={cn("type-caption", v.monthDeltaCents >= 0 ? "text-inflow" : "text-warning")}>
-                {formatBRL(v.monthDeltaCents, { sign: "always" })} in the last month
+                {formatBRL(v.monthDeltaCents, { sign: "always" })} in returns since {v.monthFrom ? formatDay(v.monthFrom) : "a month ago"}
               </span>
             )}
           </div>
@@ -425,7 +418,7 @@ function Positions({ v }: { v: PortfolioOverview }) {
   ].filter((g) => g.rows.length > 0);
   const cols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_140px_110px_120px_72px]";
   return (
-    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. “Since bought” is a position’s gain over what it cost; the class returns above cover the last twelve months. Click a position to move it to another class or to the emergency fund, or to see a stock's prices.">
+    <Panel title="Positions" bodyClassName="-mx-5" footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. “Since bought” is a position’s gain over what it cost; the class returns above cover the same period as the chart. Select a position to move it to another class or to the emergency fund, or to see a stock's prices.">
       <div role="table" aria-label="Positions by class">
         <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", cols)}>
           <span role="columnheader">Asset</span>
@@ -749,7 +742,7 @@ function Scoreboard() {
               <span className="font-figure text-[14px] font-medium">{y.year}</span>
               {y.partial && (
                 <span className="type-caption text-ink-muted">
-                  {formatDay(y.from)} to {formatDay(y.to)}
+                  {formatDay(dayAfter(y.from))} to {formatDay(y.to)}
                 </span>
               )}
             </span>
@@ -782,4 +775,11 @@ function Scoreboard() {
       </div>
     </Panel>
   );
+}
+
+/** "2025-12-31" → "2026-01-01": a period measured from a valuation starts the day after it. */
+function dayAfter(d: string): string {
+  const t = new Date(d + "T12:00:00Z");
+  t.setUTCDate(t.getUTCDate() + 1);
+  return t.toISOString().slice(0, 10);
 }

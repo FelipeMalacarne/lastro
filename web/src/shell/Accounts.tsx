@@ -1,7 +1,6 @@
 import { ChevronRight } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
-import { Panel } from "@/components/Panel";
 import { SyncStatus } from "@/components/SyncStatus";
 import { typeName, useResource, type Account, type Connection } from "@/lib/api";
 import { formatBRL } from "@/lib/format";
@@ -62,7 +61,7 @@ export function SidebarAccounts() {
                   here ? "bg-tinta-soft font-semibold text-tinta hover:text-tinta" : "text-ink-muted hover:bg-paper-sunken hover:text-ink",
                 )}
               >
-                <span className="truncate">{a.manual ? a.name : a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
+                <span className="truncate" title={a.manual ? a.name : undefined}>{a.manual ? a.name : a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
                 <Amount cents={a.balanceCents} size="sm" tone={here ? "ink" : "auto"} />
               </Link>
             );
@@ -77,8 +76,13 @@ export function SidebarAccounts() {
 export function AccountsPanel({ banks }: { banks: Bank[] }) {
   if (banks.length === 0) return null;
   return (
-    <Panel title="Accounts" className="lg:hidden">
-      <div className="flex flex-col gap-3">
+    // Folded by default, so the month and the list come first on a phone.
+    <details className="group rounded-md border border-rule bg-paper-raised lg:hidden">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-5 py-2 type-heading [&::-webkit-details-marker]:hidden">
+        Accounts · {banks.reduce((n, b) => n + b.accounts.length, 0)}
+        <ChevronRight className="size-4 text-ink-muted transition-transform group-open:rotate-90" aria-hidden />
+      </summary>
+      <div className="flex flex-col gap-3 px-5 pb-4">
         {banks.map((b, i) => (
           <div key={b.connection?.itemId ?? b.institution} className={i < banks.length - 1 ? "flex flex-col gap-1 border-b border-rule pb-3" : "flex flex-col gap-1"}>
             {b.manual ? (
@@ -102,6 +106,6 @@ export function AccountsPanel({ banks }: { banks: Bank[] }) {
           </div>
         ))}
       </div>
-    </Panel>
+    </details>
   );
 }

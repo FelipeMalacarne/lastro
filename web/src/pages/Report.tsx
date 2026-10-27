@@ -19,6 +19,7 @@ type ReportView = {
   prevSpentCents: number | null;
   spendingChangeBp: number | null;
   categories: { category: string; name: string; spentCents: number; availableCents: number }[];
+  unlimited: { category: string; name: string; spentCents: number }[];
   notes: string[];
   netWorthStartCents: number | null;
   netWorthEndCents: number | null;
@@ -58,7 +59,7 @@ export function Report() {
                   sign="always"
                   vs={d.spendingChangeBp === null ? undefined : `${formatPercent(d.spendingChangeBp, { sign: "always" })} vs ${prevName}`}
                 />
-                <Figure label="Put aside" cents={d.contributionCents} vs={d.incomeCents ? `${formatPercent(d.savingsRateBp)} kept` : undefined} />
+                <Figure label="Put aside" cents={d.contributionCents} vs={d.incomeCents ? `${formatPercent(Math.round((d.contributionCents * 10000) / d.incomeCents))} of income` : undefined} />
                 {d.netWorthEndCents !== null && (
                   <Figure
                     label="Net worth"
@@ -71,7 +72,7 @@ export function Report() {
           </Panel>
 
           <div className="flex flex-wrap items-start gap-4 lg:gap-6">
-            <Panel title="Against the limits" className="min-w-0 flex-[7_1_460px]" footer="Spent over what was available, rollover included. The fullest first.">
+            <Panel title="Against the limits" className="min-w-0 flex-[7_1_460px]" footer="Spent over what was available, rollover included, the fullest first; then spending in categories without a limit.">
               {d.categories.length === 0 ? (
                 <p className="m-0 type-body text-ink-muted">
                   No limits this month. <Link to="/budget">Set them on the Budget</Link>.
@@ -98,6 +99,20 @@ export function Report() {
                   })}
                 </div>
               )}
+              {d.unlimited.length > 0 && (
+                <div className="mt-4 flex flex-col gap-1.5 border-t border-rule pt-3">
+                  <span className="type-label text-ink-muted">Without a limit</span>
+                  {d.unlimited.map((u) => {
+                    const cat = u.category ? byId.get(u.category) : undefined;
+                    return (
+                      <div key={u.category || "none"} className="flex items-center justify-between gap-3">
+                        <CategoryTag name={cat?.name ?? u.name} color={cat?.color} />
+                        <span className="type-figure-sm">{formatBRL(u.spentCents)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </Panel>
 
             <div className="flex min-w-0 flex-[5_1_340px] flex-col gap-4 lg:gap-6">
@@ -112,7 +127,7 @@ export function Report() {
                   </ul>
                 )}
               </Panel>
-              <Panel title={`Investments in ${name.split(" ")[0]}`}>
+              <Panel title={`Investments in ${name.split(" ")[0]}`} footer="Invested money and the emergency fund together, as net worth counts them.">
                 <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[14px] leading-5">
                   <dt className="text-ink-muted">Put in</dt>
                   <dd className="m-0 text-right font-figure">{d.putInCents === null ? "—" : formatBRL(d.putInCents)}</dd>

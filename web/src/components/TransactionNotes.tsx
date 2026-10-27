@@ -243,7 +243,7 @@ export function TagsSection({ t }: { t: Transaction }) {
         {t.tags.map((tag) => (
           <span key={tag} className="inline-flex h-7 items-center gap-0.5 rounded-sm border border-rule-strong pr-0.5 pl-2 font-figure text-[12px]">
             #{tag}
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={`Remove the tag ${tag}`} onClick={() => void save(t.tags.filter((x) => x !== tag))}>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 pointer-coarse:h-9 pointer-coarse:w-9" aria-label={`Remove the tag ${tag}`} onClick={() => void save(t.tags.filter((x) => x !== tag))}>
               <X aria-hidden />
             </Button>
           </span>

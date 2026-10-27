@@ -8,7 +8,8 @@ type OverviewView struct {
 
 	InvestedCents   int64   `json:"investedCents"`
 	BasisCents      int64   `json:"basisCents"`
-	MonthDeltaCents *int64  `json:"monthDeltaCents"` // against a month ago, when there is a valuation then
+	MonthDeltaCents *int64  `json:"monthDeltaCents"` // returns since MonthFrom (about a month ago), money put in left out
+	MonthFrom       *string `json:"monthFrom"`
 	PutIn12mCents   *int64  `json:"putIn12mCents"`
 	Returns12mCents *int64  `json:"returns12mCents"`
 	Return12mBp     *int64  `json:"return12mBp"`

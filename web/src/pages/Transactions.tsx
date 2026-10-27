@@ -117,8 +117,11 @@ export function Transactions() {
   const currentCategory = category === "none" ? null : cats.byId.get(category);
   const monthName = formatMonth(month).split(" ")[0];
   const caption = list
-    ? `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
-      (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
+    ? everyMonth
+      ? `${list.summary.count} ${list.summary.count === 1 ? "match" : "matches"} for ${q ? `“${q}”` : `#${tag}`} in every month · ${formatBRL(-list.summary.outCents)} out` +
+        (list.summary.inCents ? ` · ${formatBRL(list.summary.inCents)} in` : "")
+      : `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
+        (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
     : undefined;
 
   const accounts = banks.flatMap((b) => b.accounts);
@@ -130,6 +133,7 @@ export function Transactions() {
       <PageHeader
         title="Transactions"
         caption={caption}
+        monthless={everyMonth}
         actions={
           waiting ? (
             <Button asChild variant="primary">
@@ -141,23 +145,11 @@ export function Transactions() {
         }
       />
 
-      {Boolean(waiting) && (
-        <Link
-          to="/review"
-          className="flex items-center justify-between gap-3 rounded-md bg-warning-soft px-3.5 py-2.5 text-[14px] leading-5 text-ink no-underline lg:hidden"
-        >
-          <span>
-            <strong className="font-semibold">{waiting} to review.</strong> One choice settles a whole merchant.
-          </span>
-          <span className="font-semibold text-tinta">Start</span>
-        </Link>
-      )}
-
       <SyncNotice banks={banks} />
 
       <AccountsPanel banks={banks} />
 
-      <MonthOverview month={month} current={current} data={days.data} error={days.error} day={day} />
+      {!everyMonth && <MonthOverview month={month} current={current} data={days.data} error={days.error} day={day} />}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
         <TextField
@@ -196,7 +188,7 @@ export function Transactions() {
           />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="max-lg:h-7 max-lg:px-3 max-lg:text-[13px]">
+              <Button>
                 {currentAccount ? `${currentAccount.institution} ${typeLabel[currentAccount.type]}` : "All accounts"}
                 <ChevronDown aria-hidden />
               </Button>
@@ -215,7 +207,7 @@ export function Transactions() {
           </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="max-lg:h-7 max-lg:px-3 max-lg:text-[13px]">
+              <Button>
                 {category === "none" ? "To review" : currentCategory ? currentCategory.name : "All categories"}
                 <ChevronDown aria-hidden />
               </Button>
@@ -235,7 +227,7 @@ export function Transactions() {
           {(tags.length > 0 || tag) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="max-lg:h-7 max-lg:px-3 max-lg:text-[13px]">
+                <Button>
                   {tag ? `Tag: ${tag}` : "Any tag"}
                   <ChevronDown aria-hidden />
                 </Button>
@@ -277,7 +269,7 @@ export function Transactions() {
           footer={
             <>
               {list?.truncated && `Showing the newest ${list.transactions.length.toLocaleString("pt-BR")}. `}
-              Transfers and card bill payments are listed but never counted as spending. Click a transaction to open it.
+              Transfers and card bill payments are listed but never counted as spending. Select a transaction to open it.
             </>
           }
         >
@@ -358,7 +350,7 @@ function MonthOverview({ month, current, data, error, day }: { month: string; cu
   return (
     <Panel
       title={month === current ? `${monthName} so far` : formatMonth(month)}
-      footer="Spending only: transfers between your accounts and card bills never count. A day far above the rest is cut at the dotted line, with its figure on top. Click a day to list it."
+      footer="Spending only: transfers between your accounts and card bills never count. A day far above the rest is cut at the dotted line, with its figure on top. Select a day to list it."
     >
       {error && !data && <p className="m-0 type-body text-ink-muted">Could not load the month: {error}.</p>}
       {!data && !error && <p className="m-0 type-body text-ink-muted">Loading the month…</p>}

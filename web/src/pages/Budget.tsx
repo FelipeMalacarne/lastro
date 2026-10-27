@@ -10,7 +10,7 @@ import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { send, useResource, type BudgetCategory, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type TransactionList } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
-import { formatBRL, formatDay, formatMonth, inputBRL, parseBRL } from "@/lib/format";
+import { formatBRL, formatDay, formatMonth, inputBRL, parseBRL, titleCase } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
@@ -78,7 +78,7 @@ export function Budget() {
         <Panel
           className="min-w-0 flex-[2_1_560px]"
           bodyClassName="-mx-5"
-          footer="Limits, spending and what is left per category. The tick on each bar is today: a fill to its left is on pace. Recurring charges already paid, like rent, do not count against the pace."
+          footer="Limits, spending and what is left per category. The tick on each bar is today: a fill to its left, or up to 10 points past it, is on pace. Recurring charges already paid, like rent, do not count against the pace."
         >
           <div className="flex flex-col gap-3 px-5 pb-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -564,7 +564,7 @@ function Detail({ v, c, spend, cat }: { v: BudgetMonth; c?: BudgetCategory; spen
         </span>
       )}
 
-      <History history={history} now={{ month: v.month, spentCents: spent }} average={average} limit={c?.limitCents} name={cat?.name ?? "This category"} />
+      <History history={history} now={{ month: v.month, spentCents: spent }} average={average} limit={c?.limitCents} name={cat?.name ?? "This category"} color={cat?.color} />
 
       {merchants.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -572,7 +572,7 @@ function Detail({ v, c, spend, cat }: { v: BudgetMonth; c?: BudgetCategory; spen
           {merchants.map((m) => (
             <div key={m.name} className="flex items-center justify-between gap-3 text-[14px] leading-5">
               <span className="min-w-0 truncate">
-                {m.name} <span className="type-figure-sm text-ink-muted">{m.count}×</span>
+                {titleCase(m.name)} <span className="type-figure-sm text-ink-muted">{m.count}×</span>
               </span>
               <Amount cents={m.cents} sign="none" size="sm" />
             </div>
@@ -627,7 +627,7 @@ function byMerchant(txs: { d: string; c: number }[]): { name: string; count: num
 }
 
 /** The last six months and this one as bars, with the average and the limit. */
-function History({ history, now, average, limit, name }: { history: MonthSpend[]; now: MonthSpend; average: number; limit?: number; name: string }) {
+function History({ history, now, average, limit, name, color }: { history: MonthSpend[]; now: MonthSpend; average: number; limit?: number; name: string; color?: string }) {
   const all = [...history, now];
   const max = Math.max(1, ...all.map((h) => h.spentCents), limit ?? 0, average);
   const label = `${name} spending: ${all.map((h) => `${formatMonth(h.month, true)} ${formatBRL(h.spentCents)}`).join(", ")}.${limit !== undefined ? ` Monthly limit ${formatBRL(limit)}.` : ""}`;
@@ -643,8 +643,8 @@ function History({ history, now, average, limit, name }: { history: MonthSpend[]
         {all.map((h, i) => (
           <span
             key={h.month}
-            className={cn("rounded-t-xs", i === all.length - 1 ? "bg-tinta" : "bg-rule-strong")}
-            style={{ height: `${Math.max((h.spentCents / max) * 100, h.spentCents > 0 ? 2 : 0)}%` }}
+            className={cn("rounded-t-xs", i === all.length - 1 ? (color ? "" : "bg-tinta") : "bg-rule-strong")}
+            style={{ background: i === all.length - 1 && color ? `var(--${color})` : undefined, height: `${Math.max((h.spentCents / max) * 100, h.spentCents > 0 ? 2 : 0)}%` }}
           />
         ))}
         {limit !== undefined && limit > 0 && (

@@ -243,7 +243,7 @@ function ManualAccounts() {
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate type-body-strong">{a.name}</span>
                   <span className={cn("type-caption", a.type === "asset" && stale(a.balanceAt) ? "text-warning" : "text-ink-muted")}>
-                    {typeName[a.type]} · {a.type === "asset" ? "updated" : "last entry"} {formatDay(a.balanceAt.slice(0, 10))}
+                    {typeName[a.type]} · balance updated {formatDay(a.balanceAt.slice(0, 10))}
                     {a.type === "asset" && stale(a.balanceAt) ? ", more than 90 days ago" : ""}
                   </span>
                 </span>

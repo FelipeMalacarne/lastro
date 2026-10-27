@@ -17,7 +17,7 @@ import {
   type PlannedPurchase,
   type PortfolioOverview,
 } from "@/lib/api";
-import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
+import { addMonths, formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
@@ -46,7 +46,11 @@ function formatPoints(bp: number): string {
 
 /** Where to contribute (canvas: "Where to contribute", and its phone version). */
 export function Contribute() {
-  const budget = useResource<BudgetMonth>(`/api/v1/budget?month=${monthOf(new Date())}`).data;
+  // The next contribution is this month's until its pay yourself first is
+  // done, then next month's (each month inherits the budget before it).
+  const thisMonth = useResource<BudgetMonth>(`/api/v1/budget?month=${monthOf(new Date())}`).data;
+  const nextMonth = useResource<BudgetMonth>(thisMonth?.payYourselfFirst.doneOn ? `/api/v1/budget?month=${addMonths(monthOf(new Date()), 1)}` : null).data;
+  const budget = thisMonth?.payYourselfFirst.doneOn ? nextMonth : thisMonth;
   const overview = useResource<PortfolioOverview>("/api/v1/portfolio").data;
   const [text, setText] = useState<string | null>(null);
   const [cents, setCents] = useState<number | null>(null);

@@ -115,6 +115,15 @@ export function inputBRL(cents: number): string {
   return p.units + p.cents;
 }
 
+/** "NETFLIX" → "Netflix", "PAO DE ACUCAR" → "Pao de Acucar": bank text read as a name. */
+export function titleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .split(" ")
+    .map((w, i) => (i > 0 && ["de", "da", "do", "e"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
 /** Keeps "R$" with its number in prose the server wrote ("R$ 2.953,78" never breaks after R$). */
 export function keepAmounts(s: string): string {
   return s.replace(/R\$ /g, "R$\u00a0");

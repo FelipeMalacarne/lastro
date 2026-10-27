@@ -28,7 +28,7 @@ export function PriceChart({ ticker, closes, width = 560 }: { ticker: string; cl
           <span>
             <strong className="font-figure font-medium text-ink">{formatBRL(last.closeCents)}</strong> on {formatDay(last.date)}
           </span>
-          <span className={up ? "text-inflow" : "text-ink"}>{formatPercent(change, { sign: "always" })}</span>
+          <span className={up ? "text-inflow" : "text-ink"}>{formatPercent(change, { sign: "always" })} in the period</span>
           <span>
             low {formatBRL(lo)} · high {formatBRL(hi)}
           </span>

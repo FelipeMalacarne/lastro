@@ -131,20 +131,6 @@ function Body({ d }: { d: Detail }) {
         )}
       </Section>
 
-      {!neutral && (
-        <Section title={d.split.length ? `Split in ${d.split.length}` : "Split"}>
-          <SplitSection t={t} split={d.split} />
-        </Section>
-      )}
-
-      <Section title="Note">
-        <NoteSection t={t} />
-      </Section>
-
-      <Section title="Tags">
-        <TagsSection t={t} />
-      </Section>
-
       {p && (
         <Section title={`Installment ${t.installment?.number ?? p.current} of ${p.total}`}>
           <InstallmentProgress current={t.installment?.number ?? p.current} total={p.total} className="[&>span]:h-2.5" />
@@ -157,7 +143,7 @@ function Body({ d }: { d: Detail }) {
               [
                 ["Per month", formatBRL(p.amountCents)],
                 ["In all", formatBRL(p.amountCents * p.total)],
-                ["Still to pay", p.remainingCount ? `${formatBRL(p.remainingCents)} in ${p.remainingCount}` : "Nothing"],
+                ["Still to pay", p.remainingCount ? `${formatBRL(p.remainingCents)} in ${p.remainingCount} ${p.remainingCount === 1 ? "installment" : "installments"}` : "Nothing"],
                 ["Last installment", formatDate(p.lastDate)],
               ] as [string, string][]
             ).map(([k, v]) => (
@@ -190,6 +176,20 @@ function Body({ d }: { d: Detail }) {
           </p>
         </Section>
       )}
+
+      {!neutral && (
+        <Section title={d.split.length ? `Split in ${d.split.length}` : "Split"}>
+          <SplitSection t={t} split={d.split} />
+        </Section>
+      )}
+
+      <Section title="Note">
+        <NoteSection t={t} />
+      </Section>
+
+      <Section title="Tags">
+        <TagsSection t={t} />
+      </Section>
 
       {!neutral && d.history.count > 1 && (
         <Section title="The last 6 months">

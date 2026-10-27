@@ -30,7 +30,10 @@ type ReportView struct {
 	SpendingChangeBp  *int64 `json:"spendingChangeBp"` // against the month before
 
 	Categories []ReportCategory `json:"categories"`
-	Notes      []string         `json:"notes"`
+	// Unlimited is the spending in categories without a limit, the largest
+	// first; Category is empty for what still waits for one.
+	Unlimited []ReportCategory `json:"unlimited"`
+	Notes     []string         `json:"notes"`
 
 	NetWorthStartCents *int64 `json:"netWorthStartCents"`
 	NetWorthEndCents   *int64 `json:"netWorthEndCents"`
@@ -77,7 +80,7 @@ func buildReport(in reportInput) ReportView {
 		Month: in.month.String(), Over: !in.month.Add(1).First().After(in.today),
 		IncomeCents: v.Summary.IncomeCents, SpentCents: v.Summary.SpentCents,
 		ContributionCents: v.Summary.ContributionCents, SavingsRateBp: v.Summary.SavingsRateBp,
-		Categories: []ReportCategory{}, Notes: []string{}, DividendsCents: in.dividends,
+		Categories: []ReportCategory{}, Unlimited: []ReportCategory{}, Notes: []string{}, DividendsCents: in.dividends,
 	}
 	if in.prev != nil && in.prev.Summary.SpentCents > 0 {
 		p := in.prev.Summary.SpentCents
@@ -97,6 +100,17 @@ func buildReport(in reportInput) ReportView {
 	sort.SliceStable(r.Categories, func(i, j int) bool {
 		return r.Categories[i].SpentCents*r.Categories[j].AvailableCents > r.Categories[j].SpentCents*r.Categories[i].AvailableCents
 	})
+	for _, u := range v.Unlimited {
+		if u.SpentCents == 0 {
+			continue
+		}
+		c := ReportCategory{Name: "Waiting for a category", SpentCents: u.SpentCents}
+		if u.Category != nil {
+			c.Category, c.Name = *u.Category, in.names[*u.Category]
+		}
+		r.Unlimited = append(r.Unlimited, c)
+	}
+	sort.SliceStable(r.Unlimited, func(i, j int) bool { return r.Unlimited[i].SpentCents > r.Unlimited[j].SpentCents })
 	first, last := in.month.First(), in.month.Add(1).First()
 	inMonth := func(day string) bool {
 		d, err := time.Parse(time.DateOnly, day)

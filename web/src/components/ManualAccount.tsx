@@ -54,7 +54,7 @@ function WalletView({ a }: { a: Account }) {
   }
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
-      <Hero a={a} caption={`Typed in by you · last entry ${formatDate(a.balanceAt.slice(0, 10))}`} />
+      <Hero a={a} caption={`Typed in by you · balance updated ${formatDate(a.balanceAt.slice(0, 10))}`} />
       <Panel title="Add a transaction">
         <form onSubmit={add} className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
@@ -111,7 +111,7 @@ function AssetView({ a }: { a: Account }) {
   const updates = [...points].reverse();
   return (
     <>
-      <Hero a={a} caption={`Asset typed in by you · updated ${formatDate(a.balanceAt.slice(0, 10))}`} />
+      <Hero a={a} caption={`Asset typed in by you${points.length ? ` · balance of ${formatDate(points.at(-1)!.date)}` : ""}`} />
       <Panel title="Balance updates" footer="Each update is one point. Net worth uses the latest; the chart joins them with straight lines and never guesses between them.">
         <div className="flex flex-col gap-4">
           <form
@@ -123,7 +123,7 @@ function AssetView({ a }: { a: Account }) {
           >
             <TextField label="Balance on" type="date" value={day} max={todayISO()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
             <TextField label="Balance" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className="min-w-0 flex-[0_1_180px]" />
-            <Button type="submit" variant="primary" disabled={busy || cents === null}>
+            <Button type="submit" variant="primary" disabled={busy || cents === null || points.some((p) => p.date === day && p.balanceCents === cents)}>
               Update
             </Button>
             {msg && <span className="type-caption text-ink-muted">{msg}</span>}

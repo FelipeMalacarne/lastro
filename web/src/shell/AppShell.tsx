@@ -166,7 +166,7 @@ export function AppShell({ accounts, children }: Props) {
             <Wordmark />
           </Link>
           <div className="flex items-center gap-1">
-            {!monthless.has(path) && <MonthSwitcher label={formatMonth(month, true)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
+            {!monthless.has(path) && !(path === "/transactions" && new URLSearchParams(location.search).get("scope") === "all") && <MonthSwitcher label={formatMonth(month, true)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
             <Link
               to="/settings"
               aria-label="Settings"
@@ -228,6 +228,8 @@ export function PageHeader({ title, caption, actions, monthless }: { title: stri
         {!monthless && <MonthSwitcher label={formatMonth(month)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
         {actions}
       </div>
+      {/* On a phone the month is in the top bar; the actions stay with the page. */}
+      {actions && <div className="flex flex-wrap items-center gap-2 lg:hidden">{actions}</div>}
     </header>
   );
 }

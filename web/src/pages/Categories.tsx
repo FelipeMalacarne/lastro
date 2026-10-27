@@ -250,7 +250,12 @@ function RulesPanel({
                       type="button"
                       role="row"
                       aria-selected={on}
-                      onClick={() => setSelected(on ? null : r.id)}
+                      onClick={() => {
+                        setSelected(on ? null : r.id);
+                        // On a phone the editor sits under the list: bring it into view.
+                        if (!on && window.innerWidth < 1024)
+                          requestAnimationFrame(() => document.getElementById("rule-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                      }}
                       className={cn(
                         "grid min-h-14 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px] items-center gap-x-3 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
                         on ? "bg-tinta-soft shadow-[inset_3px_0_0_var(--tinta)]" : "bg-paper-raised hover:bg-paper-sunken",
@@ -340,6 +345,7 @@ function RuleEditor({
 
   return (
     <section
+      id="rule-editor"
       aria-label={`Edit rule ${rule.order}`}
       className="flex max-w-full min-w-0 flex-[1_1_360px] flex-col gap-5 border-rule bg-paper px-5 pt-5 pb-6 max-[880px]:border-t min-[881px]:border-l lg:px-6"
     >
@@ -498,7 +504,7 @@ function CategoriesPanel({
                     {rulesByCategory.get(c.id) ?? 0}
                   </span>
                   <span role="cell" className="text-right">
-                    <Amount cents={net} sign={c.budgeted ? "negative" : "always"} />
+                    <Amount cents={c.budgeted ? Math.abs(net) : net} sign={c.budgeted ? "none" : "always"} />
                   </span>
                   <span role="cell" className="flex justify-end">
                     <Button variant="ghost" size="sm" aria-label={`Edit ${c.name}`} onClick={() => setEditing(editing === c.id ? null : c.id)}>

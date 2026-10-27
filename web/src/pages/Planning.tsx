@@ -123,7 +123,10 @@ export function Planning() {
                 ]}
               />
               {view === "simulation" && p && (
-                <span className="type-caption text-ink-muted">8 in 10 of {p.monteCarlo.paths.toLocaleString("pt-BR")} simulated paths land in the darker band</span>
+                <span className="type-caption text-ink-muted">
+                  8 in 10 of {p.monteCarlo.paths.toLocaleString("pt-BR")} simulated paths land in the outer, lighter band. The simulation draws each class from its own long-run
+                  returns, about {formatPercent(Math.round(p.mix.reduce((s, m) => s + (m.weightBp * m.meanBp) / 10000, 0)))} a year for this mix; the scenarios use a flat 2%, 4% and 6%.
+                </span>
               )}
             </div>
             {p && base && low && high ? (

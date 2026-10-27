@@ -373,6 +373,7 @@ export type PortfolioOverview = {
   investedCents: number;
   basisCents: number;
   monthDeltaCents: number | null;
+  monthFrom: string | null;
   putIn12mCents: number | null;
   returns12mCents: number | null;
   return12mBp: number | null;

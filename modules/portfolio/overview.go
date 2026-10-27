@@ -94,7 +94,10 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 		}
 	}
 	if d, ok := on(today.AddDate(0, -1, 0)); ok {
-		out.MonthDeltaCents = ptr(inv.Value.Cents() - byDay[d].invested.Value.Cents())
+		// What the money earned since then, not what was put in.
+		s := byDay[d].invested
+		out.MonthDeltaCents = ptr(inv.Value.Cents() - s.Value.Cents() - (inv.Basis.Cents() - s.Basis.Cents()))
+		out.MonthFrom = ptr(day(d))
 	}
 
 	// Each class against its target.

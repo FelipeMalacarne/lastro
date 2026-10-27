@@ -25,7 +25,7 @@ import {
   type TransactionList,
 } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
-import { formatBRL, formatDay, formatMonth, formatPercent, keepAmounts, todayISO } from "@/lib/format";
+import { formatBRL, formatDay, formatMonth, formatPercent, keepAmounts, titleCase, todayISO } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
@@ -173,7 +173,11 @@ function NetWorth() {
   const now = points.at(-1);
   if (!now) return <Panel title="Net worth">{res.error ? `Could not load: ${res.error}.` : "Loading…"}</Panel>;
   const first = points[0];
-  const delta = now.totalCents - first.totalCents;
+  // Accounts typed in later than the first point would read as growth:
+  // compare like with like and say what is left out.
+  const late = first.otherCents === 0 && now.otherCents > 0;
+  const counted = (p: NetWorthPoint) => p.totalCents - (late ? p.otherCents : 0);
+  const delta = counted(now) - counted(first);
   const fromLabel = formatMonth(first.date.slice(0, 7), true);
   const rows = [
     { label: "Invested", cents: now.investedCents, to: "/portfolio" },
@@ -182,7 +186,7 @@ function NetWorth() {
     ...(now.otherCents ? [{ label: "Outside Open Finance", cents: now.otherCents, to: "/settings#manual" }] : []),
   ];
   return (
-    <Panel className="max-lg:order-2 lg:p-6" footer="Investments at the latest prices; accounts as the banks last reported them.">
+    <Panel className="lg:p-6" footer="Investments at the latest prices; accounts as the banks last reported them.">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <span className="type-label text-ink-muted">Net worth</span>
@@ -190,12 +194,13 @@ function NetWorth() {
           {points.length > 1 && (
             <span className={cn("type-caption", delta >= 0 ? "text-inflow" : "text-warning")}>
               {formatBRL(delta, { sign: "always" })} since {fromLabel}
+              {late && <span className="text-ink-muted"> · not counting {formatBRL(now.otherCents)} typed in recently</span>}
             </span>
           )}
         </div>
         {points.length > 2 && (
           <div className="flex w-[300px] max-w-full flex-col gap-1">
-            <Sparkline zero={false} values={points.map((p) => p.totalCents)} width={300} height={56} label={`Net worth since ${fromLabel}, from ${formatBRL(first.totalCents)} to ${formatBRL(now.totalCents)}`} />
+            <Sparkline zero={false} values={points.map(counted)} width={300} height={56} label={`Net worth since ${fromLabel}, from ${formatBRL(first.totalCents)} to ${formatBRL(now.totalCents)}`} />
             <div className="flex justify-between type-figure-sm text-ink-muted">
               <span>{fromLabel}</span>
               <span>Today</span>
@@ -243,7 +248,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
 
   // Where the income went: pay yourself first, spending by category, what the limits still hold, the rest.
   const segments: { key: string; label: string; cents: number; color: string }[] = [];
-  if (pyf.movedCents > 0) segments.push({ key: "pyf", label: "Pay yourself first", cents: pyf.movedCents, color: "var(--inflow)" });
+  if (pyf.movedCents > 0) segments.push({ key: "pyf", label: "Pay yourself first", cents: pyf.movedCents, color: "var(--ink)" });
   const spend = [...v.categories.map((c) => ({ id: c.category as string | null, cents: c.spentCents })), ...v.unlimited.map((u) => ({ id: u.category, cents: u.spentCents }))]
     .filter((s) => s.cents > 0)
     .sort((a, b) => b.cents - a.cents);
@@ -254,7 +259,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
   const inLimits = Math.max(v.leftCents, 0);
   if (inLimits > 0) segments.push({ key: "left", label: "Left in limits", cents: inLimits, color: "transparent" });
   const rest = v.incomeCents - pyf.movedCents - spent - inLimits;
-  if (rest > 0) segments.push({ key: "rest", label: "Rest of the income", cents: rest, color: "transparent" });
+  if (rest > 0) segments.push({ key: "rest", label: "Outside the limits", cents: rest, color: "transparent" });
   const total = Math.max(v.incomeCents, segments.reduce((s, x) => s + x.cents, 0), 1);
 
   return (
@@ -268,7 +273,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
             sign="none"
             delta={
               prevToDate > 0
-                ? { text: `${formatBRL(Math.abs(diff))} ${diff <= 0 ? "less" : "more"} than ${isCurrent ? "by this day " : ""}in ${prevName}`, tone: diff <= 0 ? "inflow" : "warning" }
+                ? { text: `${formatBRL(Math.abs(diff))} ${diff <= 0 ? "less" : "more"} than ${isCurrent ? `by ${Math.min(Number(todayISO().slice(8)), monthDays(prevOf(v.month)))} ${prevName}` : `in ${prevName}`}`, tone: diff <= 0 ? "inflow" : "warning" }
                 : undefined
             }
           />
@@ -283,7 +288,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
             cents={isCurrent ? left : v.leftCents}
             sign="negative"
             tone={left < 0 ? "danger" : "ink"}
-            caption={v.hasBudget ? `of ${formatBRL(v.availableCents)} budgeted${isCurrent ? ` · ${v.daysLeft} ${v.daysLeft === 1 ? "day" : "days"} left` : ""}` : <Link to="/budget">Set a budget</Link>}
+            caption={v.hasBudget ? `of ${formatBRL(v.availableCents)} in limits${isCurrent ? ` · ${v.daysLeft} ${v.daysLeft === 1 ? "day" : "days"} left` : ""}` : <Link to="/budget">Set a budget</Link>}
           />
         </div>
 
@@ -315,7 +320,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
               ))}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 type-caption text-ink-muted">
-              {pyf.movedCents > 0 && <Legend color="var(--inflow)">Pay yourself first {formatBRL(pyf.movedCents)}</Legend>}
+              {pyf.movedCents > 0 && <Legend color="var(--ink)">Pay yourself first {formatBRL(pyf.movedCents)}</Legend>}
               <span className="inline-flex items-center gap-1.5">
                 <span className="flex h-2.5 w-4 overflow-hidden rounded-xs" aria-hidden>
                   <span className="flex-1 bg-note-100" />
@@ -328,7 +333,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
               {rest > 0 && (
                 <span className="inline-flex items-center gap-1.5">
                   <span className="box-border size-2.5 rounded-xs border border-rule-strong bg-[image:repeating-linear-gradient(135deg,var(--rule-strong)_0_1px,transparent_1px_3px)]" aria-hidden />
-                  Rest of the income {formatBRL(rest)}
+                  Outside the limits {formatBRL(rest)}
                 </span>
               )}
             </div>
@@ -555,7 +560,7 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
         <div className="flex flex-col gap-4">
           <p className="m-0 type-body">
             {review.waiting} {review.waiting === 1 ? "transaction needs" : "transactions need"} a category, from {review.groups.length}{" "}
-            {review.groups.length === 1 ? "merchant" : "merchants"}.{suggested > 0 && ` The local model has a suggestion for ${suggested} of them.`}
+            {review.groups.length === 1 ? "group" : "groups"}, every month.{suggested > 0 && ` The local model has a suggestion for ${suggested} of them.`}
           </p>
           <div className="flex flex-col">
             {groups.map((g) => {
@@ -584,7 +589,7 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
           </div>
           {review.groups.length > groups.length && (
             <p className="m-0 -mt-2 type-caption text-ink-muted">
-              and {review.groups.length - groups.length} more {review.groups.length - groups.length === 1 ? "merchant" : "merchants"} in the queue
+              and {review.groups.length - groups.length} more {review.groups.length - groups.length === 1 ? "group" : "groups"} in the queue
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3">
@@ -606,8 +611,8 @@ function FixedCosts({ byId }: { byId: Map<string, Category> }) {
   const changed = r.charges.filter((c) => c.change);
   const fresh = r.charges.filter((c) => c.new);
   const news = [
-    ...changed.map((c) => `${title(c.name)} went ${c.change!.toCents > c.change!.fromCents ? "up" : "down"} ${formatBRL(Math.abs(c.change!.toCents - c.change!.fromCents))}`),
-    ...fresh.map((c) => `${title(c.name)} is new`),
+    ...changed.map((c) => `${titleCase(c.name)} went ${c.change!.toCents > c.change!.fromCents ? "up" : "down"} ${formatBRL(Math.abs(c.change!.toCents - c.change!.fromCents))}`),
+    ...fresh.map((c) => `${titleCase(c.name)} is new`),
   ];
   return (
     <Panel title="Fixed costs" footer="Found in charges from the same merchant, on about the same day each month, at a similar amount.">
@@ -633,7 +638,7 @@ function FixedCosts({ byId }: { byId: Map<string, Category> }) {
               return (
                 <div key={c.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-rule py-2 first:border-t-0">
                   <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="truncate text-[14px] leading-5 font-semibold">{title(c.name)}</span>
+                    <span className="truncate text-[14px] leading-5 font-semibold">{titleCase(c.name)}</span>
                     <span className="type-caption text-ink-muted">
                       {c.paidThisMonth ? `paid, next ${formatDay(c.next)}` : `due ${formatDay(c.next)}`}
                       {c.steadiness === "varies" && " · varies"}
@@ -658,16 +663,13 @@ function FixedCosts({ byId }: { byId: Map<string, Category> }) {
   );
 }
 
-/** "NETFLIX" → "Netflix". */
-function title(s: string): string {
-  return s
-    .toLowerCase()
-    .split(" ")
-    .map((w, i) => (i > 0 && ["de", "da", "do", "e"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
-    .join(" ");
-}
-
 function sentence(parts: string[]): string {
   if (parts.length <= 1) return parts.join("");
   return parts.slice(0, -1).join(", ") + " and " + parts.at(-1);
+}
+
+/** How many days a month ("2026-09") has. */
+function monthDays(m: string): number {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(y, mo, 0).getDate();
 }

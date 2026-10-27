@@ -16,10 +16,11 @@ const buttonVariants = cva(
         ghost: "border-transparent bg-transparent text-ink-muted hover:bg-paper-sunken hover:text-ink",
       },
       size: {
-        md: "h-9 gap-2 px-4 text-[14px] leading-5 [&_svg:not([class*='size-'])]:size-4",
-        sm: "h-7 gap-1.5 px-3 text-[13px] leading-5 [&_svg:not([class*='size-'])]:size-3.5",
-        icon: "size-9 [&_svg:not([class*='size-'])]:size-4",
-        "icon-sm": "size-7 [&_svg:not([class*='size-'])]:size-3.5",
+        // On a touch screen every control is at least 44px tall (Cédula's touch target).
+        md: "h-9 pointer-coarse:h-11 gap-2 px-4 text-[14px] leading-5 [&_svg:not([class*='size-'])]:size-4",
+        sm: "h-7 pointer-coarse:h-11 gap-1.5 px-3 text-[13px] leading-5 [&_svg:not([class*='size-'])]:size-3.5",
+        icon: "size-9 pointer-coarse:size-11 [&_svg:not([class*='size-'])]:size-4",
+        "icon-sm": "size-7 pointer-coarse:size-11 [&_svg:not([class*='size-'])]:size-3.5",
       },
     },
     defaultVariants: { variant: "secondary", size: "md" },

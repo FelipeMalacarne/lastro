@@ -48,6 +48,7 @@ export function AccountPage({ id }: { id: string }) {
         <PageHeader
           title={a.name}
           caption={`${typeName[a.type]} · outside Open Finance, typed in by you`}
+          monthless={a.type === "asset"}
           actions={
             a.type === "cash" ? (
               <Button asChild variant="secondary">
@@ -110,7 +111,8 @@ export function AccountPage({ id }: { id: string }) {
 function shortName(a: Account, all: Account[]): string {
   if (a.manual) return a.name;
   const kind = a.type === "credit_card" ? "Card" : typeName[a.type];
-  return new Set(all.map((x) => x.institution)).size > 1 && a.institution !== all[0].institution ? `${a.institution} ${kind.toLowerCase()}` : kind;
+  // With more than one bank, every account says which.
+  return new Set(all.filter((x) => !x.manual).map((x) => x.institution)).size > 1 ? `${a.institution} ${kind.toLowerCase()}` : kind;
 }
 
 type Range = "3m" | "6m" | "12m" | "all";
@@ -186,7 +188,7 @@ function CheckingView({ a, bank }: { a: Account; bank: Bank }) {
         <Panel
           title="Money in and out, by month"
           className="flex-[7_1_520px]"
-          footer="Transfers between your accounts and card bills are included: this is the account, not your spending. Click a month for its numbers."
+          footer="Transfers between your accounts and card bills are included: this is the account, not your spending. Select a month for its numbers."
         >
           {past.length === 0 ? (
             <p className="m-0 type-body text-ink-muted">{months.loading ? "Loading…" : "No months yet."}</p>
@@ -322,7 +324,12 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
   // Installments not billed yet: the months ahead when the bank lists them,
   // else what the purchases in progress still have to bill.
   const futureMonths = all.filter((m) => m.future).reduce((s, m) => s + m.spentCents, 0);
-  const future = Math.min(inUse, Math.max(futureMonths, left));
+  const owed = Math.max(futureMonths, left);
+  // The bank's limit in use normally includes the installments to come; when
+  // it is less than what they still owe, the bank is not counting them yet,
+  // and the two figures are shown apart instead of one capping the other.
+  const counted = owed <= inUse;
+  const future = counted ? owed : 0;
   const shown = [...all.filter((m) => !m.future).slice(-12), ...all.filter((m) => m.future)];
   const past = all.filter((m) => !m.future && m.month < current);
   const avg = past.length ? Math.round(past.slice(-11).reduce((s, m) => s + m.spentCents, 0) / Math.min(11, past.length)) : 0;
@@ -352,6 +359,11 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
                   <strong className="font-semibold">{formatBRL(inUse)}</strong> of your {formatBRL(limit)} limit is in use
                   {future > 0 ? `, ${formatBRL(future)} of it in installments not billed yet.` : "."}
                 </p>
+                {!counted && owed > 0 && (
+                  <p className="m-0 type-caption text-ink-muted">
+                    Installments still owe {formatBRL(owed)}, more than the limit in use: the bank takes them from the limit only as each one is billed.
+                  </p>
+                )}
                 <LimitBar limitCents={limit} restCents={Math.max(0, inUse - future)} futureCents={future} availableCents={available} />
               </div>
             ) : (
@@ -480,7 +492,7 @@ function AccountTransactions({ a }: { a: Account }) {
             See all {list.length}
           </Link>
         ) : (
-          "Click a transaction to open it."
+          "Select a transaction to open it."
         )
       }
     >
