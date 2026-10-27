@@ -29,6 +29,11 @@ func TestClassify(t *testing.T) {
 		{KindETF, IndexerNone, tk("LFTS11"), "", ClassCDI},
 		{KindStock, IndexerNone, tk("WEGE3"), "", ClassBR},
 		{KindStock, IndexerNone, tk("AAPL34"), "", ClassGlobal},
+		// Banks send some ETFs as stocks.
+		{KindStock, IndexerNone, tk("B5P211"), "B5P211", ClassIPCA},
+		{KindStock, IndexerNone, tk("IVVB11"), "IVVB11", ClassGlobal},
+		{KindStock, IndexerNone, tk("LFTS11"), "LFTS11", ClassCDI},
+		{KindStock, IndexerNone, tk("BOVA11"), "BOVA11", ClassBR},
 		{KindBDR, IndexerNone, tk("MSFT34"), "", ClassGlobal},
 		{KindFII, IndexerNone, tk("HGLG11"), "", ClassBR},
 	}
