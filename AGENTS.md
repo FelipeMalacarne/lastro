@@ -8,7 +8,7 @@ Guide for coding agents (Claude Code, Codex, Cursor and the like). It applies to
 
 ## Current state
 
-M0 (skeleton and first deploy) and M1 (see my money) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing and the Transactions screen, with `postgres-main` backed up to R2. M2 (categorization) is next. The next task is always the first unchecked box in `docs/PLAN.md`.
+M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is next. The next task is always the first unchecked box in `docs/PLAN.md`.
 
 ## Commands
 
@@ -30,7 +30,7 @@ M0 (skeleton and first deploy) and M1 (see my money) are done: Pluggy sync from 
 ## Repo map
 
 ```
-cmd/lastro/      CLI: serve, sync, contribute, migrate, fixtures, version
+cmd/lastro/      CLI: serve, sync, contribute, migrate, fixtures, seed (dev data), version
 app/             composition root: the only place that knows every module
 modules/<name>/  one Go package per module (ledger, ingest, categorize, budget, market, portfolio, planning)
 money/           shared kernel: Money and Percent

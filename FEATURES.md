@@ -106,7 +106,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [x] Copy last month's budget as a starting point (each month inherits the one before it, ADR-0006).
-- [ ] Monthly summary: income, spending, contribution and savings rate.
+- [x] Monthly summary: income, spending, contribution and savings rate.
 
 **P2**
 - [ ] A full YNAB-style envelope model ("give every real a job"), if the simpler model proves insufficient. See open questions.
@@ -118,8 +118,8 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want my subscriptions and fixed bills detected automatically, so that I know my fixed cost of living and notice when something new appears or a price goes up.
 
 **P1**
-- [ ] Recurring charges (same merchant, similar amount, regular interval) are detected and listed with their monthly total.
-- [ ] A warning when a recurring charge changes amount or a new one appears.
+- [x] Recurring charges (same merchant, similar amount, regular interval) are detected and listed with their monthly total.
+- [x] A warning when a recurring charge changes amount or a new one appears (on the dashboard's fixed costs; a push channel comes with the alerts in M5).
 
 ### F6. Net worth and positions
 

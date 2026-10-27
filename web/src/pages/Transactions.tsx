@@ -4,7 +4,7 @@ import { ChevronDown, Search, X } from "lucide-react";
 import { CategoryTag } from "@/components/CategoryTag";
 import { DayBars } from "@/components/charts/DayBars";
 import { Kbd } from "@/components/Kbd";
-import { Notice } from "@/components/Notice";
+import { SyncNotice } from "@/components/SyncNotice";
 import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { Stat } from "@/components/Stat";
@@ -24,7 +24,6 @@ import { useCategories, useWaiting } from "@/lib/categories";
 import { addMonths, dayLabel, formatBRL, formatDay, formatMonth, formatWeekday, todayISO } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
-import { pickNotice } from "@/lib/notice";
 import { Link, hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
 import { AccountsPanel, useBanks } from "@/shell/Accounts";
 import { PageHeader } from "@/shell/AppShell";
@@ -116,7 +115,6 @@ export function Transactions() {
       (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
     : undefined;
 
-  const notice = pickNotice(banks);
   const accounts = banks.flatMap((b) => b.accounts);
   const currentAccount = accounts.find((a) => a.id === account);
   const noAccounts = !res.loading && accounts.length === 0 && banks.length === 0;
@@ -149,28 +147,7 @@ export function Transactions() {
         </Link>
       )}
 
-      {notice && (
-        <Notice
-          tone={notice.tone}
-          title={notice.title}
-          action={
-            notice.action && (
-              <Button asChild variant="ghost" size="sm" className="max-lg:hidden">
-                <a href={notice.action.href} target="_blank" rel="noreferrer">
-                  {notice.action.label}
-                </a>
-              </Button>
-            )
-          }
-        >
-          {notice.text}{" "}
-          {notice.action && (
-            <a href={notice.action.href} target="_blank" rel="noreferrer" className="font-semibold lg:hidden">
-              {notice.action.label}
-            </a>
-          )}
-        </Notice>
-      )}
+      <SyncNotice banks={banks} />
 
       <AccountsPanel banks={banks} />
 
