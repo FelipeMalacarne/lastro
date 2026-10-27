@@ -173,6 +173,7 @@ func (a *App) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/me", a.handleMe)
 	api.HandleFunc("GET /api/v1/settings", a.handleSettings)
 	api.HandleFunc("GET /api/v1/alerts", a.handleAlerts)
+	api.HandleFunc("GET /api/v1/report", a.handleReport)
 	a.Ledger.RegisterRoutes(api, a.Logger)
 	a.Ingest.RegisterRoutes(api, a.Logger)
 	a.Categorize.RegisterRoutes(api, a.Logger)

@@ -11,6 +11,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { Gallery } from "@/pages/Gallery";
 import { Planning } from "@/pages/Planning";
 import { Portfolio } from "@/pages/Portfolio";
+import { Report } from "@/pages/Report";
 import { Review } from "@/pages/Review";
 import { Settings } from "@/pages/Settings";
 import { Transactions } from "@/pages/Transactions";
@@ -49,6 +50,8 @@ function page(path: string) {
       return <Transactions />;
     case "/planning":
       return <Planning />;
+    case "/report":
+      return <Report />;
     default:
       return <Transactions />;
   }

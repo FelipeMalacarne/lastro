@@ -20,6 +20,7 @@ type DividendsView struct {
 	Tickers      []DividendStockView `json:"tickers"`
 	ForwardCents int64               `json:"forwardCents"` // the last 12 months per share at today's quantities
 	Upcoming     []PaymentView       `json:"upcoming"`     // earned, not paid yet
+	Paid         []PaymentView       `json:"paid"`         // every payment counted and paid, oldest first
 	Missing      []string            `json:"missing"`      // held, with no dividend data from the source
 }
 
@@ -88,7 +89,7 @@ func (s *Service) Dividends(ctx context.Context) (DividendsView, error) {
 		return DividendsView{}, err
 	}
 
-	v := DividendsView{Years: []DividendYearView{}, Tickers: []DividendStockView{}, Upcoming: []PaymentView{}, Missing: []string{}}
+	v := DividendsView{Years: []DividendYearView{}, Tickers: []DividendStockView{}, Upcoming: []PaymentView{}, Paid: []PaymentView{}, Missing: []string{}}
 	if since := history.Since(); !since.IsZero() {
 		v.Since = ptr(day(since))
 	}
@@ -99,6 +100,7 @@ func (s *Service) Dividends(ctx context.Context) (DividendsView, error) {
 			v.Upcoming = append(v.Upcoming, paymentView(p))
 			continue
 		}
+		v.Paid = append(v.Paid, paymentView(p))
 		years[p.Day().Year()] += p.Cents
 		if p.Day().Year() == today.Year() {
 			v.YearCents += p.Cents

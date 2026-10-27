@@ -200,7 +200,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - [x] Alerts for unusual spending in a category and for categories about to exceed the budget.
 
 **P2**
-- [ ] Monthly report generated automatically at the start of each month.
+- [x] Monthly report generated automatically at the start of each month (the Report screen, and Telegram on the month's first sync).
 
 ## Experience
 

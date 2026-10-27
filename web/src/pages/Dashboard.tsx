@@ -58,7 +58,17 @@ export function Dashboard() {
 
   return (
     <>
-      <PageHeader title="Dashboard" caption={caption || undefined} />
+      <PageHeader
+        title="Dashboard"
+        caption={caption || undefined}
+        actions={
+          !isCurrent || new Date().getDate() <= 7 ? (
+            <Button asChild variant="secondary">
+              <Link to={`/report?month=${isCurrent ? prevOf(month) : month}`}>{formatMonth(isCurrent ? prevOf(month) : month).split(" ")[0]} in review</Link>
+            </Button>
+          ) : undefined
+        }
+      />
       <SyncNotice banks={banks} />
       {isCurrent && <Alerts />}
       <ReportReminders />

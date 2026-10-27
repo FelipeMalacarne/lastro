@@ -97,7 +97,7 @@ What `FEATURES.md` still lists, in the order that pays most. Each screen change 
 - [x] Notes and tags on a transaction (F2 P1)
 - [x] Dividends received, per stock and per year (F8 P1)
 - [x] Valuation metrics per stock (P/E, P/B, dividend yield) and their history, from brapi (F8 P1)
-- [ ] Monthly report at the start of each month, through the alerts channel (F10 P2)
+- [x] Monthly report at the start of each month, through the alerts channel (F10 P2)
 - [x] Price alerts, e.g. a stock down more than X% in a day (F8 P2)
 - [x] Manual entries for cash or accounts outside Open Finance (F1 P2)
 
