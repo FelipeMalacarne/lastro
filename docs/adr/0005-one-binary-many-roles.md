@@ -1,6 +1,6 @@
 # ADR-0005: One binary, many roles, with a standard-library CLI
 
-**Status:** Accepted
+**Status:** Accepted, amended by [ADR-0010](0010-client-cli-and-server-binary.md): the server binary is now `lastrod`, and `lastro` is a client of its API
 **Date:** 2026-10-26
 **Deciders:** Felipe
 

@@ -18,7 +18,7 @@
 
 ## Flow
 
-`lastro sync` reads the banks, `ingest` calls `SyncPositions` per item (what an item stops reporting closes), then `market` refreshes the quotes of the tickers held and `Valuate` stores the day: each class's value and basis, and the net worth with cash and card bills from `ledger`. The history starts at the first sync.
+`lastrod sync` reads the banks, `ingest` calls `SyncPositions` per item (what an item stops reporting closes), then `market` refreshes the quotes of the tickers held and `Valuate` stores the day: each class's value and basis, and the net worth with cash and card bills from `ledger`. The history starts at the first sync.
 
 ## Invariants
 
@@ -43,7 +43,7 @@
 - `GET /api/v1/price-alerts`, `PUT /api/v1/price-alerts/{ticker}` `{"dropBps": 500}`, `DELETE /api/v1/price-alerts/{ticker}`. `PriceDrops` is read by `app`, which adds the drops to `GET /api/v1/alerts`.
 - `GET /api/v1/purchases`, `POST /api/v1/purchases` `{"plannedOn", "what", "class", "amountCents", "condition"}`, `PATCH /api/v1/purchases/{id}` `{"status": "done" | "cancelled", "note"}`.
 
-`lastro contribute --amount 3000` prints the same split; without `--amount` it takes this month's pay yourself first.
+`lastro contribute --amount 3000` (the client, through `GET /api/v1/contribute`) prints the same split; without `--amount` it takes this month's pay yourself first.
 
 ## Milestone
 

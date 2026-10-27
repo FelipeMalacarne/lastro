@@ -4,11 +4,11 @@ Guide for coding agents (Claude Code, Codex, Cursor and the like). It applies to
 
 ## What this is
 
-**lastro** is a personal finance app for a single user. It syncs accounts through Meu Pluggy (Brazilian Open Finance), categorizes transactions, tracks the budget and the investment portfolio, and runs projections. It runs on the K3s cluster at home and is reached from outside through Cloudflare Tunnel, with Cloudflare Access in front.
+**lastro** is a personal finance app for a single user. It syncs accounts through Meu Pluggy (Brazilian Open Finance), categorizes transactions, tracks the budget and the investment portfolio, and runs projections. It runs on the K3s cluster at home and is reached from outside through Cloudflare Tunnel. Who gets in is decided by `platform/auth` (ADR-0008): an OIDC provider (Zitadel) for the web app, the `lastro` CLI and MCP, and Cloudflare Access until the switch.
 
 ## Current state
 
-M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is done too: market data, positions, the daily valuation, the contribution planner and theses. M5 (planning and insights) is done: projections with a Monte Carlo, the yearly scoreboard and alerts. M6 is done too: splitting a transaction, notes and tags, review undo, dividends, valuation metrics, price alerts, accounts outside Open Finance and the monthly report. The next task is always the first unchecked box in `docs/PLAN.md`.
+M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is done too: market data, positions, the daily valuation, the contribution planner and theses. M5 (planning and insights) is done: projections with a Monte Carlo, the yearly scoreboard and alerts. M6 is done too: splitting a transaction, notes and tags, review undo, dividends, valuation metrics, price alerts, accounts outside Open Finance and the monthly report. M7 (my own identity) is under way: `lastrod` and the `lastro` client are split, `platform/auth` takes OIDC tokens and a web login next to Cloudflare Access, and `/mcp` serves read-only tools; Zitadel itself and the switch are next. The next task is always the first unchecked box in `docs/PLAN.md`.
 
 ## Commands
 
@@ -30,7 +30,8 @@ M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (t
 ## Repo map
 
 ```
-cmd/lastro/      CLI: serve, sync, contribute, migrate, fixtures, seed (dev data), version
+cmd/lastrod/     the server: serve, sync, market, migrate, fixtures, seed (dev data), version
+cmd/lastro/      the client: connect, whoami, sync, contribute; only through the HTTP API, never app, modules or platform (ADR-0010)
 app/             composition root: the only place that knows every module
 modules/<name>/  one Go package per module (ledger, ingest, categorize, budget, market, portfolio, planning)
 money/           shared kernel: Money and Percent
@@ -104,9 +105,10 @@ Rules:
 ## Security and privacy
 
 - **Real financial data never goes into fixtures, logs, issues or commits.** Never log tokens, Pluggy credentials or full transactions.
-- Every new route sits behind Cloudflare Access (`platform/auth`). Only `/healthz` and `/readyz` are left out.
+- Every new route sits behind `platform/auth`. Only `/healthz`, `/readyz`, the login (`/auth/*`) and the OAuth metadata (`/.well-known/oauth-protected-resource`) are left out.
+- Only the owner gets in (`LASTRO_OIDC_OWNER_SUBJECT`). A client writes only when listed as a writer; every other client reads.
 - `LASTRO_AUTH_DISABLED` only works with `LASTRO_ENV=dev`. Do not work around this.
-- The LLM is local (Ollama). Do not add calls to external LLMs with financial data.
+- The LLM is local (Ollama). lastro itself never sends financial data to an external LLM. The one exception is MCP (ADR-0009): I pull my data into a client I authorized; its tools only read, answer with what a question needs and never expose account numbers, Pluggy IDs or secrets.
 
 ## When finishing a task
 

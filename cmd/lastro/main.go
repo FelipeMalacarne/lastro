@@ -1,15 +1,16 @@
-// Command lastro: one binary, several roles.
+// Command lastro: the client (ADR-0010). Every command talks to a lastro
+// server through its HTTP API; the work that runs against the database
+// belongs to lastrod.
 //
-//	lastro serve        API + embedded frontend
-//	lastro sync         pull accounts and transactions from Pluggy
-//	lastro contribute   show where this month's contribution should go (M4)
-//	lastro migrate      apply pending migrations
-//	lastro fixtures     download Pluggy responses and anonymize them into test fixtures
-//	lastro seed         fill a dev database with made-up history (dev only)
-//	lastro version      print the version
+//	lastro connect <url>   point at a server and sign in (device flow)
+//	lastro whoami          who the server sees
+//	lastro disconnect      forget the server and the token
+//	lastro sync            sync on the server and follow it
+//	lastro contribute      where this month's contribution should go
+//	lastro version         print the version
 //
-// The CLI uses only the standard library. If it ever needs nested
-// subcommands or completion, switch to cobra without touching the modules.
+// The flags are the standard library's, and depguard keeps the CLI out of
+// app, the modules and platform.
 package main
 
 import (
@@ -33,13 +34,11 @@ type command struct {
 
 func commands() []command {
 	return []command{
-		{"serve", "start the API and the embedded frontend", runServe},
-		{"sync", "pull accounts and transactions from Pluggy", runSync},
-		{"contribute", "show where this month's contribution should go", runContribute},
-		{"market", "refresh CDI, IPCA, Tesouro Direto and the quotes of what is held", runMarket},
-		{"migrate", "apply pending migrations", runMigrate},
-		{"fixtures", "download Pluggy responses and anonymize them into test fixtures", runFixtures},
-		{"seed", "fill a dev database with fourteen months of made-up money (LASTRO_ENV=dev only)", runSeed},
+		{"connect", "point at a lastro server and sign in: lastro connect <url>", runConnect},
+		{"whoami", "show the server and who it sees", runWhoami},
+		{"disconnect", "forget the server and the token", runDisconnect},
+		{"sync", "sync the banks on the server and follow it (--detach to not wait)", runSync},
+		{"contribute", "show where this month's contribution should go (--amount 3000)", runContribute},
 		{"version", "print the version", runVersion},
 	}
 }
@@ -74,6 +73,8 @@ func usage() {
 	for _, c := range commands() {
 		fmt.Fprintf(os.Stderr, "  %-11s %s\n", c.name, c.summary)
 	}
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "lastro is the client; the server and its jobs are lastrod.")
 }
 
 func runVersion(_ context.Context, _ []string) error {

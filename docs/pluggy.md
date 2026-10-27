@@ -1,6 +1,6 @@
 # Pluggy: what the API gives us and how lastro reads it
 
-The M1 spike note. It answers the open questions from `FEATURES.md` with what Pluggy documents (docs.pluggy.ai, read on 2026-10-27) and with what my own connection returned on 2026-10-27: one MeuPluggy item (Nubank, a checking account and a credit card, 561 transactions, 115 investments), read with `lastro fixtures`. Its anonymized copy is in `modules/ingest/testdata/meupluggy`; rerun the tool to refresh it (see `modules/ingest/testdata/pluggy/README.md`).
+The M1 spike note. It answers the open questions from `FEATURES.md` with what Pluggy documents (docs.pluggy.ai, read on 2026-10-27) and with what my own connection returned on 2026-10-27: one MeuPluggy item (Nubank, a checking account and a credit card, 561 transactions, 115 investments), read with `lastrod fixtures`. Its anonymized copy is in `modules/ingest/testdata/meupluggy`; rerun the tool to refresh it (see `modules/ingest/testdata/pluggy/README.md`).
 
 ## The path: Meu Pluggy
 
@@ -37,7 +37,7 @@ The limits that matter are the Open Finance ones, on Pluggy's side of the connec
 
 ## Decisions this leads to
 
-1. **Ingest reads a window, not a delta.** Each sync reads every transaction of each account dated on or after a start date: the whole history on an item's first sync (or with `lastro sync --full`), and the last 90 days afterwards. Reading the window again is cheap and catches pending → posted changes, restatements and late installments, which webhooks would otherwise be needed for.
+1. **Ingest reads a window, not a delta.** Each sync reads every transaction of each account dated on or after a start date: the whole history on an item's first sync (or with `lastrod sync --full`), and the last 90 days afterwards. Reading the window again is cheap and catches pending → posted changes, restatements and late installments, which webhooks would otherwise be needed for.
 2. **The window is the truth for its dates.** A transaction lastro has inside the window that Pluggy no longer returns is removed (soft-deleted), so vanished pending transactions and the old half of a delete-and-recreate disappear. An empty read never removes anything: that is what a lapsed authorization looks like.
 3. **Transactions are keyed by Pluggy id, and re-keyed by the bank's id when there is one.** A new Pluggy id whose `providerId` matches a transaction lastro already has (live or removed) updates that transaction instead of creating one, so its category survives the delete-and-recreate. MeuPluggy sends no `providerId`, so there a restatement is a removal plus a new transaction; M2 has to decide whether to carry a manual category across by attributes.
 4. **Direction comes from `type`, not from the sign.** `DEBIT` is money out and `CREDIT` money in, on cards too (Pluggy normalizes card purchases to `DEBIT`). In the ledger an amount is negative when money leaves the account, for checking and for cards alike.

@@ -5,6 +5,7 @@ package config
 
 import (
 	"cmp"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -34,12 +35,51 @@ type Telegram struct {
 	ChatID   string
 }
 
-// Auth configures Cloudflare Access verification.
+// Auth configures who gets in (ADR-0008): the OIDC provider, Cloudflare
+// Access while it is still in front, or neither in dev.
 type Auth struct {
-	Disabled   bool
-	TeamDomain string // e.g. "your-team.cloudflareaccess.com"
+	Disabled bool
+	// PublicURL is how lastro is reached, e.g. "https://lastro.ftm.dev.br".
+	PublicURL string
+	OIDC      OIDC
+	// SessionKey seals the web session cookie: 32 bytes, base64. Rotating it
+	// signs every session out.
+	SessionKey []byte
+
+	TeamDomain string // Cloudflare Access, e.g. "your-team.cloudflareaccess.com"
 	Audience   string // AUD tag of the Access application
 }
+
+// OIDC is the identity provider and lastro's clients in it.
+type OIDC struct {
+	Issuer string
+	// Audience is what access tokens carry in aud; in Zitadel, the project ID.
+	Audience     string
+	OwnerSubject string
+	// Scopes are the ones clients ask for beyond openid, e.g. Zitadel's
+	// project audience scope.
+	Scopes []string
+	// WebClientID and WebClientSecret are the web app's (the BFF login). Empty
+	// turns the web login off.
+	WebClientID     string
+	WebClientSecret string
+	// CLIClientID is the public client of `lastro connect`; it writes.
+	CLIClientID string
+	// WriteClients may write too. Every other client, MCP among them, reads.
+	WriteClients []string
+}
+
+func (o OIDC) Enabled() bool { return o.Issuer != "" }
+
+// Writers are the clients that may write: the CLI and WriteClients.
+func (o OIDC) Writers() []string {
+	if o.CLIClientID == "" {
+		return o.WriteClients
+	}
+	return append([]string{o.CLIClientID}, o.WriteClients...)
+}
+
+func (a Auth) CloudflareAccess() bool { return a.TeamDomain != "" || a.Audience != "" }
 
 // Ollama configures the local LLM. An empty URL or model disables it.
 type Ollama struct {
@@ -72,7 +112,7 @@ func (p Pluggy) Validate() error {
 }
 
 // LoadPluggy reads and validates only the Pluggy settings, for commands that
-// talk to Pluggy without a database (lastro fixtures).
+// talk to Pluggy without a database (lastrod fixtures).
 func LoadPluggy() (Pluggy, error) {
 	p := pluggyFrom(func(key, def string) string { return cmp.Or(strings.TrimSpace(os.Getenv(key)), def) })
 	return p, p.Validate()
@@ -103,6 +143,17 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 		HTTPAddr:    get("LASTRO_HTTP_ADDR", ":8080"),
 		DatabaseURL: get("LASTRO_DATABASE_URL", ""),
 		Auth: Auth{
+			PublicURL: strings.TrimRight(get("LASTRO_PUBLIC_URL", ""), "/"),
+			OIDC: OIDC{
+				Issuer:          strings.TrimRight(get("LASTRO_OIDC_ISSUER", ""), "/"),
+				Audience:        get("LASTRO_OIDC_AUDIENCE", ""),
+				OwnerSubject:    get("LASTRO_OIDC_OWNER_SUBJECT", ""),
+				Scopes:          strings.Fields(get("LASTRO_OIDC_SCOPES", "")),
+				WebClientID:     get("LASTRO_OIDC_WEB_CLIENT_ID", ""),
+				WebClientSecret: get("LASTRO_OIDC_WEB_CLIENT_SECRET", ""),
+				CLIClientID:     get("LASTRO_OIDC_CLI_CLIENT_ID", ""),
+				WriteClients:    splitList(get("LASTRO_OIDC_WRITE_CLIENTS", "")),
+			},
 			TeamDomain: get("LASTRO_CF_ACCESS_TEAM_DOMAIN", ""),
 			Audience:   get("LASTRO_CF_ACCESS_AUD", ""),
 		},
@@ -134,14 +185,43 @@ func LoadFrom(getenv func(string) string) (Config, error) {
 	if cfg.Auth.Disabled && !cfg.IsDev() {
 		errs = append(errs, errors.New("LASTRO_AUTH_DISABLED is only allowed with LASTRO_ENV=dev"))
 	}
-	if !cfg.Auth.Disabled && (cfg.Auth.TeamDomain == "" || cfg.Auth.Audience == "") {
-		errs = append(errs, errors.New("set LASTRO_CF_ACCESS_TEAM_DOMAIN and LASTRO_CF_ACCESS_AUD, or LASTRO_AUTH_DISABLED=true in dev"))
+	if !cfg.Auth.Disabled {
+		errs = append(errs, cfg.Auth.validate(get("LASTRO_SESSION_KEY", ""))...)
 	}
 
 	if len(errs) > 0 {
 		return Config{}, fmt.Errorf("config: %w", errors.Join(errs...))
 	}
 	return cfg, nil
+}
+
+// validate checks the ways in: at least one, each complete. It also decodes
+// the session key.
+func (a *Auth) validate(sessionKey string) []error {
+	var errs []error
+	if !a.OIDC.Enabled() && !a.CloudflareAccess() {
+		return []error{errors.New("set LASTRO_OIDC_ISSUER (or LASTRO_CF_ACCESS_TEAM_DOMAIN and LASTRO_CF_ACCESS_AUD), or LASTRO_AUTH_DISABLED=true in dev")}
+	}
+	if a.CloudflareAccess() && (a.TeamDomain == "" || a.Audience == "") {
+		errs = append(errs, errors.New("set both LASTRO_CF_ACCESS_TEAM_DOMAIN and LASTRO_CF_ACCESS_AUD"))
+	}
+	if !a.OIDC.Enabled() {
+		return errs
+	}
+	if a.OIDC.Audience == "" || a.OIDC.OwnerSubject == "" {
+		errs = append(errs, errors.New("with LASTRO_OIDC_ISSUER, set LASTRO_OIDC_AUDIENCE and LASTRO_OIDC_OWNER_SUBJECT"))
+	}
+	if !strings.HasPrefix(a.PublicURL, "https://") && !strings.HasPrefix(a.PublicURL, "http://") {
+		errs = append(errs, errors.New("with LASTRO_OIDC_ISSUER, set LASTRO_PUBLIC_URL (e.g. https://lastro.ftm.dev.br)"))
+	}
+	if a.OIDC.WebClientID != "" {
+		key, err := base64.StdEncoding.DecodeString(sessionKey)
+		if err != nil || len(key) != 32 {
+			errs = append(errs, errors.New("with LASTRO_OIDC_WEB_CLIENT_ID, set LASTRO_SESSION_KEY to 32 random bytes in base64 (openssl rand -base64 32)"))
+		}
+		a.SessionKey = key
+	}
+	return errs
 }
 
 func splitList(s string) []string {
