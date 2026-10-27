@@ -6,9 +6,11 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -25,6 +27,7 @@ import (
 	"lastro/platform/events"
 	"lastro/platform/httpx"
 	"lastro/platform/llm"
+	"lastro/platform/notify"
 	"lastro/web"
 )
 
@@ -34,6 +37,7 @@ type App struct {
 	DB     *pgxpool.Pool
 	Bus    *events.Bus
 	LLM    *llm.Client
+	Notify *notify.Telegram
 	// Version is the build's, for the Settings screen; the CLI sets it.
 	Version string
 
@@ -70,6 +74,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		DB:     pool,
 		Bus:    events.NewBus(logger),
 		LLM:    llm.NewOllama(cfg.Ollama.URL, cfg.Ollama.Model),
+		Notify: notify.NewTelegram(cfg.Telegram.BotToken, cfg.Telegram.ChatID),
 		auth:   authMW,
 	}
 
@@ -113,6 +118,28 @@ func (a *App) RefreshMarket(ctx context.Context, extra ...string) (market.Report
 		return rep, err
 	}
 	return rep, merr
+}
+
+// SendAlerts pushes the alerts no channel has seen yet, in one message, and
+// remembers them. Without a channel it sends nothing and says how many wait.
+func (a *App) SendAlerts(ctx context.Context) (int, error) {
+	all, err := a.Budget.Alerts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	fresh, err := a.Budget.Unsent(ctx, all)
+	if err != nil || len(fresh) == 0 || !a.Notify.Enabled() {
+		return 0, err
+	}
+	var b strings.Builder
+	b.WriteString("lastro\n")
+	for _, al := range fresh {
+		fmt.Fprintf(&b, "\n• %s. %s", al.Title, al.Detail)
+	}
+	if err := a.Notify.Send(ctx, b.String()); err != nil {
+		return 0, err
+	}
+	return len(fresh), a.Budget.MarkSent(ctx, fresh)
 }
 
 // NewLogger uses readable text in dev and JSON in prod.

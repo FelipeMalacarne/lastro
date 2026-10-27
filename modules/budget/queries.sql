@@ -24,3 +24,9 @@ DELETE FROM budget.lines WHERE month = $1;
 -- name: InsertLine :exec
 INSERT INTO budget.lines (month, category_id, limit_cents, rollover)
 VALUES ($1, $2, $3, $4);
+
+-- name: ListSentAlerts :many
+SELECT key FROM budget.alerts_sent WHERE key = ANY(sqlc.arg(keys)::text[]);
+
+-- name: MarkAlertSent :exec
+INSERT INTO budget.alerts_sent (key, sent_at) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;

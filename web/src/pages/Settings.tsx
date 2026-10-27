@@ -20,6 +20,7 @@ type ServerSettings = {
   env: string;
   signIn: string;
   model: { state: "off" | "online" | "missing" | "offline"; name: string };
+  alerts: string;
 };
 
 const sections = [
@@ -432,6 +433,10 @@ function Server() {
     { label: "Environment", value: s.data?.env ?? "…", figure: true },
     { label: "Sign-in", value: s.data?.signIn ?? "…" },
     { label: "Backups", value: "postgres-main to R2, through Barman Cloud" },
+    {
+      label: "Alerts",
+      value: s.data ? (s.data.alerts ? `Shown here and pushed to ${s.data.alerts} after each sync` : "Shown in the app only; set LASTRO_TELEGRAM_BOT_TOKEN and LASTRO_TELEGRAM_CHAT_ID to push them") : "…",
+    },
   ];
   return (
     <Section

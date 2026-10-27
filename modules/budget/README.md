@@ -16,6 +16,8 @@ Decision: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), c
 - Spending is `ledger`'s: expenses minus refunds by category, installments in the month of each installment. Categories that do not count toward the budget (Income) are left out; transactions without a category count only when they are expenses.
 - Pay yourself first shows as done when the month's transfers out to accounts outside lastro reach it. Not assigned is income minus pay yourself first minus the limits, and may be negative.
 
+- `FindAlerts` (domain service, F10): a category over its limit; ahead of pace while the month runs; spending past the whole month's six-month average by a third and R$ 100 (on a category that usually sees R$ 50 or more); a recurring charge that changed price this month or is new. Each has a stable key, so a push channel sends it once (ADR-0007).
+
 ## Invariants
 
 - At most one saved budget per month; limits and pay yourself first are never negative and always in reais.
@@ -29,11 +31,12 @@ Decision: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), c
 - `PUT /api/v1/budget/{month}/limits/{category}` `{"limitCents", "rollover"}`: from that month on. 400 for a category that does not count toward the budget.
 - `DELETE /api/v1/budget/{month}/limits/{category}`: from that month on.
 - `PUT /api/v1/budget/{month}/pay-yourself-first` `{"amountCents", "payday"}`: from that month on.
+- `GET /api/v1/alerts`: this month's alerts, each with a severity, a title, a detail and where to look.
 - `GET /api/v1/recurring`: the recurring charges, most expensive first, with what they cost a month, what was already charged this month and what is still to come, the new ones and the price changes.
 
 ## Events
 
-None yet. Every read is computed from `ledger`, so a recategorized transaction updates every month by itself.
+None yet. Every read is computed from `ledger`, so a recategorized transaction updates every month by itself. After each sync, `app` pushes the alerts no channel has seen (`Unsent`, `MarkSent`) when Telegram is configured.
 
 ## Milestone
 

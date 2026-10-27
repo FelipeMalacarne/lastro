@@ -197,7 +197,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 
 **P1**
 - [ ] Natural-language questions answered by the local LLM through read-only SQL over dedicated views, showing the query it used. (Parked: see `docs/PLAN.md`.)
-- [ ] Alerts for unusual spending in a category and for categories about to exceed the budget.
+- [x] Alerts for unusual spending in a category and for categories about to exceed the budget.
 
 **P2**
 - [ ] Monthly report generated automatically at the start of each month.

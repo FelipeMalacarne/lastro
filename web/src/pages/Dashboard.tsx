@@ -1,4 +1,4 @@
-import { Check, Clock, Sparkles, TriangleAlert } from "lucide-react";
+import { Check, CircleAlert, Clock, Info, Sparkles, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -59,6 +59,7 @@ export function Dashboard() {
     <>
       <PageHeader title="Dashboard" caption={caption || undefined} />
       <SyncNotice banks={banks} />
+      {isCurrent && <Alerts />}
       <ReportReminders />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
@@ -80,6 +81,36 @@ export function Dashboard() {
 
       <FixedCosts byId={byId} />
     </>
+  );
+}
+
+type Alert = { key: string; kind: string; severity: "danger" | "warning" | "info"; title: string; detail: string; link: string };
+
+/** What is worth knowing this month (F10): over limits, ahead of pace, unusual spending and changed charges. */
+function Alerts() {
+  const r = useResource<{ alerts: Alert[] }>("/api/v1/alerts").data;
+  if (!r?.alerts.length) return null;
+  const icon = { danger: CircleAlert, warning: TriangleAlert, info: Info };
+  const tone = { danger: "text-danger", warning: "text-warning", info: "text-tinta" };
+  return (
+    <section aria-label="Alerts" className="flex flex-col overflow-hidden rounded-md border border-rule bg-paper-raised">
+      {r.alerts.map((a) => {
+        const Icon = icon[a.severity];
+        return (
+          <Link
+            key={a.key}
+            to={a.link}
+            className="flex items-start gap-3 border-b border-rule px-4 py-2.5 text-ink no-underline last:border-b-0 hover:bg-paper-sunken hover:text-ink"
+          >
+            <Icon className={cn("mt-0.5 size-4 flex-none", tone[a.severity])} aria-hidden />
+            <span className="flex min-w-0 flex-col">
+              <span className="text-[14px] leading-5 font-semibold">{a.title}</span>
+              <span className="type-caption text-ink-muted">{a.detail}</span>
+            </span>
+          </Link>
+        );
+      })}
+    </section>
   );
 }
 

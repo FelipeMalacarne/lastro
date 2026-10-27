@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -71,6 +72,31 @@ func (r *PostgresRepository) Save(ctx context.Context, b *MonthlyBudget) error {
 				Month: m, CategoryID: l.Category.String(), LimitCents: l.Limit.Cents(), Rollover: l.Rollover,
 			}); err != nil {
 				return fmt.Errorf("insert line: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// sent is which of the keys were already pushed.
+func (r *PostgresRepository) sent(ctx context.Context, keys []string) (map[string]bool, error) {
+	rows, err := r.q.ListSentAlerts(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(rows))
+	for _, k := range rows {
+		out[k] = true
+	}
+	return out, nil
+}
+
+func (r *PostgresRepository) markSent(ctx context.Context, keys []string, at time.Time) error {
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+		for _, k := range keys {
+			if err := q.MarkAlertSent(ctx, db.MarkAlertSentParams{Key: k, SentAt: at}); err != nil {
+				return err
 			}
 		}
 		return nil

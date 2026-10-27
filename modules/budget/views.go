@@ -116,3 +116,14 @@ type ChangeView struct {
 	ToCents   int64  `json:"toCents"`
 	Since     string `json:"since"`
 }
+
+// AlertView is an alert as the Dashboard and a push channel show it.
+type AlertView struct {
+	Key      string    `json:"key"`
+	Kind     AlertKind `json:"kind"`
+	Severity string    `json:"severity"` // "danger", "warning" or "info"
+	Title    string    `json:"title"`
+	Detail   string    `json:"detail"`
+	Category *string   `json:"category"`
+	Link     string    `json:"link"`
+}

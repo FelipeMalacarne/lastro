@@ -21,6 +21,8 @@ var ErrNotBudgeted = errors.New("budget: category does not count toward the budg
 type Repository interface {
 	Saved(ctx context.Context, until Month) ([]*MonthlyBudget, error)
 	Save(ctx context.Context, b *MonthlyBudget) error
+	sent(ctx context.Context, keys []string) (map[string]bool, error)
+	markSent(ctx context.Context, keys []string, at time.Time) error
 }
 
 // historyMonths is how far back a category's average looks.

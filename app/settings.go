@@ -15,6 +15,9 @@ type settingsJSON struct {
 	Env     string  `json:"env"`
 	SignIn  string  `json:"signIn"`
 	Model   modelJS `json:"model"`
+	// Alerts is where new alerts are pushed: "Telegram", or "" when only
+	// the app shows them (ADR-0007).
+	Alerts string `json:"alerts"`
 }
 
 type modelJS struct {
@@ -28,6 +31,9 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	out := settingsJSON{Version: a.Version, Env: a.Config.Env, SignIn: "Cloudflare Access"}
 	if a.Config.Auth.Disabled {
 		out.SignIn = "Off (dev)"
+	}
+	if a.Notify.Enabled() {
+		out.Alerts = "Telegram"
 	}
 	out.Model.Name = a.LLM.Model()
 	switch err := a.LLM.Ping(r.Context()); {

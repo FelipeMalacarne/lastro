@@ -74,5 +74,11 @@ func runSync(ctx context.Context, args []string) error {
 	if merr != nil {
 		a.Logger.WarnContext(ctx, "market refresh failed", "err", merr)
 	}
+	// New alerts go out once, if a channel is set (ADR-0007).
+	if n, err := a.SendAlerts(ctx); err != nil {
+		a.Logger.WarnContext(ctx, "alerts not sent", "err", err)
+	} else if n > 0 {
+		fmt.Printf("Sent %d alerts\n", n)
+	}
 	return nil
 }

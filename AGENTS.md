@@ -8,7 +8,7 @@ Guide for coding agents (Claude Code, Codex, Cursor and the like). It applies to
 
 ## Current state
 
-M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is next. The next task is always the first unchecked box in `docs/PLAN.md`.
+M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (the month at a glance) are done: Pluggy sync from my Meu Pluggy connection every 6 hours on saradomin, ledger, transfer pairing, rules and the local model with a review queue, the budget with pay yourself first and rollover, recurring charges, and the Dashboard, Transactions, Budget, Categories and Settings screens, with `postgres-main` backed up to R2. M4 (investing) is done too: market data, positions, the daily valuation, the contribution planner and theses. M5 (planning and insights) brings projections, the scoreboard and alerts. The next task is always the first unchecked box in `docs/PLAN.md`.
 
 ## Commands
 
@@ -34,7 +34,7 @@ cmd/lastro/      CLI: serve, sync, contribute, migrate, fixtures, seed (dev data
 app/             composition root: the only place that knows every module
 modules/<name>/  one Go package per module (ledger, ingest, categorize, budget, market, portfolio, planning)
 money/           shared kernel: Money and Percent
-platform/        infrastructure: config, db, events, httpx, auth, llm
+platform/        infrastructure: config, db, events, httpx, auth, llm, notify
 migrations/      goose SQL, embedded in the binary
 web/             React + Vite, embedded in the binary
 deploy/k8s/      Kustomize: base + overlays/saradomin

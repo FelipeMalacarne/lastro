@@ -86,7 +86,7 @@ Every transaction has a category or is waiting in the review queue, and every co
 
 - [x] Projection with monthly contributions and real interest rate, in pessimistic, base and optimistic scenarios
 - [x] Yearly scoreboard of the stock picks against the Ibovespa and CDI
-- [ ] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (email or Telegram)
+- [x] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (ADR-0007: in the app, with Telegram as an optional push)
 - [x] Monte Carlo (optional)
 
 ## Out of the way until M4

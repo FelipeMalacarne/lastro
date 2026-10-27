@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+type BudgetAlertsSent struct {
+	Key    string
+	SentAt time.Time
+}
+
 type BudgetLine struct {
 	Month      time.Time
 	CategoryID string

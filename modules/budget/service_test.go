@@ -186,6 +186,35 @@ func TestBudgetMonth(t *testing.T) {
 	}
 }
 
+func TestAlertsAreSentOnce(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"MERCADO": "Groceries"}, []tx{
+		{"2026-10-08", "MERCADO BOM", -90000, ""},
+	})
+	oct, _ := ParseMonth("2026-10")
+	if err := w.budget.SetLimit(ctx, oct, w.cats["Groceries"], money.BRLCents(50000), false); err != nil {
+		t.Fatal(err)
+	}
+	all, err := w.budget.Alerts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Kind != AlertOver || all[0].Title != "Groceries is over its limit by R$ 400,00" {
+		t.Fatalf("alerts %+v", all)
+	}
+	fresh, _ := w.budget.Unsent(ctx, all)
+	if len(fresh) != 1 {
+		t.Fatalf("unsent %d", len(fresh))
+	}
+	if err := w.budget.MarkSent(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := w.budget.Unsent(ctx, all); len(again) != 0 {
+		t.Errorf("sent twice: %+v", again)
+	}
+}
+
 func category(t *testing.T, v MonthView, c ledger.CategoryID) CategoryView {
 	t.Helper()
 	for _, x := range v.Categories {

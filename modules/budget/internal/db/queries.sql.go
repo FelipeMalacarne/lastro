@@ -114,6 +114,44 @@ func (q *Queries) ListMonths(ctx context.Context, until time.Time) ([]ListMonths
 	return items, nil
 }
 
+const listSentAlerts = `-- name: ListSentAlerts :many
+SELECT key FROM budget.alerts_sent WHERE key = ANY($1::text[])
+`
+
+func (q *Queries) ListSentAlerts(ctx context.Context, keys []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listSentAlerts, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		items = append(items, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markAlertSent = `-- name: MarkAlertSent :exec
+INSERT INTO budget.alerts_sent (key, sent_at) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING
+`
+
+type MarkAlertSentParams struct {
+	Key    string
+	SentAt time.Time
+}
+
+func (q *Queries) MarkAlertSent(ctx context.Context, arg MarkAlertSentParams) error {
+	_, err := q.db.Exec(ctx, markAlertSent, arg.Key, arg.SentAt)
+	return err
+}
+
 const saveMonth = `-- name: SaveMonth :exec
 INSERT INTO budget.months (month, payday, pyf_cents, updated_at)
 VALUES ($1, $2, $3, $4)
