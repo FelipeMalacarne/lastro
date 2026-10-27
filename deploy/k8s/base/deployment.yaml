@@ -42,6 +42,11 @@ spec:
                 name: lastro-config
             - secretRef:
                 name: lastro-secrets
+            # LASTRO_PLUGGY_*, kept apart so it can change without touching the rest.
+            # Listed last, so its values win over any left in lastro-secrets.
+            - secretRef:
+                name: lastro-pluggy
+                optional: true
           readinessProbe:
             httpGet:
               path: /readyz
