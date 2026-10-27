@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { navigate, useLocation } from "@/lib/router";
 import { AppShell } from "@/shell/AppShell";
+import { Gallery } from "@/pages/Gallery";
 import { Soon } from "@/pages/Soon";
 import { Transactions } from "@/pages/Transactions";
 
@@ -24,6 +25,9 @@ function page(path: string) {
       return <Soon title="Budget" milestone="M3" what="Pay yourself first, then a limit per category, with rollover." />;
     case "/portfolio":
       return <Soon title="Portfolio" milestone="M4" what="Positions, net worth and where this month's contribution goes." />;
+    case "/_components":
+      if (import.meta.env.DEV) return <Gallery />;
+      return <Transactions />;
     case "/planning":
       return <Soon title="Planning" milestone="M5" what="Projections in today's money, and how long until each goal." />;
     default:

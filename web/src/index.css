@@ -203,3 +203,11 @@
     transition: none !important;
   }
 }
+
+/* Menus and sheets: 160ms fade and 4px rise. */
+@keyframes lt-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

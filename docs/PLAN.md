@@ -34,7 +34,7 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] `ledger`: daily balance snapshot per account, so the net worth history in M4 starts from the first sync
 - [x] `ledger`: `TransferMatcher` for transfers between own accounts and card bill payments
 - [x] web: Tailwind, shadcn/ui and the Cédula tokens (self-hosted fonts, light and dark), and the app shell (sidebar, month switcher, phone tab bar)
-- [ ] web: `Amount`, `Badge`, `CategoryTag`, `TransactionRow` and `SyncStatus` components
+- [x] web: `Amount`, `Badge`, `CategoryTag`, `TransactionRow` and `SyncStatus` components
 - [ ] `GET /api/v1/transactions` and the Transactions screen (list, filters, search), with each account's sync status and the stale-sync notice
 - [ ] Backup of `postgres-main` in gielinor: Barman to R2
 
