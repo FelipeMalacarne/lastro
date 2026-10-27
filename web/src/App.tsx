@@ -4,6 +4,7 @@ import { navigate, useLocation } from "@/lib/router";
 import { SidebarAccounts } from "@/shell/Accounts";
 import { AppShell } from "@/shell/AppShell";
 import { AccountPage } from "@/pages/Account";
+import { Budget } from "@/pages/Budget";
 import { Categories } from "@/pages/Categories";
 import { Gallery } from "@/pages/Gallery";
 import { Review } from "@/pages/Review";
@@ -35,7 +36,7 @@ function page(path: string) {
     case "/settings":
       return <Settings />;
     case "/budget":
-      return <Soon title="Budget" milestone="M3" what="Pay yourself first, then a limit per category, with rollover." />;
+      return <Budget />;
     case "/portfolio":
       return <Soon title="Portfolio" milestone="M4" what="Positions, net worth and where this month's contribution goes." />;
     case "/_components":

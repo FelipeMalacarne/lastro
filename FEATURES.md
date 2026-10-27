@@ -100,12 +100,12 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 - As the owner, I want to see during the month whether a category is on track, so that I can adjust before it is too late.
 
 **P0**
-- [ ] "Pay yourself first": the monthly contribution is a fixed line set aside on payday and never counted as spending.
-- [ ] A monthly limit per category, with spent, remaining and the percentage of the month elapsed.
-- [ ] Money left in a category can roll over to the next month, configurable per category.
+- [x] "Pay yourself first": the monthly contribution is a fixed line set aside on payday and never counted as spending.
+- [x] A monthly limit per category, with spent, remaining and the percentage of the month elapsed.
+- [x] Money left in a category can roll over to the next month, configurable per category.
 
 **P1**
-- [ ] Copy last month's budget as a starting point.
+- [x] Copy last month's budget as a starting point (each month inherits the one before it, ADR-0006).
 - [ ] Monthly summary: income, spending, contribution and savings rate.
 
 **P2**

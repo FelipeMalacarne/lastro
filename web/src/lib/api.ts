@@ -224,3 +224,68 @@ export type Rule = {
 };
 
 export type CategoryTotal = { category: string; outCents: number; inCents: number; count: number };
+
+// budget (see modules/budget/http.go).
+
+export type Pace = "on_pace" | "ahead" | "over";
+
+export type MonthSpend = { month: string; spentCents: number };
+
+export type BudgetCategory = {
+  category: string;
+  limitCents: number;
+  carriedCents: number;
+  availableCents: number;
+  spentCents: number;
+  leftCents: number;
+  rollover: boolean;
+  usedBp: number;
+  pace: Pace;
+  count: number;
+  fixedCents: number;
+  upcomingCents: number;
+  history: MonthSpend[];
+  averageCents: number;
+};
+
+export type BudgetSpend = { category: string | null; spentCents: number; count: number; history: MonthSpend[]; averageCents: number };
+
+export type BudgetMonth = {
+  month: string;
+  hasBudget: boolean;
+  saved: boolean;
+  from: string | null;
+  days: number;
+  daysLeft: number;
+  elapsedBp: number;
+  payday: number;
+  payYourselfFirst: { plannedCents: number; movedCents: number; due: string; doneOn: string | null };
+  incomeCents: number;
+  incomeCount: number;
+  limitsCents: number;
+  carriedCents: number;
+  availableCents: number;
+  spentCents: number;
+  leftCents: number;
+  notAssignedCents: number;
+  upcomingCents: number;
+  categories: BudgetCategory[];
+  unlimited: BudgetSpend[];
+  summary: { incomeCents: number; spentCents: number; contributionCents: number; savingsRateBp: number };
+};
+
+export type RecurringCharge = {
+  name: string;
+  category: string | null;
+  steadiness: "fixed" | "varies";
+  monthlyCents: number;
+  months: number;
+  first: string;
+  last: string;
+  next: string;
+  paidThisMonth: boolean;
+  new: boolean;
+  change: { fromCents: number; toCents: number; since: string } | null;
+};
+
+export type Recurring = { monthlyCents: number; paidCents: number; upcomingCents: number; new: number; changed: number; charges: RecurringCharge[] };

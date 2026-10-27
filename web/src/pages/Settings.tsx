@@ -4,9 +4,10 @@ import { Check, Clock, ExternalLink, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/Badge";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { SyncStatus } from "@/components/SyncStatus";
+import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
-import { typeName, useResource, type Category, type Rule } from "@/lib/api";
-import { formatDay } from "@/lib/format";
+import { send, typeName, useResource, type BudgetMonth, type Category, type Rule } from "@/lib/api";
+import { formatDay, formatMonth, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ type ServerSettings = {
 
 const sections = [
   { id: "connections", label: "Connections" },
+  { id: "budget", label: "Budget" },
   { id: "categorization", label: "Categorization" },
   { id: "appearance", label: "Appearance" },
   { id: "server", label: "Server" },
@@ -51,6 +53,12 @@ export function Settings() {
   const [at, setAt] = useState("connections");
   const { banks } = useBanks();
   const warn = banks.some((b) => !b.connection || b.connection.health !== "ok" || b.connection.expiresSoon);
+
+  // A link to a section (/settings#budget) opens on it.
+  useEffect(() => {
+    const id = location.hash.slice(1);
+    if (id) requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
+  }, []);
 
   // The section nav marks the section at the top of the screen.
   useEffect(() => {
@@ -96,6 +104,7 @@ export function Settings() {
         </nav>
         <div className="flex min-w-0 max-w-[820px] flex-1 flex-col gap-4 lg:gap-6">
           <Connections />
+          <BudgetSettings />
           <Categorization />
           <Appearance />
           <Server />
@@ -183,6 +192,75 @@ function Connections() {
         </span>
       </div>
     </Section>
+  );
+}
+
+function BudgetSettings() {
+  const month = monthOf(new Date());
+  const res = useResource<BudgetMonth>(`/api/v1/budget?month=${month}`);
+  const v = res.data;
+  return (
+    <Section
+      id="budget"
+      title="Budget"
+      intro={
+        <>
+          How each month starts. Category limits are set on the <Link to="/budget">Budget</Link> screen.
+        </>
+      }
+    >
+      {v ? <PayYourselfFirst key={`${v.payYourselfFirst.plannedCents}-${v.payday}`} v={v} /> : <p className="m-0 type-body text-ink-muted">Loading…</p>}
+    </Section>
+  );
+}
+
+function PayYourselfFirst({ v }: { v: BudgetMonth }) {
+  const [amount, setAmount] = useState(inputBRL(v.payYourselfFirst.plannedCents));
+  const [payday, setPayday] = useState(String(v.payday));
+  const [state, setState] = useState<"idle" | "busy" | "saved" | string>("idle");
+  const cents = parseBRL(amount);
+  const day = Number(payday);
+  const validDay = Number.isInteger(day) && day >= 1 && day <= 31;
+  const changed = cents !== v.payYourselfFirst.plannedCents || day !== v.payday;
+
+  async function save() {
+    if (cents === null || !validDay) return;
+    setState("busy");
+    try {
+      await send("PUT", `/api/v1/budget/${v.month}/pay-yourself-first`, { amountCents: cents, payday: day });
+      setState("saved");
+    } catch (e) {
+      setState((e as Error).message);
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-0"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <Row label="Pay yourself first" hint="A fixed line every month, set aside before any limit and never counted as spending. Done once transfers to your broker reach it.">
+        <TextField aria-label="Pay yourself first, in reais" prefix="R$" numeric inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-[160px]" error={amount && cents === null ? "Type an amount" : undefined} />
+      </Row>
+      <Row label="Payday" hint="When the salary lands and pay yourself first is due. A day past the month's end means its last day.">
+        <TextField aria-label="Payday, day of the month" numeric inputMode="numeric" value={payday} onChange={(e) => setPayday(e.target.value)} suffix="of each month" className="w-[200px]" error={payday && !validDay ? "1 to 31" : undefined} />
+      </Row>
+      <div className="flex flex-wrap items-center gap-3 border-t border-rule pt-4">
+        <Button type="submit" size="sm" variant="primary" disabled={state === "busy" || !changed || cents === null || !validDay}>
+          Save
+        </Button>
+        <span role="status" className={cn("type-caption", state !== "idle" && state !== "busy" && state !== "saved" ? "text-danger" : "text-ink-muted")}>
+          {state === "saved"
+            ? `Saved from ${formatMonth(v.month)} on.`
+            : state !== "idle" && state !== "busy"
+              ? `Could not save: ${state}.`
+              : `From ${formatMonth(v.month)} on; earlier months keep theirs.`}
+        </span>
+      </div>
+    </form>
   );
 }
 

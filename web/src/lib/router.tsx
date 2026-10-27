@@ -40,7 +40,8 @@ type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { to: string };
 /** A link inside the app. The month in view travels with it. */
 export function Link({ to, onClick, ...rest }: LinkProps) {
   const month = new URLSearchParams(location.search).get("month");
-  const href = month && !to.includes("?") ? `${to}?month=${month}` : to;
+  const [path, hash] = to.split("#");
+  const href = month && !path.includes("?") ? `${path}?month=${month}${hash ? "#" + hash : ""}` : to;
   function go(e: MouseEvent<HTMLAnchorElement>) {
     onClick?.(e);
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

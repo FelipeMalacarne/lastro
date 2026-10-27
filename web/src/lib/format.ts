@@ -98,3 +98,19 @@ export function niceStep(max: number, n = 4): number {
   for (const m of [1, 2, 2.5, 5, 10]) if (m * pow >= raw) return m * pow;
   return 10 * pow;
 }
+
+/** parseBRL("1.234,56") → 123456; also "1234.56", "R$ 50". null when it is not an amount. */
+export function parseBRL(s: string): number | null {
+  let t = s.replace(/R\$|\s/g, "");
+  if (!t) return null;
+  if (/,\d{1,2}$/.test(t)) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  return Math.round(Number(t) * 100);
+}
+
+/** 123456 → "1.234,56", for an amount field. */
+export function inputBRL(cents: number): string {
+  const p = splitBRL(cents);
+  return p.units + p.cents;
+}
