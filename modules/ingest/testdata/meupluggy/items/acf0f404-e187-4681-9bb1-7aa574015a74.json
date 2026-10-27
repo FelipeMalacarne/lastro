@@ -1,0 +1,61 @@
+{
+  "autoSyncDisabledAt": null,
+  "clientUserId": null,
+  "connector": {
+    "country": "BR",
+    "createdAt": "2023-09-12T16:44:13.900Z",
+    "credentials": [],
+    "hasMFA": false,
+    "health": {
+      "stage": null,
+      "status": "ONLINE"
+    },
+    "id": 200,
+    "imageUrl": "https://cdn.pluggy.ai/assets/connector-icons/sandbox.svg",
+    "institutionUrl": "https://meu.pluggy.ai/",
+    "isOpenFinance": false,
+    "isSandbox": false,
+    "name": "MeuPluggy",
+    "oauth": true,
+    "primaryColor": "ef294b",
+    "products": [
+      "ACCOUNTS",
+      "TRANSACTIONS",
+      "CREDIT_CARDS",
+      "INVESTMENTS",
+      "INVESTMENTS_TRANSACTIONS",
+      "PAYMENT_DATA",
+      "IDENTITY",
+      "BROKERAGE_NOTE"
+    ],
+    "supportsAutomaticPix": false,
+    "supportsBoletoManagement": false,
+    "supportsPaymentInitiation": false,
+    "supportsScheduledPayments": false,
+    "supportsSmartTransfers": false,
+    "type": "PERSONAL_BANK",
+    "updatedAt": "2026-10-27T02:47:20.128Z"
+  },
+  "consecutiveFailedLoginAttempts": 0,
+  "consentExpiresAt": "2027-04-10T01:36:24.048Z",
+  "createdAt": "2026-04-13T01:36:12.222Z",
+  "error": null,
+  "executionStatus": "SUCCESS",
+  "hasResourcesPendingAuthorization": false,
+  "id": "acf0f404-e187-4681-9bb1-7aa574015a74",
+  "lastUpdatedAt": "2026-10-27T03:01:10.411Z",
+  "nextAutoSyncAt": "2026-10-28T03:01:10.411Z",
+  "oauthRedirectUri": null,
+  "parameter": null,
+  "products": [
+    "ACCOUNTS",
+    "CREDIT_CARDS",
+    "TRANSACTIONS"
+  ],
+  "resourcesCollectedAt": "2026-10-27T03:00:07.264Z",
+  "status": "UPDATED",
+  "statusDetail": null,
+  "updatedAt": "2026-10-27T03:01:10.417Z",
+  "userAction": null,
+  "webhookUrl": null
+}

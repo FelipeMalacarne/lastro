@@ -183,6 +183,13 @@ func (s *Service) syncItem(ctx context.Context, id string, full bool) (rep ItemR
 	if err != nil {
 		return rep, err
 	}
+	// A MeuPluggy item's connector is "MeuPluggy"; the bank is in its accounts.
+	if inst := institutionOf(it, accounts); inst != fresh.Institution {
+		rep.Institution, fresh.Institution = inst, inst
+		if err := s.repo.saveItemState(ctx, fresh); err != nil {
+			return rep, err
+		}
+	}
 	recs := make([]rawRecord, len(accounts))
 	for i, a := range accounts {
 		recs[i] = rawRecord{ExternalID: a.ID, Payload: a.Raw}
@@ -288,13 +295,13 @@ func (s *Service) reprocessItem(ctx context.Context, id string) (ItemReport, err
 	if err := json.Unmarshal(items[0], &it); err != nil {
 		return rep, err
 	}
-	rep.Institution = it.Connector.Name
 	balanceAt := cmp.Or(parseTimestamp(it.LastUpdatedAt), s.now())
 
 	accounts, err := decodeRaw[pluggy.Account](ctx, s, rawAccount, id)
 	if err != nil {
 		return rep, err
 	}
+	rep.Institution = institutionOf(it, accounts)
 	for _, pa := range accounts {
 		txs, err := decodeRaw[pluggy.Transaction](ctx, s, rawTransaction, pa.ID)
 		if err != nil {
@@ -337,7 +344,11 @@ func window(s ItemState, full bool, now time.Time) time.Time {
 
 // withPluggy updates an item's state with what Pluggy says about it now.
 func withPluggy(s ItemState, it pluggy.Item) ItemState {
-	s.Institution = cmp.Or(it.Connector.Name, s.Institution)
+	// A MeuPluggy item keeps the bank name its accounts gave it (institutionOf).
+	if it.Connector.ID != meuPluggyConnector {
+		s.Institution = cmp.Or(it.Connector.Name, s.Institution)
+	}
+	s.Institution = cmp.Or(s.Institution, "Meu Pluggy")
 	s.Status, s.ExecutionStatus, s.ErrorCode = it.Status, it.ExecutionStatus, ""
 	if it.Error != nil {
 		s.ErrorCode = it.Error.Code

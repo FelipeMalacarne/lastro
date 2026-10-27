@@ -189,3 +189,35 @@ func TestOnlyOneSyncAtATime(t *testing.T) {
 		t.Fatalf("want ErrSyncRunning, got %v", err)
 	}
 }
+
+func TestSyncMeuPluggyFixtures(t *testing.T) {
+	ctx := context.Background()
+	s, fake, _ := newSync(t)
+	set, err := fixtures.Load("testdata/meupluggy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.set = set
+	s.itemIDs = []string{set.Items[0].ID}
+	s.now = func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) }
+
+	rep, err := s.Sync(ctx, SyncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := rep.Items[0]
+	if it.Institution != "Nubank" || it.Accounts != 2 || it.Created != 561 || it.Skipped != 0 || it.Investments != 115 || rep.Paired != 22 {
+		t.Fatalf("first sync of the real connection: %+v, paired %d", it, rep.Paired)
+	}
+	rep, err = s.Sync(ctx, SyncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rep.Items[0]; got.Created+got.Updated+got.Removed != 0 || rep.Paired != 0 {
+		t.Fatalf("a second sync of the same data changes nothing: %+v, paired %d", got, rep.Paired)
+	}
+	conns, err := s.Connections(ctx)
+	if err != nil || len(conns) != 1 || conns[0].Institution != "Nubank" || len(conns[0].AccountIDs) != 2 {
+		t.Fatalf("the connection is named after the bank: %+v %v", conns, err)
+	}
+}

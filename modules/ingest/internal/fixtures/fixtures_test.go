@@ -127,3 +127,28 @@ func TestAnonymizeDir(t *testing.T) {
 		t.Errorf("file names must be pseudonymized too: %v", matches)
 	}
 }
+
+func TestAnonymizeInvestmentsAndBankCodes(t *testing.T) {
+	a := newAnonymizer([]byte("k"), 200)
+	a.investments = true
+	out, err := a.JSON([]byte(`[{"name":"PETR4","code":"PETR4","isin":"BRPETRACNPR6","issuer":"Petrobras","value":38.5,"quantity":10,"type":"EQUITY","subtype":"STOCK"}]`))
+	a.investments = false
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, leaked := range []string{"PETR4", "BRPETRACNPR6", "Petrobras", "38.5"} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("investment detail %q survived:\n%s", leaked, s)
+		}
+	}
+	for _, kept := range []string{`"EQUITY"`, `"STOCK"`, `"value": 77`, `"quantity": 20`} {
+		if !strings.Contains(s, kept) {
+			t.Errorf("lost %q:\n%s", kept, s)
+		}
+	}
+	acc, _ := a.JSON([]byte(`{"bankData":{"transferNumber":"260/0001/12345-6"}}`))
+	if !strings.Contains(string(acc), `"260/`) || strings.Contains(string(acc), "12345") {
+		t.Errorf("the bank code stays, the account goes: %s", acc)
+	}
+}

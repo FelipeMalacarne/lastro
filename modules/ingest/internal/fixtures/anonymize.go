@@ -31,6 +31,9 @@ import (
 type Anonymizer struct {
 	key    []byte
 	factor *big.Rat
+	// investments is set while rewriting an investments file, whose names,
+	// codes and prices would say what I hold.
+	investments bool
 }
 
 // NewAnonymizer creates an anonymizer with a fresh random key and a random
@@ -56,7 +59,9 @@ func newAnonymizer(key []byte, factorPercent int64) *Anonymizer {
 func (a *Anonymizer) Dir(src, dst string) error {
 	for _, kind := range []string{"items", "accounts", "transactions", "investments"} {
 		err := eachFile(src, kind, func(name string, b []byte) error {
+			a.investments = kind == "investments"
 			out, err := a.JSON(b)
+			a.investments = false
 			if err != nil {
 				return err
 			}
@@ -101,6 +106,13 @@ var idKeys = set("id", "itemId", "accountId", "billId", "providerId", "providerC
 	"identificationNumber", "digitableLine", "barcode", "taxNumber", "cnpj", "cpf", "value",
 	"proposalNumber", "processNumber", "clientUserId", "issuerCNPJ")
 
+// Keys of an investment that identify the asset: scrambled keeping their
+// shape, so "PETR4" stays four letters and a digit and an ISIN stays an ISIN.
+var investmentIDKeys = set("code", "isin", "number", "issuerCNPJ")
+
+// Keys of an investment that name it or its issuer.
+var investmentNameKeys = set("name", "issuer", "fundName")
+
 // Keys whose values are a person's or a company's name.
 var nameKeys = set("owner", "businessName")
 
@@ -126,7 +138,8 @@ func (a *Anonymizer) walk(parent, key string, v any) any {
 		}
 		return x
 	case json.Number:
-		if amountKeys[key] {
+		// A quota price on a date would identify the asset.
+		if amountKeys[key] || (a.investments && key == "value") {
 			return a.scale(x)
 		}
 		return x
@@ -134,6 +147,16 @@ func (a *Anonymizer) walk(parent, key string, v any) any {
 		switch {
 		case x == "":
 			return x
+		case a.investments && parent == "" && investmentIDKeys[key]:
+			return a.pseudo(x)
+		case a.investments && parent == "" && investmentNameKeys[key]:
+			return a.pseudoText(x, false)
+		case key == "transferNumber":
+			// "260/0001/12345-6": the bank code names the bank, the rest is mine.
+			if code, rest, ok := strings.Cut(x, "/"); ok {
+				return code + "/" + a.pseudo(rest)
+			}
+			return a.pseudo(x)
 		case key == "value" && parent != "documentNumber":
 			return x // e.g. a currency or a code value, not a document
 		case idKeys[key]:

@@ -46,8 +46,15 @@ type Account struct {
 	MarketingName string          `json:"marketingName"`
 	Balance       json.Number     `json:"balance"`
 	CurrencyCode  string          `json:"currencyCode"`
+	BankData      *BankData       `json:"bankData"`
 	CreditData    *CreditData     `json:"creditData"`
 	Raw           json.RawMessage `json:"-"`
+}
+
+// BankData is the bank part of a BANK account. ingest reads only the bank
+// code at the start of transferNumber ("260/0001/…"), never the rest.
+type BankData struct {
+	TransferNumber string `json:"transferNumber"`
 }
 
 // CreditData is the card part of a CREDIT account.

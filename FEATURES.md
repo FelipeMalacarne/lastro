@@ -230,9 +230,9 @@ Measured on my own usage, starting two months after each area ships:
 | Question | Blocks |
 |---|---|
 | Category limits or YNAB-style envelopes? Start with limits and see if they are enough? | M3 |
-| Which of my investments actually come through Pluggy, and which need the B3 import? Test early with my real connections. | the M1 spike answers it |
+| ~~Which of my investments actually come through Pluggy, and which need the B3 import?~~ Answered in `docs/pluggy.md`: Nubank sends its CDBs, stocks, ETFs and Tesouro; only an unconnected broker would need the B3 import. | M4 |
 | Where do valuation metrics and dividends come from (brapi free tier or another source), and what are the limits? | F8 P1 |
-| How far back does Open Finance return history on the first sync? | F6 history, F5 detection |
+| ~~How far back does Open Finance return history on the first sync?~~ Answered in `docs/pluggy.md`: about 19 months on my connection, more than the 12 Pluggy promises. | F6 history, F5 detection |
 | Which channel for alerts and reminders: email, Telegram or browser notifications? | F1 P1, F8, F10 |
 | Is a responsive web app enough on the phone, or is a PWA worth it? | Experience |
 
