@@ -122,9 +122,9 @@ lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clie
 - [x] `/mcp`, read-only (ADR-0009): monthly report, budget, transactions with filters, accounts without numbers, categories, portfolio and contribution plan, through the official Go SDK
 - [x] Spike, against the Zitadel on saradomin instead of one in the dev compose: the project ID in `aud` of JWT access tokens, the device flow with `lastro connect` and the web login, with the `lastro` project and its applications as in `docs/zitadel.md` (what it found is there too). ADR-0008 is accepted
 - [x] gielinor: Zitadel on saradomin (namespace, a database on `postgres-main` inside its backup, SOPS secrets, tunnel route and DNS for `auth.ftm.dev.br`), login with a passkey, self-registration off, recovery codes in Vaultwarden. How it is set up is in gielinor's `clusters/saradomin/apps/zitadel/README.md`
-- [ ] Sign out in Settings, and the screen for a signed-out or expired session (on the canvas first)
+- [ ] Sign out in Settings (on the canvas first). No screen of lastro's own for an expired or signed-out session: a `401` already sends the browser to `/auth/login`, and the provider's login page is that screen
 - [x] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed (lastro does not start without a provider outside dev) and ADR-0004 superseded
-- [ ] The Claude connector in use from the phone, with the pre-registered `lastro-claude` (and whether Zitadel needs it on Basic or POST)
+- [x] The Claude connector in use, with the pre-registered `lastro-claude`
 
 ## Parked
 

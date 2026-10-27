@@ -55,6 +55,7 @@ Against the Zitadel on saradomin (v4.19.2), what ADR-0008 asked to confirm:
 - JWT access tokens carry the project ID in `aud`, next to the client IDs of every application in the project. lastro only asks that the project ID be there.
 - Access tokens have `client_id` but no `azp`; lastro reads `azp`, then `client_id`.
 - The device flow works for `lastro-cli` as a public client, and `lastro whoami` shows `write`.
+- Claude finishes the flow with the pre-registered `lastro-claude` and reads through `/mcp`.
 - The web login works in production. When the browser already has a Zitadel session, the login goes straight back without a page.
 
 In the console:
