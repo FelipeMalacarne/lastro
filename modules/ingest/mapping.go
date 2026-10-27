@@ -61,7 +61,7 @@ func mapAccount(a pluggy.Account, institution string, at time.Time) (ledger.Acco
 	if err != nil {
 		return ledger.AccountDetails{}, fmt.Errorf("%w: account %s in %q", errUnsupported, a.ID, a.CurrencyCode)
 	}
-	return ledger.AccountDetails{
+	d := ledger.AccountDetails{
 		ExternalID:  ext,
 		Name:        cmp.Or(strings.TrimSpace(a.Name), strings.TrimSpace(a.MarketingName), typeName(typ)),
 		Institution: institution,
@@ -69,7 +69,42 @@ func mapAccount(a pluggy.Account, institution string, at time.Time) (ledger.Acco
 		Number:      a.Number,
 		Balance:     balance,
 		BalanceAt:   at.In(saoPaulo), // the balance's day is São Paulo's
-	}, nil
+	}
+	if typ.IsCard() && a.CreditData != nil {
+		d.Card = mapCard(*a.CreditData, balance.Currency())
+	}
+	return d, nil
+}
+
+// mapCard reads the card's limit and bill days. Each part is optional: what
+// does not parse is left out rather than failing the account.
+func mapCard(c pluggy.CreditData, cur money.Currency) ledger.CardDetails {
+	var limit, available *money.Money
+	l, errL := parseCents(c.CreditLimit)
+	av, errA := parseCents(c.AvailableCreditLimit)
+	if c.CreditLimit != "" && c.AvailableCreditLimit != "" && errL == nil && errA == nil {
+		lm, err1 := money.New(l, cur)
+		am, err2 := money.New(av, cur)
+		if err1 == nil && err2 == nil {
+			limit, available = &lm, &am
+		}
+	}
+	day := func(s string) time.Time {
+		if s == "" {
+			return time.Time{}
+		}
+		t, err := parseDate(s)
+		if err != nil {
+			return time.Time{}
+		}
+		return t
+	}
+	card, err := ledger.NewCardDetails(limit, available, day(c.BalanceDueDate), day(c.BalanceCloseDate))
+	if err != nil {
+		// A negative limit: keep the bill days, drop the amounts.
+		card, _ = ledger.NewCardDetails(nil, nil, day(c.BalanceDueDate), day(c.BalanceCloseDate))
+	}
+	return card
 }
 
 func typeName(t ledger.AccountType) string {

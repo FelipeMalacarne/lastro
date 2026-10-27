@@ -63,17 +63,24 @@ func (r *PostgresRepository) Accounts(ctx context.Context) ([]*Account, error) {
 }
 
 func (r *PostgresRepository) SaveAccount(ctx context.Context, a *Account) error {
-	return r.q.SaveAccount(ctx, db.SaveAccountParams{
-		ID:           string(a.id),
-		ExternalID:   a.externalID.String(),
-		Name:         a.name,
-		Institution:  a.institution,
-		Type:         string(a.typ),
-		Number:       a.number,
-		Currency:     string(a.currency),
-		BalanceCents: a.balance.Cents(),
-		BalanceAt:    a.balanceAt,
-	})
+	p := db.SaveAccountParams{
+		ID:            string(a.id),
+		ExternalID:    a.externalID.String(),
+		Name:          a.name,
+		Institution:   a.institution,
+		Type:          string(a.typ),
+		Number:        a.number,
+		Currency:      string(a.currency),
+		BalanceCents:  a.balance.Cents(),
+		BalanceAt:     a.balanceAt,
+		BillDueDate:   datePtr(a.card.due),
+		BillCloseDate: datePtr(a.card.closes),
+	}
+	if limit, available, ok := a.card.Limit(); ok {
+		l, av := limit.Cents(), available.Cents()
+		p.CreditLimitCents, p.AvailableCreditCents = &l, &av
+	}
+	return r.q.SaveAccount(ctx, p)
 }
 
 func (r *PostgresRepository) SaveSnapshot(ctx context.Context, s BalanceSnapshot) error {
@@ -206,6 +213,10 @@ func accountFromRow(row db.LedgerAccount) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
+	card, err := cardFromRow(bal.Currency(), row.CreditLimitCents, row.AvailableCreditCents, row.BillDueDate, row.BillCloseDate)
+	if err != nil {
+		return nil, err
+	}
 	return &Account{
 		id:          AccountID(row.ID),
 		externalID:  ext,
@@ -216,7 +227,38 @@ func accountFromRow(row db.LedgerAccount) (*Account, error) {
 		currency:    bal.Currency(),
 		balance:     bal,
 		balanceAt:   row.BalanceAt,
+		card:        card,
 	}, nil
+}
+
+func cardFromRow(c money.Currency, limit, available *int64, due, closes *time.Time) (CardDetails, error) {
+	var l, av *money.Money
+	if limit != nil && available != nil {
+		lm, err := money.New(*limit, c)
+		if err != nil {
+			return CardDetails{}, err
+		}
+		am, err := money.New(*available, c)
+		if err != nil {
+			return CardDetails{}, err
+		}
+		l, av = &lm, &am
+	}
+	return NewCardDetails(l, av, derefTime(due), derefTime(closes))
+}
+
+func datePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 func transactionFromRow(row db.LedgerTransaction, accountType string) (*Transaction, error) {
@@ -326,8 +368,24 @@ func (r *PostgresRepository) AccountViews(ctx context.Context) ([]AccountView, e
 			BalanceCents: row.BalanceCents,
 			BalanceAt:    row.BalanceAt,
 		}
+		if row.CreditLimitCents != nil || row.BillDueDate != nil || row.BillCloseDate != nil {
+			out[i].Card = &CardView{
+				LimitCents:     row.CreditLimitCents,
+				AvailableCents: row.AvailableCreditCents,
+				DueDate:        dateString(row.BillDueDate),
+				CloseDate:      dateString(row.BillCloseDate),
+			}
+		}
 	}
 	return out, nil
+}
+
+func dateString(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format(time.DateOnly)
+	return &s
 }
 
 func (r *PostgresRepository) TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error) {

@@ -63,17 +63,21 @@ type IngestRawRecord struct {
 }
 
 type LedgerAccount struct {
-	ID           string
-	ExternalID   string
-	Name         string
-	Institution  string
-	Type         string
-	Number       string
-	Currency     string
-	BalanceCents int64
-	BalanceAt    time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                   string
+	ExternalID           string
+	Name                 string
+	Institution          string
+	Type                 string
+	Number               string
+	Currency             string
+	BalanceCents         int64
+	BalanceAt            time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	CreditLimitCents     *int64
+	AvailableCreditCents *int64
+	BillDueDate          *time.Time
+	BillCloseDate        *time.Time
 }
 
 type LedgerBalanceSnapshot struct {

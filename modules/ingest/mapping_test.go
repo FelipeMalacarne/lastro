@@ -64,6 +64,21 @@ func TestMapAccounts(t *testing.T) {
 		}
 	}
 
+	card, _ := mapAccount(accs["b0000000-0000-4000-8000-000000000012"], "Nubank", at)
+	limit, available, ok := card.Card.Limit()
+	if !ok || limit != money.BRLCents(1500000) || available != money.BRLCents(1346980) ||
+		card.Card.Due().Format(time.DateOnly) != "2026-11-10" || card.Card.Closes().Format(time.DateOnly) != "2026-11-03" {
+		t.Errorf("the card's limit and bill days: %+v", card.Card)
+	}
+	if chk, _ := mapAccount(accs["b0000000-0000-4000-8000-000000000011"], "Nubank", at); !chk.Card.IsZero() {
+		t.Errorf("checking has no card details: %+v", chk.Card)
+	}
+	broken := accs["b0000000-0000-4000-8000-000000000012"]
+	broken.CreditData = &pluggy.CreditData{CreditLimit: "-5", AvailableCreditLimit: "10", BalanceDueDate: "soon"}
+	if d, err := mapAccount(broken, "Nubank", at); err != nil || !d.Card.IsZero() {
+		t.Errorf("card data that does not parse is left out, not fatal: %+v %v", d.Card, err)
+	}
+
 	if _, err := mapAccount(pluggy.Account{ID: "x", Type: "INVESTMENT", Balance: "1", CurrencyCode: "BRL"}, "Bank", at); !errors.Is(err, errUnsupported) {
 		t.Errorf("want errUnsupported for an unknown type, got %v", err)
 	}

@@ -7,14 +7,20 @@ SELECT * FROM ledger.accounts WHERE external_id = $1;
 SELECT * FROM ledger.accounts ORDER BY institution, type, name, id;
 
 -- name: SaveAccount :exec
-INSERT INTO ledger.accounts (id, external_id, name, institution, type, number, currency, balance_cents, balance_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO ledger.accounts (
+    id, external_id, name, institution, type, number, currency, balance_cents, balance_at,
+    credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     institution = EXCLUDED.institution,
     number = EXCLUDED.number,
     balance_cents = EXCLUDED.balance_cents,
     balance_at = EXCLUDED.balance_at,
+    credit_limit_cents = EXCLUDED.credit_limit_cents,
+    available_credit_cents = EXCLUDED.available_credit_cents,
+    bill_due_date = EXCLUDED.bill_due_date,
+    bill_close_date = EXCLUDED.bill_close_date,
     updated_at = now();
 
 -- name: ListTransactionsForImport :many
@@ -120,5 +126,7 @@ ORDER BY t.date DESC, t.created_at DESC, t.id
 LIMIT sqlc.arg(max_rows);
 
 -- name: ListAccountViews :many
-SELECT id, name, institution, type, number, currency, balance_cents, balance_at FROM ledger.accounts
+SELECT id, name, institution, type, number, currency, balance_cents, balance_at,
+    credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date
+FROM ledger.accounts
 ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id;

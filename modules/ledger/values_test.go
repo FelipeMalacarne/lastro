@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"lastro/money"
 )
 
 func TestNewExternalID(t *testing.T) {
@@ -156,5 +159,36 @@ func TestStatusAndAccountType(t *testing.T) {
 	}
 	if _, err := ParseAccountType("investment"); !errors.Is(err, ErrInvalid) {
 		t.Error("investments are portfolio positions, not ledger accounts")
+	}
+}
+
+func TestNewCardDetails(t *testing.T) {
+	brl := func(c int64) *money.Money { m := money.BRLCents(c); return &m }
+	usd := func(c int64) *money.Money { m, _ := money.New(c, money.USD); return &m }
+	due := time.Date(2026, 11, 10, 3, 0, 0, 0, time.UTC)
+
+	c, err := NewCardDetails(brl(800000), brl(164560), due, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit, available, ok := c.Limit()
+	if !ok || limit != money.BRLCents(800000) || available != money.BRLCents(164560) || c.Due().Format(time.DateOnly) != "2026-11-10" || !c.Closes().IsZero() || c.IsZero() {
+		t.Fatalf("got %+v", c)
+	}
+	if over, err := NewCardDetails(brl(100000), brl(-2500), time.Time{}, time.Time{}); err != nil || over.IsZero() {
+		t.Errorf("a card over its limit has a negative available amount: %v", err)
+	}
+	if none, err := NewCardDetails(nil, nil, time.Time{}, time.Time{}); err != nil || !none.IsZero() {
+		t.Errorf("nothing reported is the zero value: %+v %v", none, err)
+	}
+	for name, tt := range map[string]struct{ limit, available *money.Money }{
+		"limit without available": {brl(800000), nil},
+		"available without limit": {nil, brl(1000)},
+		"negative limit":          {brl(-1), brl(0)},
+		"two currencies":          {brl(800000), usd(1000)},
+	} {
+		if _, err := NewCardDetails(tt.limit, tt.available, time.Time{}, time.Time{}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: want ErrInvalid, got %v", name, err)
+		}
 	}
 }

@@ -104,3 +104,40 @@ func TestSnapshot(t *testing.T) {
 		t.Errorf("the snapshot is of the day the balance was read, where it was read: %+v", s)
 	}
 }
+
+func TestAccountCardDetails(t *testing.T) {
+	limit, available := money.BRLCents(800000), money.BRLCents(164560)
+	card, err := NewCardDetails(&limit, &available, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := details(t)
+	d.Card = card
+	if _, err := NewAccount(d); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a checking account has no card details, got %v", err)
+	}
+
+	d.Type, d.Balance = AccountCreditCard, money.BRLCents(-153020)
+	a, err := NewAccount(d)
+	if err != nil || a.Card() != card {
+		t.Fatalf("a card keeps them: %+v %v", a, err)
+	}
+
+	older := d
+	older.BalanceAt, older.Card = d.BalanceAt.Add(-time.Hour), CardDetails{}
+	if err := a.Refresh(older); err != nil || a.Card() != card {
+		t.Errorf("an older read changes neither the balance nor the card: %+v %v", a.Card(), err)
+	}
+	newer := d
+	newer.BalanceAt, newer.Card = d.BalanceAt.Add(time.Hour), CardDetails{}
+	if err := a.Refresh(newer); err != nil || !a.Card().IsZero() {
+		t.Errorf("a newer read replaces them, even with nothing: %+v %v", a.Card(), err)
+	}
+
+	usd, _ := money.New(1000, money.USD)
+	other, _ := NewCardDetails(&usd, &usd, time.Time{}, time.Time{})
+	d.Card = other
+	if _, err := NewAccount(d); !errors.Is(err, ErrInvalid) {
+		t.Errorf("the limit is in the account's currency, got %v", err)
+	}
+}

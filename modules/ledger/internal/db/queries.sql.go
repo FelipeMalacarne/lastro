@@ -12,7 +12,7 @@ import (
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
 
-SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at FROM ledger.accounts WHERE external_id = $1
+SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts WHERE external_id = $1
 `
 
 // Write side: load and save aggregates. repository.go maps these rows.
@@ -31,6 +31,10 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, externalID string)
 		&i.BalanceAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreditLimitCents,
+		&i.AvailableCreditCents,
+		&i.BillDueDate,
+		&i.BillCloseDate,
 	)
 	return i, err
 }
@@ -90,19 +94,25 @@ func (q *Queries) GetTransactions(ctx context.Context, ids []string) ([]GetTrans
 }
 
 const listAccountViews = `-- name: ListAccountViews :many
-SELECT id, name, institution, type, number, currency, balance_cents, balance_at FROM ledger.accounts
+SELECT id, name, institution, type, number, currency, balance_cents, balance_at,
+    credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date
+FROM ledger.accounts
 ORDER BY institution, CASE type WHEN 'checking' THEN 0 WHEN 'savings' THEN 1 ELSE 2 END, name, id
 `
 
 type ListAccountViewsRow struct {
-	ID           string
-	Name         string
-	Institution  string
-	Type         string
-	Number       string
-	Currency     string
-	BalanceCents int64
-	BalanceAt    time.Time
+	ID                   string
+	Name                 string
+	Institution          string
+	Type                 string
+	Number               string
+	Currency             string
+	BalanceCents         int64
+	BalanceAt            time.Time
+	CreditLimitCents     *int64
+	AvailableCreditCents *int64
+	BillDueDate          *time.Time
+	BillCloseDate        *time.Time
 }
 
 func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, error) {
@@ -123,6 +133,10 @@ func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, 
 			&i.Currency,
 			&i.BalanceCents,
 			&i.BalanceAt,
+			&i.CreditLimitCents,
+			&i.AvailableCreditCents,
+			&i.BillDueDate,
+			&i.BillCloseDate,
 		); err != nil {
 			return nil, err
 		}
@@ -135,7 +149,7 @@ func (q *Queries) ListAccountViews(ctx context.Context) ([]ListAccountViewsRow, 
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at FROM ledger.accounts ORDER BY institution, type, name, id
+SELECT id, external_id, name, institution, type, number, currency, balance_cents, balance_at, created_at, updated_at, credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date FROM ledger.accounts ORDER BY institution, type, name, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
@@ -159,6 +173,10 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]LedgerAccount, error) {
 			&i.BalanceAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreditLimitCents,
+			&i.AvailableCreditCents,
+			&i.BillDueDate,
+			&i.BillCloseDate,
 		); err != nil {
 			return nil, err
 		}
@@ -450,27 +468,37 @@ func (q *Queries) ListTransactionsForImport(ctx context.Context, arg ListTransac
 }
 
 const saveAccount = `-- name: SaveAccount :exec
-INSERT INTO ledger.accounts (id, external_id, name, institution, type, number, currency, balance_cents, balance_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO ledger.accounts (
+    id, external_id, name, institution, type, number, currency, balance_cents, balance_at,
+    credit_limit_cents, available_credit_cents, bill_due_date, bill_close_date
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     institution = EXCLUDED.institution,
     number = EXCLUDED.number,
     balance_cents = EXCLUDED.balance_cents,
     balance_at = EXCLUDED.balance_at,
+    credit_limit_cents = EXCLUDED.credit_limit_cents,
+    available_credit_cents = EXCLUDED.available_credit_cents,
+    bill_due_date = EXCLUDED.bill_due_date,
+    bill_close_date = EXCLUDED.bill_close_date,
     updated_at = now()
 `
 
 type SaveAccountParams struct {
-	ID           string
-	ExternalID   string
-	Name         string
-	Institution  string
-	Type         string
-	Number       string
-	Currency     string
-	BalanceCents int64
-	BalanceAt    time.Time
+	ID                   string
+	ExternalID           string
+	Name                 string
+	Institution          string
+	Type                 string
+	Number               string
+	Currency             string
+	BalanceCents         int64
+	BalanceAt            time.Time
+	CreditLimitCents     *int64
+	AvailableCreditCents *int64
+	BillDueDate          *time.Time
+	BillCloseDate        *time.Time
 }
 
 func (q *Queries) SaveAccount(ctx context.Context, arg SaveAccountParams) error {
@@ -484,6 +512,10 @@ func (q *Queries) SaveAccount(ctx context.Context, arg SaveAccountParams) error 
 		arg.Currency,
 		arg.BalanceCents,
 		arg.BalanceAt,
+		arg.CreditLimitCents,
+		arg.AvailableCreditCents,
+		arg.BillDueDate,
+		arg.BillCloseDate,
 	)
 	return err
 }

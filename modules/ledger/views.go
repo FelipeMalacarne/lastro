@@ -19,6 +19,15 @@ type AccountView struct {
 	Currency     string    `json:"currency"`
 	BalanceCents int64     `json:"balanceCents"`
 	BalanceAt    time.Time `json:"balanceAt"`
+	Card         *CardView `json:"card"` // credit cards, when the bank reports any of it
+}
+
+// CardView is a card's limit and bill, each part only when the bank reports it.
+type CardView struct {
+	LimitCents     *int64  `json:"limitCents"`
+	AvailableCents *int64  `json:"availableCents"`
+	DueDate        *string `json:"dueDate"`   // "2026-11-10"
+	CloseDate      *string `json:"closeDate"` // Nubank sends none
 }
 
 // TransactionView is a transaction as the Transactions screen lists it.

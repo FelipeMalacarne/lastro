@@ -37,6 +37,11 @@ func TestMeuPluggyFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("account %s: %v", pa.ID, err)
 		}
+		// Nubank reports the card's limit and due day, and no closing day.
+		_, _, hasLimit := d.Card.Limit()
+		if d.Type.IsCard() && (!hasLimit || d.Card.Due().IsZero() || !d.Card.Closes().IsZero()) {
+			t.Errorf("card details: %+v", d.Card)
+		}
 		for _, pt := range s.Transactions[pa.ID] {
 			in, err := mapTransaction(pt, pa)
 			if err != nil {

@@ -20,7 +20,7 @@
 
 Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains each rule.
 
-- Accounts: `BANK`/`CHECKING_ACCOUNT` → checking, `BANK`/`SAVINGS_ACCOUNT` → savings, `CREDIT` → credit card, whose balance is negated (Pluggy reports what I owe). Anything else is skipped.
+- Accounts: `BANK`/`CHECKING_ACCOUNT` → checking, `BANK`/`SAVINGS_ACCOUNT` → savings, `CREDIT` → credit card, whose balance is negated (Pluggy reports what I owe), with its `creditData` limit, available limit and bill days as card details (a part that does not parse is left out). Anything else is skipped.
 - Amounts: direction from `type` (`DEBIT` out, `CREDIT` in), magnitude from the literal, in the account's currency (`amountInAccountCurrency` for purchases abroad).
 - Dates: midnight UTC is a calendar day; any other time is read in America/São Paulo.
 - Kinds: on a card, an inflow with `PAGAMENTO_FATURA` (or "pagamento recebido/de fatura") is a bill payment and everything else an expense (refunds reduce spending); on a bank account, a redemption or automatic investment move is a transfer (by operation type, or by description such as Nubank's "Valor recebido de Investimentos"), a cashback redemption is income, other inflows income and outflows expenses. Transfers between my accounts are paired later by the ledger's `TransferMatcher`.

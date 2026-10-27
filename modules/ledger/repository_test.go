@@ -47,6 +47,32 @@ func TestRepositoryAccountRoundTrip(t *testing.T) {
 	if _, err := repo.AccountByExternalID(ctx, mustExternalID(t, "nope")); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
+
+	cardD := details(t)
+	cardD.ExternalID, cardD.Type, cardD.Balance = mustExternalID(t, "card-1"), AccountCreditCard, money.BRLCents(-153020)
+	limit, available := money.BRLCents(800000), money.BRLCents(-2500)
+	if cardD.Card, err = NewCardDetails(&limit, &available, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SyncAccount(ctx, cardD); err != nil {
+		t.Fatal(err)
+	}
+	card, err := repo.AccountByExternalID(ctx, cardD.ExternalID)
+	if err != nil || card.Card() != cardD.Card {
+		t.Fatalf("card details round trip: %+v, want %+v (%v)", card.Card(), cardD.Card, err)
+	}
+	views, err := repo.AccountViews(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range views {
+		switch {
+		case v.Type == "checking" && v.Card != nil:
+			t.Errorf("checking has no card view: %+v", v.Card)
+		case v.Type == "credit_card" && (v.Card == nil || *v.Card.LimitCents != 800000 || *v.Card.AvailableCents != -2500 || *v.Card.DueDate != "2026-11-10" || v.Card.CloseDate != nil):
+			t.Errorf("card view: %+v", v.Card)
+		}
+	}
 }
 
 func TestRepositoryImportIsIdempotent(t *testing.T) {
