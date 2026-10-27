@@ -59,8 +59,10 @@ Every transaction has a category or is waiting in the review queue, and every co
 - [x] Rule engine, from the most specific rule to the most generic
 - [x] `TransactionsImported` handler
 - [ ] Review queue screen, where a manual correction becomes a rule
+- [ ] Transactions: each row shows its category's name and colour, and the list filters by category (the last open item of F2)
 - [ ] `Classifier` via Ollama, validating that the answer is an existing category, with its suggestions in the queue
-- [ ] List, edit and delete rules
+- [ ] List, edit and archive categories and rules (the "Categories and rules" screen)
+- [ ] web: the shared sidebar (search, accounts with sync state, Categories and rules, Settings, theme) and the Settings page with Connections, Categorization and Appearance; its Budget and Investments sections arrive with M3 and M4
 
 ## M3: the month at a glance (F4, F5, dashboard)
 
@@ -85,9 +87,12 @@ Every transaction has a category or is waiting in the review queue, and every co
 - [ ] Projection with monthly contributions and real interest rate, in pessimistic, base and optimistic scenarios
 - [ ] Yearly scoreboard of the stock picks against the Ibovespa and CDI
 - [ ] Alerts for unusual spending and for categories about to exceed the budget, after choosing the channel (email or Telegram)
-- [ ] Natural-language questions turned into read-only SQL (Ollama), over dedicated views
 - [ ] Monte Carlo (optional)
 
 ## Out of the way until M4
 
 Splitting a transaction across categories, notes and tags on transactions, valuation metrics, and price alerts.
+
+## Parked
+
+Natural-language questions turned into read-only SQL (F10): the "Ask" card was dropped from the Planning design; it comes back only with a better interaction than a chat box.
