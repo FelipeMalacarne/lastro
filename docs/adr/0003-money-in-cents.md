@@ -24,5 +24,5 @@ Floating point cannot represent cents exactly. Summing transactions, splitting c
 
 ## Consequences
 
-- API values (Pluggy sends JSON numbers) go through `money.ParseDecimal`, which rejects more than two decimal places.
+- API values never pass through a float. Pluggy sends JSON numbers: `ingest` keeps the literal and converts it to cents, rounding anything past two places (floating-point residue on Pluggy's side) half away from zero. Typed-in values go through `money.ParseDecimal`, which rejects more than two decimal places.
 - Overflow only happens above roughly 90 quadrillion reais, so it is not a concern.

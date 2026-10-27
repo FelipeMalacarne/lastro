@@ -28,7 +28,7 @@ Every account and transaction on the phone, synced every day, with transfers and
 - [x] `ledger`: value objects `ExternalID`, `Kind`, `Installment`, `CategoryID` and `Source` (plus `Status` and `AccountType`), with tests
 - [x] `ledger`: `Account` and `Transaction` aggregates, with invariants and events
 - [x] `ledger`: migrations, `queries.sql` and `repository.go` with idempotent upsert
-- [ ] `ingest`: Pluggy → ledger mapping, tested against the fixtures
+- [x] `ingest`: Pluggy → ledger mapping, tested against the fixtures
 - [ ] `ingest`: raw payloads and sync state per item
 - [ ] `lastro sync` end to end, and the CronJob turned on
 - [ ] `ledger`: daily balance snapshot per account, so the net worth history in M4 starts from the first sync

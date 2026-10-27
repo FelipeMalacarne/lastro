@@ -10,6 +10,16 @@
 - Sync state per item: when the last sync ran and how far it got.
 - Raw payloads stored in the `ingest` schema, so data can be reprocessed without calling the API again.
 
+## Mapping (`mapping.go`)
+
+Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains each rule.
+
+- Accounts: `BANK`/`CHECKING_ACCOUNT` → checking, `BANK`/`SAVINGS_ACCOUNT` → savings, `CREDIT` → credit card, whose balance is negated (Pluggy reports what I owe). Anything else is skipped.
+- Amounts: direction from `type` (`DEBIT` out, `CREDIT` in), magnitude from the literal, in the account's currency (`amountInAccountCurrency` for purchases abroad).
+- Dates: midnight UTC is a calendar day; any other time is read in America/São Paulo.
+- Kinds: on a card, an inflow with `PAGAMENTO_FATURA` (or "pagamento recebido/de fatura") is a bill payment and everything else an expense (refunds reduce spending); on a bank account, a redemption or automatic investment move is a transfer, other inflows income and outflows expenses. Transfers between my accounts are paired later by the ledger's `TransferMatcher`.
+- `providerId` becomes the ledger's bank reference.
+
 ## Invariants
 
 - Reprocessing the same payload produces exactly the same result in `ledger`.
