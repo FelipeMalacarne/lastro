@@ -119,3 +119,23 @@ type Investment struct {
 	RateType     string          `json:"rateType"`
 	Raw          json.RawMessage `json:"-"`
 }
+
+// InvestmentTransaction is one movement of an investment: Type is BUY (an
+// application), SELL (a withdrawal), TAX, TRANSFER (between investments),
+// INTEREST (dividends, coupons) or AMORTIZATION. Date is when it was made,
+// TradeDate when it settled.
+type InvestmentTransaction struct {
+	ID              string          `json:"id"`
+	Type            string          `json:"type"`
+	MovementType    string          `json:"movementType"` // CREDIT or DEBIT, when sent
+	Description     string          `json:"description"`
+	Quantity        json.Number     `json:"quantity"`
+	UnitValue       json.Number     `json:"value"`
+	Amount          json.Number     `json:"amount"`    // gross
+	NetAmount       json.Number     `json:"netAmount"` // after expenses
+	Date            string          `json:"date"`
+	TradeDate       string          `json:"tradeDate"`
+	BrokerageNumber string          `json:"brokerageNumber"`
+	Expenses        json.RawMessage `json:"expenses"` // fees and taxes of the brokerage note
+	Raw             json.RawMessage `json:"-"`
+}

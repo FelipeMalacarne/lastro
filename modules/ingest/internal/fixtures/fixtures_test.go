@@ -86,12 +86,15 @@ func TestLoadAndReportFixtures(t *testing.T) {
 		"outflows that look like card bill payments: PAGAMENTO DE FATURA 1",
 		"time of day: 2 at midnight UTC, 2 with a time",
 		"investments: 1, by type: FIXED_INCOME/TREASURY ACTIVE 1",
+		"investment transactions: 3, on 1 of 1 investments",
+		"by type: BUY 2, SELL 1; movement types: CREDIT 2, DEBIT 1",
+		"with netAmount: 3; with expenses: 1",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report misses %q:\n%s", want, out)
 		}
 	}
-	for _, leaked := range []string{"1482", "Fulano", "iFood", "c0000000"} {
+	for _, leaked := range []string{"1482", "Fulano", "iFood", "c0000000", "296.4", "3239"} {
 		if strings.Contains(out, leaked) {
 			t.Errorf("report leaks %q", leaked)
 		}
@@ -122,7 +125,14 @@ func TestAnonymizeDir(t *testing.T) {
 			}
 		}
 	}
-	matches, _ := filepath.Glob(filepath.Join(dst, "*", "a0000000-*.json"))
+	for _, invs := range s.Investments {
+		for _, inv := range invs {
+			if len(s.InvestmentTransactions[inv.ID]) == 0 {
+				t.Errorf("no transactions file for anonymized investment %s", inv.ID)
+			}
+		}
+	}
+	matches, _ := filepath.Glob(filepath.Join(dst, "*", "[ae]0000000-*.json"))
 	if len(matches) > 0 {
 		t.Errorf("file names must be pseudonymized too: %v", matches)
 	}
@@ -146,6 +156,20 @@ func TestAnonymizeInvestmentsAndBankCodes(t *testing.T) {
 		if !strings.Contains(s, kept) {
 			t.Errorf("lost %q:\n%s", kept, s)
 		}
+	}
+	a.investments = true
+	tx, err := a.JSON([]byte(`[{"type":"SELL","quantity":4,"value":38.5,"amount":154,"netAmount":152.8,"brokerageNumber":"778899","description":"Venda PETR4","expenses":{"brokerageFee":1.2}}]`))
+	a.investments = false
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"PETR4", "38.5", "152.8", "778899", "1.2"} {
+		if strings.Contains(string(tx), leaked) {
+			t.Errorf("investment transaction detail %q survived:\n%s", leaked, tx)
+		}
+	}
+	if !strings.Contains(string(tx), `"SELL"`) || !strings.Contains(string(tx), `"netAmount": 305.6`) {
+		t.Errorf("the type stays and amounts scale: %s", tx)
 	}
 	acc, _ := a.JSON([]byte(`{"bankData":{"transferNumber":"260/0001/12345-6"}}`))
 	if !strings.Contains(string(acc), `"260/`) || strings.Contains(string(acc), "12345") {

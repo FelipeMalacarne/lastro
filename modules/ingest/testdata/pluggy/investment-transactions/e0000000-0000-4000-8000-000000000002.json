@@ -1,0 +1,24 @@
+[
+  {
+    "id": "f0000000-0000-4000-8000-000000000011",
+    "type": "BUY",
+    "description": "Compra Tesouro IPCA+ 2035",
+    "quantity": 2,
+    "value": 3200,
+    "amount": 6400,
+    "date": "2026-01-12T00:00:00.000Z",
+    "tradeDate": "2026-01-13T00:00:00.000Z",
+    "agreedRate": 6.3
+  },
+  {
+    "id": "f0000000-0000-4000-8000-000000000012",
+    "type": "BUY",
+    "description": "Compra Tesouro IPCA+ 2035",
+    "quantity": 1.42,
+    "value": 3239.44,
+    "amount": 4600,
+    "date": "2026-05-20T00:00:00.000Z",
+    "tradeDate": "2026-05-21T00:00:00.000Z",
+    "agreedRate": 6.05
+  }
+]

@@ -43,7 +43,7 @@ Pure functions from Pluggy records to ledger commands; `docs/pluggy.md` explains
 
 ## Tests
 
-Fixtures in `testdata/pluggy/` hold Pluggy API responses. Today they are synthetic; `lastrod fixtures` downloads the real ones, prints a report safe to share and writes an anonymized copy (names, documents, account numbers, ids and free-text words replaced, amounts scaled) to review before committing. Never commit the raw dump. What Pluggy sends and why ingest reads it the way it does is in `docs/pluggy.md`.
+Fixtures in `testdata/pluggy/` hold Pluggy API responses. Today they are synthetic; `lastrod fixtures` downloads the real ones, prints a report safe to share and writes an anonymized copy (names, documents, account numbers, ids and free-text words replaced, amounts scaled) to review before committing. The dump includes each investment's transactions (`investment-transactions/`), which nothing reads yet: they are for rebuilding the net worth before the first sync. Never commit the raw dump. What Pluggy sends and why ingest reads it the way it does is in `docs/pluggy.md`.
 
 ## Events
 
