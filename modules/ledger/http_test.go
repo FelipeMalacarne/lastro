@@ -24,13 +24,23 @@ func TestTransactionsEndpointValidatesTheFilter(t *testing.T) {
 		{"month=2026-10&q=" + strings.Repeat("a", 101), "limited to 100"},
 		{"month=2026-10&day=2026-11-02", "day must be a day of the month"},
 		{"month=2026-10&day=22", "day must be a day of the month"},
+		{"month=2026-10&category=Food", "category must be a category id"},
+		{"month=2026-10&scope=all", "scope can only be"},
 	}
-	for _, tt := range tests {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/transactions?"+tt.query, nil))
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
-			t.Errorf("%q: got %d %s", tt.query, rec.Code, rec.Body.String())
+	// The days read the list's filter.
+	for _, path := range []string{"/api/v1/transactions?", "/api/v1/transactions/days?"} {
+		for _, tt := range tests {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+tt.query, nil))
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+				t.Errorf("%s%s: got %d %s", path, tt.query, rec.Code, rec.Body.String())
+			}
 		}
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/transactions/days?month=2026-10&q=uber&scope=all", nil))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "days are one month's") {
+		t.Errorf("the days are always one month's: got %d %s", rec.Code, rec.Body.String())
 	}
 }
 

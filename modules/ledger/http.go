@@ -99,14 +99,20 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeNoContent(w, r, logger, s.KeepApart(r.Context(), id, in.Of))
 	})
 
-	// GET /api/v1/transactions/days?month=2026-10: spending day by day.
+	// GET /api/v1/transactions/days?month=2026-10: the month day by day,
+	// under the list's filters (account, category, flow, q, tag); always
+	// the whole month, whatever the day.
 	mux.HandleFunc("GET /api/v1/transactions/days", func(w http.ResponseWriter, r *http.Request) {
-		month, err := time.Parse("2006-01", r.URL.Query().Get("month"))
+		f, err := parseFilter(r)
 		if err != nil {
-			httpx.WriteError(w, r, logger, httpx.BadRequest(`month must look like "2026-10"`))
+			httpx.WriteError(w, r, logger, err)
 			return
 		}
-		v, err := s.Days(r.Context(), month)
+		if f.AllMonths {
+			httpx.WriteError(w, r, logger, httpx.BadRequest(`days are one month's: scope cannot be "all"`))
+			return
+		}
+		v, err := s.Days(r.Context(), f)
 		writeView(w, r, logger, v, err)
 	})
 

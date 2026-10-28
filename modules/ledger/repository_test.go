@@ -457,6 +457,115 @@ func TestRepositoryNotesTagsAndSplits(t *testing.T) {
 	}
 }
 
+func TestRepositoryDaysFollowTheFilter(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, _ := newService(t) // today is 27 Oct
+	chk, card := details(t), details(t)
+	card.ExternalID, card.Type = mustExternalID(t, "card"), AccountCreditCard
+	for _, d := range []AccountDetails{chk, card} {
+		if _, err := svc.SyncAccount(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sep := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
+	tx := func(ext, description string, date time.Time, cents int64, kind Kind) ImportedTransaction {
+		in := imported(t, ext, cents)
+		in.Description, in.Date, in.Kind = description, date, kind
+		return in
+	}
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: chk.ExternalID, Transactions: []ImportedTransaction{
+		tx("bread", "Padaria São João", oct(3), -1250, KindExpense),
+		tx("uber-1", "Uber", oct(5), -2300, KindExpense),
+		tx("pay", "Salário", oct(5), 500000, KindIncome),
+		tx("refund", "Estorno Uber", oct(6), 800, KindExpense),
+		tx("out", "Pix enviado", oct(8), -100000, KindTransfer),
+		tx("sep-uber-1", "Uber", sep(5), -3000, KindExpense),
+		tx("sep-pay", "Salário", sep(5), 500000, KindIncome),
+		tx("sep-out", "Pix enviado", sep(8), -50000, KindTransfer),
+		tx("sep-uber-2", "Uber", sep(28), -4000, KindExpense), // after the same day of October
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: card.ExternalID, Transactions: []ImportedTransaction{
+		tx("shop", "Carrefour Hiper", oct(12), -85680, KindExpense),
+		tx("uber-2", "Uber", oct(20), -1900, KindExpense),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]TransactionID{}
+	for _, m := range []time.Time{sep(1), oct(1)} {
+		list, _ := svc.Transactions(ctx, TransactionFilter{Month: m})
+		for _, v := range list.Transactions {
+			ids[v.Description+" "+v.Date] = v.ID
+		}
+	}
+	transport, groceries, shopping := mustCategory(t, "transport"), mustCategory(t, "groceries"), mustCategory(t, "shopping")
+	for _, k := range []string{"Uber 2026-10-05", "Uber 2026-10-20", "Estorno Uber 2026-10-06", "Uber 2026-09-05", "Uber 2026-09-28"} {
+		if err := svc.Categorize(ctx, ids[k], transport, SourceManual); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.SplitTransaction(ctx, ids["Carrefour Hiper 2026-10-12"], []SplitPart{
+		{Category: groceries, Amount: money.BRLCents(-46690)},
+		{Category: shopping, Amount: money.BRLCents(-38990)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetTags(ctx, ids["Padaria São João 2026-10-03"], []string{"breakfast"}); err != nil {
+		t.Fatal(err)
+	}
+	cardAcc, _ := repo.AccountByExternalID(ctx, card.ExternalID)
+
+	tests := []struct {
+		name string
+		f    TransactionFilter
+		want DaysSummary
+	}{
+		{"everything", TransactionFilter{},
+			DaysSummary{SpentCents: 91130, InCents: 500800, MovedCents: 100000, PreviousToDateCents: 3000, PreviousInToDateCents: 500000, PreviousMovedToDateCents: 50000}},
+		{"one account", TransactionFilter{Account: cardAcc.ID()},
+			DaysSummary{SpentCents: 87580}},
+		{"a category, refunds and September too", TransactionFilter{Category: "transport"},
+			DaysSummary{SpentCents: 4200, InCents: 800, PreviousToDateCents: 3000}},
+		{"a split counts its part", TransactionFilter{Category: "shopping"},
+			DaysSummary{SpentCents: 38990}},
+		{"money in", TransactionFilter{Flow: FlowIn},
+			DaysSummary{InCents: 500800, PreviousInToDateCents: 500000}},
+		{"transfers", TransactionFilter{Flow: FlowTransfer},
+			DaysSummary{MovedCents: 100000, PreviousMovedToDateCents: 50000}},
+		{"a search, ignoring accents, and out only", TransactionFilter{Search: "UBER", Flow: FlowOut},
+			DaysSummary{SpentCents: 4200, PreviousToDateCents: 3000}},
+		{"a search reads accents away", TransactionFilter{Search: "sao joao"},
+			DaysSummary{SpentCents: 1250}},
+		{"a tag", TransactionFilter{Tag: "breakfast"},
+			DaysSummary{SpentCents: 1250}},
+		{"a day never narrows the chart", TransactionFilter{Category: "transport", Day: oct(20)},
+			DaysSummary{SpentCents: 4200, InCents: 800, PreviousToDateCents: 3000}},
+	}
+	for _, tt := range tests {
+		tt.f.Month = oct(1)
+		v, err := svc.Days(ctx, tt.f)
+		if err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		if v.Summary != tt.want {
+			t.Errorf("%s: %+v, want %+v", tt.name, v.Summary, tt.want)
+		}
+	}
+
+	v, _ := svc.Days(ctx, TransactionFilter{Month: oct(1), Category: "shopping"})
+	if len(v.Days) != 1 || v.Days[0] != (DayView{Date: "2026-10-12", SpentCents: 38990, Purchases: 1}) {
+		t.Errorf("by day: %+v", v.Days)
+	}
+	v, _ = svc.Days(ctx, TransactionFilter{Month: oct(1), Category: "transport"})
+	if len(v.Previous) != 2 || v.Previous[1] != (DayView{Date: "2026-09-28", SpentCents: 4000, Purchases: 1}) {
+		t.Errorf("September under the same filter, every day of it: %+v", v.Previous)
+	}
+	if _, err := svc.Days(ctx, TransactionFilter{Month: oct(1), Search: "uber", AllMonths: true}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("the days are one month's: %v", err)
+	}
+}
+
 func TestRepositoryManualAccounts(t *testing.T) {
 	ctx := context.Background()
 	svc, _, got := newService(t)
