@@ -55,6 +55,11 @@ func runSeed(ctx context.Context, args []string) error {
 		}
 		fmt.Printf("%s %s: %d new, %d updated, %d unchanged\n", acc.details.Institution, acc.details.Name, res.Created, res.Updated, res.Unchanged)
 	}
+	nb, err := a.Ledger.ImportBills(ctx, s.card.details.ExternalID, s.bills())
+	if err != nil {
+		return fmt.Errorf("seed: %w", err)
+	}
+	fmt.Printf("%d card bills\n", nb)
 	n, err := a.Ledger.MatchTransfers(ctx, time.Time{})
 	if err != nil {
 		return fmt.Errorf("seed: %w", err)
@@ -439,7 +444,9 @@ func newSeeder(now time.Time, months int) *seeder {
 }
 
 func (s *seeder) add(a *seedAccount, day time.Time, description string, cents int64, kind ledger.Kind, inst ledger.Installment) {
-	if day.After(s.now) {
+	// The card lists the installments still to come, pending; nothing else
+	// is dated after today.
+	if day.After(s.now) && (a != s.card || inst.IsZero()) {
 		return
 	}
 	a.n++
@@ -448,13 +455,41 @@ func (s *seeder) add(a *seedAccount, day time.Time, description string, cents in
 	if a == s.card && s.now.Sub(day) < 72*time.Hour {
 		status = ledger.StatusPending
 	}
-	a.txs = append(a.txs, ledger.ImportedTransaction{
+	in := ledger.ImportedTransaction{
 		ExternalID: ext, BankRef: "ref-" + ext.String(), Date: day, Description: description,
 		Amount: money.BRLCents(cents), Kind: kind, Status: status, Installment: inst,
-	})
-	if a == s.card && cents < 0 && kind == ledger.KindExpense {
+	}
+	// A month's card transactions go into its bill once the month is over.
+	if a == s.card && s.billed(day) {
+		in.BillRef = seedBillRef(day)
+	}
+	a.txs = append(a.txs, in)
+	if a == s.card && kind == ledger.KindExpense && !day.After(s.now) {
 		s.cardByMonth[day.Format("2006-01")] -= cents
 	}
+}
+
+// billed says whether a card transaction's month is over, so its bill closed.
+func (s *seeder) billed(day time.Time) bool {
+	return day.Before(time.Date(s.now.Year(), s.now.Month(), 1, 0, 0, 0, 0, time.UTC))
+}
+
+func seedBillRef(day time.Time) string { return "seed-bill-" + day.Format("2006-01") }
+
+// bills are the card's closed bills: one per month of purchases, due on the
+// 10th of the next, with a minimum of 15%.
+func (s *seeder) bills() []ledger.ImportedBill {
+	var out []ledger.ImportedBill
+	for m := s.start; s.billed(m); m = m.AddDate(0, 1, 0) {
+		total := s.cardByMonth[m.Format("2006-01")]
+		if total == 0 {
+			continue
+		}
+		ext, _ := ledger.NewExternalID(seedBillRef(m))
+		minimum := money.BRLCents(total * 15 / 100)
+		out = append(out, ledger.ImportedBill{ExternalID: ext, Due: s.day(m.AddDate(0, 1, 0), 10), Total: money.BRLCents(total), Minimum: &minimum, Charges: money.BRLCents(0)})
+	}
+	return out
 }
 
 // between is a whole number of cents in [lo, hi] reais.

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "d0000000-0000-4000-8000-000000000001",
+    "dueDate": "2026-10-10T00:00:00.000Z",
+    "totalAmount": 1482.37,
+    "totalAmountCurrencyCode": "BRL",
+    "minimumPaymentAmount": 222.36,
+    "allowsInstallments": true,
+    "financeCharges": [],
+    "payments": []
+  }
+]

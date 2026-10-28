@@ -180,6 +180,29 @@ func TestInvestmentTransactionsReadEveryPage(t *testing.T) {
 	}
 }
 
+func TestBillsReadEveryPage(t *testing.T) {
+	f, c := newFake(t)
+	f.HandleFunc("GET /bills", f.authorized(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("accountId") != "card" {
+			t.Errorf("unexpected query %q", r.URL.RawQuery)
+		}
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = w.Write([]byte(`{"page":1,"totalPages":2,"results":[{"id":"b1","dueDate":"2026-09-05T00:00:00.000Z","totalAmount":981.75,"totalAmountCurrencyCode":"BRL","minimumPaymentAmount":null,"financeCharges":[]}]}`))
+		case "2":
+			_, _ = w.Write([]byte(`{"page":2,"totalPages":2,"results":[{"id":"b2","dueDate":"2026-10-05T00:00:00.000Z","totalAmount":1203.4,"minimumPaymentAmount":180.51,"financeCharges":[{"type":"LATE_PAYMENT_INTEREST","amount":18.4}]}]}`))
+		}
+	}))
+	bills, err := c.Bills(context.Background(), "card")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bills) != 2 || bills[0].MinimumPaymentAmount != "" || bills[1].TotalAmount.String() != "1203.4" ||
+		len(bills[1].FinanceCharges) != 1 || bills[1].FinanceCharges[0].Amount.String() != "18.4" || len(bills[1].Raw) == 0 {
+		t.Fatalf("got %+v", bills)
+	}
+}
+
 func TestWaitsOutRateLimits(t *testing.T) {
 	f, c := newFake(t)
 	var calls atomic.Int32

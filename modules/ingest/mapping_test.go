@@ -138,6 +138,50 @@ func TestMapTransactions(t *testing.T) {
 	if byID["c0000000-0000-4000-8000-000000000001"].BankRef != "of-0001" {
 		t.Error("providerId is the bank reference")
 	}
+	if byID["c0000000-0000-4000-8000-000000000008"].BillRef != "d0000000-0000-4000-8000-000000000001" || byID["c0000000-0000-4000-8000-000000000010"].BillRef != "" {
+		t.Error("a card transaction's billId is its bill reference; one on the open bill has none")
+	}
+}
+
+func TestMapBills(t *testing.T) {
+	card := pluggy.Account{ID: "card", Type: "CREDIT", CurrencyCode: "BRL"}
+	min := money.BRLCents(18051)
+	tests := []struct {
+		name string
+		bill pluggy.Bill
+		want ledger.ImportedBill
+		err  bool
+	}{
+		{
+			name: "a bill with a minimum and interest",
+			bill: pluggy.Bill{ID: "b1", DueDate: "2026-09-10T00:00:00.000Z", TotalAmount: "1203.40", TotalAmountCurrencyCode: "BRL", MinimumPaymentAmount: "180.51",
+				FinanceCharges: []pluggy.FinanceCharge{{Type: "LATE_PAYMENT_REMUNERATIVE_INTEREST", Amount: "15.30"}, {Type: "IOF", Amount: "3.10"}}},
+			want: ledger.ImportedBill{Due: time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC), Total: money.BRLCents(120340), Minimum: &min, Charges: money.BRLCents(1840)},
+		},
+		{
+			name: "no minimum, no charges, the card's currency",
+			bill: pluggy.Bill{ID: "b2", DueDate: "2026-10-10", TotalAmount: "981.75"},
+			want: ledger.ImportedBill{Due: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), Total: money.BRLCents(98175), Charges: money.BRLCents(0)},
+		},
+		{name: "a due date that does not parse", bill: pluggy.Bill{ID: "b3", DueDate: "soon", TotalAmount: "1"}, err: true},
+		{name: "a total that does not parse", bill: pluggy.Bill{ID: "b4", DueDate: "2026-10-10", TotalAmount: "a lot"}, err: true},
+	}
+	for _, tt := range tests {
+		got, err := mapBill(tt.bill, card)
+		if tt.err {
+			if err == nil {
+				t.Errorf("%s: want an error, got %+v", tt.name, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		sameMin := (got.Minimum == nil) == (tt.want.Minimum == nil) && (got.Minimum == nil || *got.Minimum == *tt.want.Minimum)
+		if got.ExternalID.String() != tt.bill.ID || !got.Due.Equal(tt.want.Due) || got.Total != tt.want.Total || got.Charges != tt.want.Charges || !sameMin {
+			t.Errorf("%s: got %+v", tt.name, got)
+		}
+	}
 }
 
 func TestMapTransactionsIntoTheLedger(t *testing.T) {

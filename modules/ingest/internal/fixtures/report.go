@@ -33,6 +33,10 @@ func Report(w io.Writer, s Set, now time.Time) {
 		p("  data last updated by Pluggy: %s; authorization expires: %s", day(it.LastUpdatedAt), day(it.ConsentExpiresAt))
 		for j, a := range s.Accounts[it.ID] {
 			reportAccount(p, j+1, a, s.Transactions[a.ID], now)
+			if a.Type == "CREDIT" {
+				bills, read := s.Bills[a.ID]
+				reportBills(p, bills, read, s.Transactions[a.ID])
+			}
 		}
 		invs := s.Investments[it.ID]
 		kinds := map[string]int{}
@@ -162,6 +166,47 @@ func reportAccount(p func(string, ...any), n int, a pluggy.Account, txs []pluggy
 	} else if len(shapesOut) > 0 {
 		p("    outflows that look like card bill payments:%s", histogram(shapesOut))
 	}
+}
+
+// reportBills says whether the card's closed bills came through and how its
+// transactions point to them: what the open bill is made of.
+func reportBills(p func(string, ...any), bills []pluggy.Bill, read bool, txs []pluggy.Transaction) {
+	if !read {
+		p("    bills: not read (the endpoint failed for this card)")
+		return
+	}
+	ids := map[string]bool{}
+	var first, last string
+	var minimum, charges int
+	for _, b := range bills {
+		ids[b.ID] = true
+		d := day(b.DueDate)
+		if first == "" || d < first {
+			first = d
+		}
+		if d > last {
+			last = d
+		}
+		if b.MinimumPaymentAmount != "" {
+			minimum++
+		}
+		if len(b.FinanceCharges) > 0 {
+			charges++
+		}
+	}
+	p("    bills: %d, due %s to %s; with a minimum: %d; with interest or fees: %d", len(bills), cmp.Or(first, "-"), cmp.Or(last, "-"), minimum, charges)
+	ref := map[string]int{}
+	for _, t := range txs {
+		state := "no billId"
+		if m := t.CreditCardMetadata; m != nil && m.BillID != "" {
+			state = "billId of an unlisted bill"
+			if ids[m.BillID] {
+				state = "billId of a listed bill"
+			}
+		}
+		ref[t.Status+", "+state]++
+	}
+	p("    transactions by status and bill:%s", histogram(ref))
 }
 
 // shape keeps only banking vocabulary: other words become "*" and digits "#".

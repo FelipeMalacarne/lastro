@@ -768,3 +768,117 @@ func TestRepositoryMissingTransactionAddedByHand(t *testing.T) {
 		t.Errorf("a merged one cannot merge again: %v", err)
 	}
 }
+
+func TestRepositoryCardBills(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newService(t)
+	checking := details(t)
+	checkingID, err := svc.SyncAccount(ctx, checking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cardD := details(t)
+	cardD.ExternalID, cardD.Type, cardD.Balance = mustExternalID(t, "card-1"), AccountCreditCard, money.BRLCents(-50000)
+	cardID, err := svc.SyncAccount(ctx, cardD)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// September's bill was paid on 1 Oct from checking; October's purchases
+	// are on the open bill, a split among them, and an installment is set
+	// for November.
+	sep := func(ext string, day int, cents int64) ImportedTransaction {
+		in := imported(t, ext, cents)
+		in.Date, in.BillRef = time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC), "bill-sep"
+		return in
+	}
+	open := func(ext string, day time.Time, cents int64) ImportedTransaction {
+		in := imported(t, ext, cents)
+		in.Date, in.Status = day, StatusPending
+		return in
+	}
+	paid := imported(t, "paid", 30000)
+	paid.Date, paid.Kind, paid.BankRef = oct(1), KindBillPayment, ""
+	later := open("later", time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC), -10000)
+	later.Installment, _ = NewInstallment(4, 10)
+	batch := ImportBatch{Account: cardD.ExternalID, Transactions: []ImportedTransaction{
+		sep("s1", 10, -20000), sep("s2", 20, -10000), paid,
+		open("market", oct(5), -8000), open("refund", oct(9), 1500), later,
+	}}
+	if _, err := svc.ImportTransactions(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	out := imported(t, "bill-out", -30000)
+	out.Date, out.BankRef = oct(1), ""
+	if _, err := svc.ImportTransactions(ctx, ImportBatch{Account: checking.ExternalID, Transactions: []ImportedTransaction{out}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.MatchTransfers(ctx, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := svc.ImportTransactions(ctx, batch); err != nil || res.Unchanged != 6 {
+		t.Fatalf("the bill references round-trip unchanged: %+v %v", res, err)
+	}
+	views, err := svc.Transactions(ctx, TransactionFilter{Account: cardID, Month: oct(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var market TransactionID
+	for _, v := range views.Transactions {
+		if v.Description == "iFood" && v.AmountCents == -8000 {
+			market = v.ID
+		}
+	}
+	if err := svc.SplitTransaction(ctx, market, []SplitPart{
+		{Category: mustCategory(t, "food"), Amount: money.BRLCents(-5000)},
+		{Category: mustCategory(t, "home"), Amount: money.BRLCents(-3000)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	minimum := money.BRLCents(4500)
+	bill := ImportedBill{ExternalID: mustExternalID(t, "bill-sep"), Due: oct(5), Total: money.BRLCents(29000), Minimum: &minimum, Charges: money.BRLCents(0)}
+	if n, err := svc.ImportBills(ctx, cardD.ExternalID, []ImportedBill{bill}); err != nil || n != 1 {
+		t.Fatalf("import bills: %d %v", n, err)
+	}
+	bill.Total = money.BRLCents(30000) // restated: the read replaces it
+	if _, err := svc.ImportBills(ctx, cardD.ExternalID, []ImportedBill{bill}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ImportBills(ctx, checking.ExternalID, []ImportedBill{bill}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("checking takes no bills: %v", err)
+	}
+	if _, err := svc.Bills(ctx, checkingID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("checking has no bills: %v", err)
+	}
+
+	bills, err := svc.Bills(ctx, cardID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bills) != 3 || bills[0].ID != "next" || bills[1].ID != "open" || bills[2].ID != "bill-sep" {
+		t.Fatalf("next, open, then September's: %+v", bills)
+	}
+	next, op, closed := bills[0], bills[1], bills[2]
+	if next.TotalCents != 10000 || next.Installments.Count != 1 {
+		t.Errorf("next: %+v", next)
+	}
+	if op.State != "open" || op.TotalCents != 6500 || op.DueDate == nil || *op.DueDate != "2026-11-05" || op.Purchases.Count != 1 || op.Refunds.Cents != 1500 || len(op.Transactions) != 2 {
+		t.Errorf("open: %+v", op)
+	}
+	cats := map[string]int64{}
+	for _, c := range op.ByCategory {
+		k := "none"
+		if c.Category != nil {
+			k = *c.Category
+		}
+		cats[k] = c.Cents
+	}
+	if !maps.Equal(cats, map[string]int64{"food": 5000, "home": 3000, "none": -1500}) {
+		t.Errorf("the open bill by category, the split by its parts: %v", cats)
+	}
+	if closed.State != "paid" || closed.TotalCents != 30000 || *closed.MinimumCents != 4500 || closed.PaidCents != 30000 || *closed.PaidOn != "2026-10-01" ||
+		closed.PaidFrom == nil || closed.PaidFrom.ID != checkingID || closed.Purchases.Count != 2 || closed.CarriedCents != 0 {
+		t.Errorf("September's bill: %+v", closed)
+	}
+}

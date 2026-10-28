@@ -85,6 +85,7 @@ func TestReadEndpointsValidateIDs(t *testing.T) {
 		{"/api/v1/accounts/42/balance", "id must be an account id"},
 		{"/api/v1/accounts/x/months", "id must be an account id"},
 		{"/api/v1/accounts/x/installments", "id must be an account id"},
+		{"/api/v1/accounts/x/bills", "id must be an account id"},
 		{"/api/v1/transactions/ifood", "id must be a transaction id"},
 		{"/api/v1/transactions/days", "month must look like"},
 		{"/api/v1/transactions/days?month=October", "month must look like"},
