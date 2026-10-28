@@ -25,6 +25,9 @@ let preference = read();
 function apply() {
   const dark = preference === "dark" || (preference === "system" && media.matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  // The installed app's status bar follows the paper of the theme in use.
+  const paper = getComputedStyle(document.documentElement).getPropertyValue("--paper").trim();
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", paper);
 }
 
 media.addEventListener("change", () => {
