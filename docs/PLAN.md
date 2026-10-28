@@ -151,9 +151,19 @@ The history starts at the first sync, so returns over 12 months, the comparison 
 - [ ] `portfolio`: stocks and ETFs before the first sync, from their movements and the ledger's purchases of variable income, valued at the day's close
 - [ ] Net worth on the rebuilt days, with cash from the ledger's daily balance and the card bills
 
+## On the phone: an installed app (ADR-0013)
+
+lastro installs from the browser to the home screen, as a PWA: the same screens, the same login, and a deploy is the update. A native app stays parked until it needs something a PWA cannot do.
+
+- [x] The app icon on the canvas (option B: an l in a guilloché ring), drawn in `web/icons/icon.svg` and rendered to `web/public/icons` (canvas: "Phone app: the icon, three options")
+- [x] `manifest.json` (opens Dashboard in `standalone`), the icons and the favicon, all behind the login (the manifest asked for with the session); the status bar takes the paper of the theme in use
+- [x] A new version arrives with nothing on screen: back after 10 minutes or more away it reloads, sooner the next navigation loads it in full; files under `/assets/` kept for good, privately
+- [ ] Installed on the iPhone and on Android: the login with the passkey inside the installed app, the icon on the home screen, and an update after a deploy
+
 ## Parked
 
-- A phone app (Native client with PKCE in Zitadel, the API already accepts its tokens).
+- A native phone app (ADR-0013), only for what the PWA cannot do: a home screen widget with the month, or a lock with Face ID. The `lastro-app` Native client with PKCE in Zitadel; the API already accepts its tokens.
+- Web push for alerts (ADR-0013), beside Telegram or instead of it: a service worker, and the app installed on the iPhone.
 - MCP write tools (recategorize, notes), each one asking for `write`.
 - Dynamic registration or CIMD for MCP clients, once Zitadel ships them and a second client needs it.
 - Natural-language questions turned into read-only SQL (F10): the "Ask" card was dropped from the Planning design; it comes back only with a better interaction than a chat box.

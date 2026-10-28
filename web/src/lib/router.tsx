@@ -1,5 +1,7 @@
 import { useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
 
+import { updateWaiting } from "./update";
+
 // A router small enough to read: the location is the state, pushState changes
 // it, and every subscriber re-renders. Screens are few and flat.
 
@@ -21,6 +23,12 @@ export function useLocation(): { path: string; query: URLSearchParams } {
 
 export function navigate(to: string, opts: { replace?: boolean } = {}) {
   if (to === location.pathname + location.search) return;
+  // With a newer version out, going to another screen loads it. A replace
+  // (a filter, a redirect) stays put, so nothing typed is lost.
+  if (!opts.replace && updateWaiting()) {
+    location.assign(to);
+    return;
+  }
   if (opts.replace) history.replaceState(null, "", to);
   else history.pushState(null, "", to);
   notify();

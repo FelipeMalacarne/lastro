@@ -22,6 +22,10 @@ func Handler() http.Handler {
 	if err != nil {
 		panic(err) // impossible: the embed pattern guarantees the dist directory
 	}
+	return handler(sub)
+}
+
+func handler(sub fs.FS) http.Handler {
 	files := http.FileServerFS(sub)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
@@ -36,6 +40,13 @@ func Handler() http.Handler {
 		if _, err := fs.Stat(sub, p); err != nil {
 			serveIndex(w, sub)
 			return
+		}
+		// Vite names every file under assets/ by a hash of its content, so
+		// the browser keeps it for good and a deploy reaches it through
+		// index.html. Private: it sits behind the login, so Cloudflare must
+		// not keep a copy for anyone else.
+		if strings.HasPrefix(p, "assets/") {
+			w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 		}
 		files.ServeHTTP(w, r)
 	})
