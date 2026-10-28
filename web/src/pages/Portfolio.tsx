@@ -16,6 +16,7 @@ import { assetClasses, send, useResource, type AssetClass, type PortfolioOvervie
 import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, parseBRL } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
 
@@ -829,7 +830,20 @@ function ThesisForm({ ticker, thesis, onDone }: { ticker: string; thesis?: Thesi
           Cancel
         </Button>
         {thesis && (
-          <Button type="button" variant="ghost" size="sm" className="ml-auto" disabled={busy} onClick={() => void run(() => send("DELETE", `/api/v1/theses/${ticker}`))}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const back = { thesis: thesis.thesis, breaks: thesis.breaks, nextReport: thesis.nextReport || null };
+                await send("DELETE", `/api/v1/theses/${ticker}`);
+                toast({ id: "thesis", text: `The ${ticker} thesis is gone.`, undo: () => send("PUT", `/api/v1/theses/${ticker}`, back) });
+              })
+            }
+          >
             Delete
           </Button>
         )}

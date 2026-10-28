@@ -3,6 +3,7 @@ import { ChartPie, LayoutDashboard, List, Moon, Search, Settings as SettingsIcon
 
 import { Kbd } from "@/components/Kbd";
 import { MonthSwitcher } from "@/components/MonthSwitcher";
+import { Toaster } from "@/components/ui/toast";
 import { useResource } from "@/lib/api";
 import { useWaiting } from "@/lib/categories";
 import { formatMonth } from "@/lib/format";
@@ -211,6 +212,7 @@ export function AppShell({ accounts, children }: Props) {
             })}
         </nav>
       </div>
+      <Toaster />
     </div>
   );
 }

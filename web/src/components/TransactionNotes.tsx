@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import { send, useResource, type TagView, type Transaction } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, inputBRL, parseBRL } from "@/lib/format";
+import { toast } from "@/lib/toast";
 
 type Part = { category: string; amount: string };
 
@@ -85,7 +86,18 @@ export function SplitSection({ t, split }: { t: Transaction; split: { category: 
           <Button size="sm" variant="secondary" onClick={start}>
             Edit the split
           </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => send("DELETE", `/api/v1/transactions/${t.id}/split`))}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const parts = split.map((p) => ({ category: p.category, amountCents: p.amountCents }));
+                await send("DELETE", `/api/v1/transactions/${t.id}/split`);
+                toast({ id: "split", text: `The split of “${t.description}” is gone.`, undo: () => send("PUT", `/api/v1/transactions/${t.id}/split`, { parts }) });
+              })
+            }
+          >
             Remove the split
           </Button>
         </div>

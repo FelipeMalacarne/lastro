@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { refreshAll, send, useResource } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 // The sync CronJob: minute 17 of every sixth hour, in Brasília time.
@@ -20,28 +21,53 @@ export function nextSync(now = new Date()): string {
 
 type SyncStatus = { running: boolean; started: string | null; finished: string | null; ok: boolean; message: string };
 
-/**
- * A sync started from the screens (POST /api/v1/sync): it runs on the
- * server; this polls until it ends, then everything on screen reloads.
- */
+// One watcher for the page, however many Sync buttons it shows: it polls a
+// running sync until it ends, then everything on screen reloads. A sync
+// started from here reports its outcome in a toast, wherever the owner is.
+let watching = false;
+let reportOutcome = false;
+
+function watch() {
+  if (watching) return;
+  watching = true;
+  void (async () => {
+    try {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const s = await fetch("/api/v1/sync", { headers: { Accept: "application/json" } })
+          .then((x) => x.json() as Promise<SyncStatus>)
+          .catch(() => null);
+        if (!s || s.running) continue;
+        refreshAll();
+        if (reportOutcome) toast({ id: "sync", tone: s.ok ? "done" : "error", text: s.ok ? `Synced: ${s.message}.` : `Sync failed: ${s.message}.` });
+        reportOutcome = false;
+        return;
+      }
+    } finally {
+      watching = false;
+    }
+  })();
+}
+
+/** A sync started from the screens (POST /api/v1/sync): it runs on the server. */
 export function useSync() {
   const res = useResource<SyncStatus>("/api/v1/sync");
   const [error, setError] = useState<string | null>(null);
   const running = res.data?.running ?? false;
   useEffect(() => {
-    if (!running) return;
-    const t = setInterval(async () => {
-      const r = await fetch("/api/v1/sync", { headers: { Accept: "application/json" } }).then((x) => x.json() as Promise<SyncStatus>).catch(() => null);
-      if (r && !r.running) refreshAll();
-    }, 2000);
-    return () => clearInterval(t);
+    if (running) watch();
   }, [running]);
   async function start() {
     setError(null);
+    reportOutcome = true;
+    toast({ id: "sync", tone: "busy", text: "Syncing every account…" });
     try {
       await send("POST", "/api/v1/sync");
+      watch();
     } catch (e) {
+      reportOutcome = false;
       setError((e as Error).message);
+      toast({ id: "sync", tone: "error", text: `Could not start the sync: ${(e as Error).message}.` });
     }
   }
   const last = res.data;

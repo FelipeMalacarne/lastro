@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, Check, CircleAlert, PiggyBank, Repeat, Sparkles, TriangleAlert, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowRight, Check, CircleAlert, PiggyBank, Repeat, Sparkles, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -8,12 +8,14 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetActions } from "@/components/ui/sheet";
 import { send, useResource, type BudgetCategory, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type TransactionList } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDay, formatMonth, inputBRL, parseBRL, titleCase } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
 
@@ -28,17 +30,14 @@ export function Budget() {
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ text: string; undo?: LimitLine[] } | null>(null);
   const wide = useWide();
   const v = res.data;
-  // On a phone the detail opens under the lists only when a category is tapped.
-  const select = (id: string) => {
-    setSelected(id);
-    if (!wide) requestAnimationFrame(() => document.getElementById("detail-title")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
+  // On a phone a tapped category opens in a sheet, which keeps it while it slides away.
+  const select = (id: string) => setSelected(id);
+  const inSheet = useRef<string | null>(null);
+  if (selected) inSheet.current = selected;
   const startEditing = () => {
     setEditing(true);
-    setDone(null);
     requestAnimationFrame(() => document.getElementById("limits-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
@@ -51,10 +50,7 @@ export function Budget() {
     else if (!selected && wide) setSelected(first);
   }, [v, selected, wide]);
 
-  useEffect(() => {
-    setEditing(false);
-    setDone(null);
-  }, [month]);
+  useEffect(() => setEditing(false), [month]);
 
   if (res.error && !v) return <PageHeader title="Budget" caption={`Could not load the budget: ${res.error}.`} />;
   if (!v) return <PageHeader title="Budget" caption="Loading…" />;
@@ -80,32 +76,26 @@ export function Budget() {
     );
   }
 
-  const sel = selected ? v.categories.find((c) => c.category === selected) : undefined;
-  const selUnlimited = !sel && selected ? v.unlimited.find((u) => u.category === selected) : undefined;
+  const shownId = wide ? selected : inSheet.current;
+  const sel = shownId ? v.categories.find((c) => c.category === shownId) : undefined;
+  const selUnlimited = !sel && shownId ? v.unlimited.find((u) => u.category === shownId) : undefined;
   const prev = addMonth(v.month, -1);
   const prevName = formatMonth(prev).split(" ")[0];
 
   async function copy() {
     if (!v) return;
-    const before = v.categories.map((c) => ({ category: c.category, limitCents: c.limitCents, rollover: c.rollover }));
+    const before: LimitLine[] = v.categories.map((c) => ({ category: c.category, limitCents: c.limitCents, rollover: c.rollover }));
+    const into = v.month;
     setBusy(true);
     try {
-      const r = await send<{ copied: number }>("POST", `/api/v1/budget/${v.month}/copy`, { from: prev });
-      setDone({ text: `Copied ${prevName}'s ${r.copied} ${r.copied === 1 ? "limit" : "limits"} into ${formatMonth(v.month).split(" ")[0]}.`, undo: before });
+      const r = await send<{ copied: number }>("POST", `/api/v1/budget/${into}/copy`, { from: prev });
+      toast({
+        id: "budget",
+        text: `Copied ${prevName}'s ${r.copied} ${r.copied === 1 ? "limit" : "limits"} into ${formatMonth(into).split(" ")[0]}.`,
+        undo: () => send("PUT", `/api/v1/budget/${into}/limits`, { limits: before }),
+      });
     } catch (e) {
-      setDone({ text: `Could not copy: ${(e as Error).message}.` });
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function undo(lines: LimitLine[]) {
-    if (!v) return;
-    setBusy(true);
-    try {
-      await send("PUT", `/api/v1/budget/${v.month}/limits`, { limits: lines });
-      setDone(null);
-    } catch (e) {
-      setDone({ text: `Could not undo: ${(e as Error).message}.` });
+      toast({ id: "budget", tone: "error", text: `Could not copy: ${(e as Error).message}.` });
     } finally {
       setBusy(false);
     }
@@ -124,29 +114,15 @@ export function Budget() {
 
   const detail = (
     <>
-      {sel && <Detail key={sel.category} v={v} c={sel} cat={byId.get(sel.category)} onClose={wide ? undefined : () => setSelected(null)} />}
-      {selUnlimited && selUnlimited.category && (
-        <Detail key={selUnlimited.category} v={v} spend={selUnlimited} cat={byId.get(selUnlimited.category)} onClose={wide ? undefined : () => setSelected(null)} />
-      )}
+      {sel && <Detail key={sel.category} v={v} c={sel} cat={byId.get(sel.category)} inSheet={!wide} />}
+      {selUnlimited && selUnlimited.category && <Detail key={selUnlimited.category} v={v} spend={selUnlimited} cat={byId.get(selUnlimited.category)} inSheet={!wide} />}
     </>
   );
+  const sheetName = byId.get(sel?.category ?? selUnlimited?.category ?? "")?.name ?? "Archived category";
 
   return (
     <>
       <PageHeader title="Budget" caption={caption} actions={actions} />
-      {done && (
-        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-paper-sunken py-2 pr-2 pl-3.5 text-[14px] leading-5">
-          <span className="min-w-0 flex-[1_1_240px]">{done.text}</span>
-          {done.undo && (
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void undo(done.undo!)}>
-              Undo
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" aria-label="Dismiss" onClick={() => setDone(null)}>
-            <X aria-hidden />
-          </Button>
-        </div>
-      )}
       {wide ? <Hero v={v} isCurrent={isCurrent} gone={gone} onAssign={editing ? undefined : startEditing} /> : <PhoneHero v={v} isCurrent={isCurrent} byId={byId} />}
       {!wide && <PayFirst v={v} />}
 
@@ -163,7 +139,11 @@ export function Budget() {
               <Unlimited v={v} rows={v.unlimited} byId={byId} selected={selected} onSelect={select} className="-mb-px" />
             </section>
           )}
-          {detail}
+          {inSheet.current && (
+            <Sheet open={Boolean(selected)} onOpenChange={(o) => !o && setSelected(null)} label={`${sheetName} · ${formatMonth(v.month).split(" ")[0]}`}>
+              {detail}
+            </Sheet>
+          )}
         </>
       ) : (
       <div className="flex flex-wrap items-start gap-4 lg:gap-6">
@@ -609,8 +589,8 @@ function CoverButton({ month, c, label = "Cover with Not assigned" }: { month: s
   );
 }
 
-/** One category: where its limit comes from, its last six months, where the money went, and its limit. */
-function Detail({ v, c, spend, cat, onClose }: { v: BudgetMonth; c?: BudgetCategory; spend?: BudgetSpend; cat?: Category; onClose?: () => void }) {
+/** One category: where its limit comes from, its last six months, where the money went, and its limit. In a phone sheet its head says the name. */
+function Detail({ v, c, spend, cat, inSheet }: { v: BudgetMonth; c?: BudgetCategory; spend?: BudgetSpend; cat?: Category; inSheet?: boolean }) {
   const id = c?.category ?? spend?.category ?? "";
   const history = c?.history ?? spend?.history ?? [];
   const average = c?.averageCents ?? spend?.averageCents ?? 0;
@@ -620,12 +600,14 @@ function Detail({ v, c, spend, cat, onClose }: { v: BudgetMonth; c?: BudgetCateg
   const merchants = useMemo(() => byMerchant(list.data?.transactions.map((t) => ({ d: t.description, c: -t.amountCents })) ?? []), [list.data]);
 
   return (
-    <section aria-labelledby="detail-title" className="flex flex-col gap-4 rounded-md border border-rule bg-paper-raised p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="detail-title" className="m-0 flex scroll-mt-20 items-center gap-2 type-heading">
-          <span className="size-3 rounded-xs" style={{ background: `var(--${cat?.color ?? "note-200"})` }} aria-hidden />
-          {cat?.name ?? "Archived category"}
-        </h2>
+    <section aria-labelledby={inSheet ? undefined : "detail-title"} className={cn("flex flex-col gap-4", !inSheet && "rounded-md border border-rule bg-paper-raised p-5")}>
+      <div className={cn("flex flex-wrap items-center justify-between gap-2", inSheet && "empty:hidden")}>
+        {!inSheet && (
+          <h2 id="detail-title" className="m-0 flex items-center gap-2 type-heading">
+            <span className="size-3 rounded-xs" style={{ background: `var(--${cat?.color ?? "note-200"})` }} aria-hidden />
+            {cat?.name ?? "Archived category"}
+          </h2>
+        )}
         {c?.pace === "over" && (
           <Badge tone="danger" icon={CircleAlert}>
             Over
@@ -637,11 +619,6 @@ function Detail({ v, c, spend, cat, onClose }: { v: BudgetMonth; c?: BudgetCateg
           </Badge>
         )}
         {!c && <Badge>No limit</Badge>}
-        {onClose && (
-          <Button variant="ghost" size="sm" className="ml-auto" aria-label="Close the details" onClick={onClose}>
-            <X aria-hidden />
-          </Button>
-        )}
       </div>
 
       {c ? (
@@ -801,6 +778,7 @@ function LimitEditor({
   suggested: number;
   rolloverNew: boolean;
 }) {
+  const formId = useId();
   const start = limit?.limitCents ?? Math.ceil(suggested / 5000) * 5000;
   const [text, setText] = useState(start ? inputBRL(start) : "");
   const [rollover, setRollover] = useState(limit?.rollover ?? rolloverNew);
@@ -822,8 +800,26 @@ function LimitEditor({
     }
   }
 
+  async function remove() {
+    if (!limit) return;
+    const back = { limitCents: limit.limitCents, rollover: limit.rollover };
+    await run(async () => {
+      await send("DELETE", `/api/v1/budget/${month}/limits/${category}`);
+      toast({
+        id: "budget",
+        text: (
+          <>
+            <strong>{name}</strong> has no limit from {monthName} on.
+          </>
+        ),
+        undo: () => send("PUT", `/api/v1/budget/${month}/limits/${category}`, back),
+      });
+    });
+  }
+
   return (
     <form
+      id={formId}
       className="flex flex-col gap-3 border-t border-rule pt-4"
       onSubmit={(e) => {
         e.preventDefault();
@@ -853,16 +849,16 @@ function LimitEditor({
           Could not save: {error}.
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" variant={limit ? "secondary" : "primary"} size="sm" disabled={busy || cents === null || !changed}>
+      <SheetActions className="flex flex-wrap items-center gap-2">
+        <Button type="submit" form={formId} variant={limit ? "secondary" : "primary"} size="sm" disabled={busy || cents === null || !changed}>
           {limit ? "Save limit" : "Set limit"}
         </Button>
         {limit && (
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void run(() => send("DELETE", `/api/v1/budget/${month}/limits/${category}`))}>
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void remove()}>
             Remove limit
           </Button>
         )}
-      </div>
+      </SheetActions>
     </form>
   );
 }

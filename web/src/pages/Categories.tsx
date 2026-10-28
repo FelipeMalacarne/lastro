@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, Plus, Search } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
@@ -9,6 +9,8 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Sheet, SheetActions } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,8 +33,10 @@ import {
 } from "@/lib/api";
 import { useCategories, useWaiting } from "@/lib/categories";
 import { formatDay, formatMonth } from "@/lib/format";
+import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
 
@@ -235,6 +239,7 @@ function RulesPanel({
   newRule: boolean;
   onNewRule: (open: boolean) => void;
 }) {
+  const wide = useWide();
   const [q, setQ] = useState("");
   const [source, setSource] = useState<"all" | RuleOrigin>("all");
   const [selected, setSelected] = useState<string | null>(null);
@@ -249,6 +254,13 @@ function RulesPanel({
     return r.pattern.text.toLowerCase().includes(s) || (byId.get(r.category)?.name.toLowerCase().includes(s) ?? false);
   });
   const rule = newRule ? null : (rules.find((r) => r.id === selected) ?? null);
+  // On a phone the editor opens in a sheet, which keeps it while it slides away.
+  const inSheet = useRef<{ rule: Rule | null } | null>(null);
+  if (rule || newRule) inSheet.current = { rule };
+  const closeEditor = () => {
+    setSelected(null);
+    onNewRule(false);
+  };
   const accountName = (id: string | null) => {
     const a = accounts.find((x) => x.id === id);
     return a ? `${a.institution} ${typeLabel[a.type]}` : null;
@@ -312,12 +324,7 @@ function RulesPanel({
                       type="button"
                       role="row"
                       aria-selected={on}
-                      onClick={() => {
-                        select(on ? null : r.id);
-                        // On a phone the editor sits under the list: bring it into view.
-                        if (!on && window.innerWidth < 1024)
-                          requestAnimationFrame(() => document.getElementById("rule-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                      }}
+                      onClick={() => select(on ? null : r.id)}
                       className={cn(
                         "grid min-h-14 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px_96px] items-center gap-x-3 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
                         on ? "bg-tinta-soft shadow-[inset_3px_0_0_var(--tinta)]" : "bg-paper-raised hover:bg-paper-sunken",
@@ -356,18 +363,25 @@ function RulesPanel({
           </p>
         </div>
 
-        {(rule || newRule) && (
-          <RuleEditor
-            key={rule?.id ?? "new"}
-            rule={rule}
-            rules={rules}
-            categories={categories}
-            accounts={accounts}
-            onClose={() => {
-              setSelected(null);
-              onNewRule(false);
-            }}
-          />
+        {wide && (rule || newRule) && (
+          <RuleEditor key={rule?.id ?? "new"} rule={rule} rules={rules} categories={categories} accounts={accounts} onClose={closeEditor} />
+        )}
+        {!wide && inSheet.current && (
+          <Sheet
+            open={Boolean(rule || newRule)}
+            onOpenChange={(o) => !o && closeEditor()}
+            label={inSheet.current.rule ? `Rule ${inSheet.current.rule.order}` : "New rule"}
+          >
+            <RuleEditor
+              key={inSheet.current.rule?.id ?? "new"}
+              rule={inSheet.current.rule}
+              rules={rules}
+              categories={categories}
+              accounts={accounts}
+              onClose={closeEditor}
+              inSheet
+            />
+          </Sheet>
         )}
       </div>
     </Panel>
@@ -380,19 +394,21 @@ function RuleEditor({
   categories,
   accounts,
   onClose,
+  inSheet,
 }: {
   rule: Rule | null;
   rules: Rule[];
   categories: Category[];
   accounts: Account[];
   onClose: () => void;
+  /** In a phone sheet: its head has the name and ✕, its footer the save button. */
+  inSheet?: boolean;
 }) {
   const [kind, setKind] = useState<PatternKind>(rule?.pattern.kind ?? "contains");
   const [text, setText] = useState(rule?.pattern.text ?? "");
   const [account, setAccount] = useState(rule?.account ?? "");
   const [category, setCategory] = useState(rule?.category ?? "");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const before = rule && rules.find((r) => r.order > rule.order && rule.pattern.text.includes(r.pattern.text) && r.id !== rule.id);
   const same = !rule && rules.find((r) => r.pattern.kind === kind && r.pattern.text.toLowerCase() === text.trim().toLowerCase() && (r.account ?? "") === account);
   const valid = Boolean(text.trim()) && Boolean(category) && !same;
@@ -400,39 +416,44 @@ function RuleEditor({
 
   async function save() {
     setBusy(true);
-    setMsg(null);
     try {
       if (!rule) {
         const r = await send<{ categorized: number }>("POST", "/api/v1/rules", { pattern: { kind, text: text.trim() }, account, category });
-        setMsg(r.categorized ? `Rule created. It categorized ${r.categorized} ${r.categorized === 1 ? "transaction" : "transactions"}.` : "Rule created. Nothing waiting matched it yet.");
+        const many = `${r.categorized} ${r.categorized === 1 ? "transaction" : "transactions"}`;
+        toast({
+          id: "rule",
+          text: (
+            <>
+              Rule for <strong>{text.trim()}</strong> created. {r.categorized ? `It categorized ${many}.` : "Nothing waiting matched it yet."}
+            </>
+          ),
+        });
         setText("");
         return;
       }
       const r = await send<{ categorized: number }>("PATCH", `/api/v1/rules/${rule.id}`, { pattern: { kind, text }, account, category });
-      setMsg(r.categorized ? `Saved. ${r.categorized} transactions moved.` : "Saved.");
+      toast({ id: "rule", text: <>Rule {rule.order} saved.{r.categorized ? ` ${r.categorized} transactions moved.` : ""}</> });
     } catch (e) {
-      setMsg(`Could not save: ${(e as Error).message}.`);
+      toast({ id: "rule", tone: "error", text: `Could not save: ${(e as Error).message}.` });
     } finally {
       setBusy(false);
     }
   }
   async function remove() {
     if (!rule) return;
-    setBusy(true);
-    try {
-      await send("DELETE", `/api/v1/rules/${rule.id}`);
-      onClose();
-    } catch (e) {
-      setMsg(`Could not delete: ${(e as Error).message}.`);
-      setBusy(false);
-    }
+    await send("DELETE", `/api/v1/rules/${rule.id}`);
+    onClose();
+    toast({ id: "rule", text: <>Rule {rule.order}, <strong>{rule.pattern.text}</strong>, deleted.</> });
   }
 
   return (
     <section
       id="rule-editor"
       aria-label={rule ? `Edit rule ${rule.order}` : "New rule"}
-      className="flex max-w-full min-w-0 flex-[1_1_360px] flex-col gap-5 border-rule bg-paper px-5 pt-5 pb-6 max-[880px]:border-t min-[881px]:border-l lg:px-6"
+      className={cn(
+        "flex max-w-full min-w-0 flex-col gap-5",
+        !inSheet && "flex-[1_1_360px] border-rule bg-paper px-5 pt-5 pb-6 max-[880px]:border-t min-[881px]:border-l lg:px-6",
+      )}
     >
       <div className="flex flex-col gap-1">
         {rule && (
@@ -501,27 +522,37 @@ function RuleEditor({
           Tried before rule {before.order}, <strong className="font-semibold text-ink">contains {before.pattern.text}</strong>, because it is more specific.
         </p>
       )}
-      {msg && (
-        <p role="status" className="m-0 type-caption text-ink-muted">
-          {msg}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-2 border-t border-rule pt-4">
+      <SheetActions className="flex flex-wrap items-center gap-2 border-t border-rule pt-4">
         <Button variant="primary" onClick={save} disabled={busy || !valid}>
           {rule ? "Save rule" : "Create rule"}
         </Button>
-        <Button variant="ghost" onClick={onClose}>
-          Close
-        </Button>
-        {rule && (
-          <Button variant="ghost" className="ml-auto" onClick={remove} disabled={busy}>
-            Delete rule
+        {!inSheet && (
+          <Button variant="ghost" onClick={onClose}>
+            Close
           </Button>
         )}
-      </div>
+      </SheetActions>
+      {rule && (
+        <ConfirmDialog
+          trigger={
+            <Button variant="ghost" className={cn("self-start", !inSheet && "-mt-2")} disabled={busy}>
+              Delete rule
+            </Button>
+          }
+          title={`Delete rule ${rule.order}?`}
+          confirmLabel="Delete rule"
+          onConfirm={remove}
+        >
+          <p>
+            New transactions with “{rule.pattern.text}” stop going to {categories.find((c) => c.id === rule.category)?.name ?? "its category"} and wait in To review, unless another rule
+            matches them.
+          </p>
+          <p className="type-caption text-ink-muted">The {rule.decides} {rule.decides === 1 ? "transaction" : "transactions"} it categorized keep their category.</p>
+        </ConfirmDialog>
+      )}
       <p className="m-0 type-caption text-ink-muted">
         {rule
-          ? "Saving runs the rules again over what automation categorized; your own choices never move. Deleting keeps the categories it gave."
+          ? "Saving runs the rules again over what automation categorized; your own choices never move."
           : "A new rule runs over what is waiting and what automation categorized; your own choices never move."}
       </p>
     </section>
@@ -643,14 +674,15 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
   }
   async function archive() {
     if (!category) return;
-    setBusy(true);
-    try {
-      await send("DELETE", `/api/v1/categories/${category.id}`);
-      onDone();
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
+    const r = await send<{ rulesRemoved: number }>("DELETE", `/api/v1/categories/${category.id}`);
+    onDone();
+    toast({
+      text: (
+        <>
+          <strong>{category.name}</strong> archived{r.rulesRemoved ? `, with its ${r.rulesRemoved} ${r.rulesRemoved === 1 ? "rule" : "rules"}` : ""}.
+        </>
+      ),
+    });
   }
 
   return (
@@ -700,12 +732,23 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
         {category && (
           <>
             <span className="flex-auto" />
-            <span className="type-caption text-ink-muted">
-              {rules ? `Archiving deletes its ${rules} ${rules === 1 ? "rule" : "rules"}. ` : ""}Transactions already in it keep it.
-            </span>
-            <Button variant="ghost" onClick={archive} disabled={busy}>
-              Archive {category.name}
-            </Button>
+            <ConfirmDialog
+              trigger={
+                <Button variant="ghost" disabled={busy}>
+                  Archive {category.name}
+                </Button>
+              }
+              title={`Archive ${category.name}?`}
+              confirmLabel={`Archive ${category.name}`}
+              onConfirm={archive}
+            >
+              <p>
+                {rules
+                  ? `Its ${rules} ${rules === 1 ? "rule is" : "rules are"} deleted, so new purchases at those merchants wait in To review.`
+                  : "It leaves the category pickers and the budget."}
+              </p>
+              <p className="type-caption text-ink-muted">Transactions already in {category.name} keep it. An archived category does not come back.</p>
+            </ConfirmDialog>
           </>
         )}
       </div>
