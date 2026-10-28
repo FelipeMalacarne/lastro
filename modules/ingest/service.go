@@ -40,6 +40,7 @@ type source interface {
 	Transactions(ctx context.Context, accountID string, from time.Time) ([]pluggy.Transaction, error)
 	Investments(ctx context.Context, itemID string) ([]pluggy.Investment, error)
 	InvestmentTransactions(ctx context.Context, investmentID string) ([]pluggy.InvestmentTransaction, error)
+	Bills(ctx context.Context, accountID string) ([]pluggy.Bill, error)
 }
 
 // Positions is where investments go: portfolio, through app. Nil in the
@@ -99,6 +100,7 @@ type ItemReport struct {
 	Accounts    int
 	ledger.ImportResult
 	Skipped     int // records the ledger has no place for, or that could not be read
+	Bills       int // card bills read
 	Investments int
 	Movements   int // investment transactions read
 	Err         error
@@ -221,6 +223,22 @@ func (s *Service) syncItem(ctx context.Context, id string, full bool) (rep ItemR
 		}
 		if err := s.importAccount(ctx, &rep, id, pa, txs, from, balanceAt, true); err != nil {
 			return rep, err
+		}
+		if pa.Type == "CREDIT" {
+			bills, err := s.pluggy.Bills(ctx, pa.ID)
+			if err != nil {
+				// Pluggy documents bills for Open Finance connections only.
+				s.logger.WarnContext(ctx, "card bills not read", "item", id, "account", pa.ID, "err", err)
+				continue
+			}
+			recs := make([]rawRecord, len(bills))
+			for i, b := range bills {
+				recs[i] = rawRecord{ExternalID: b.ID, Payload: b.Raw}
+			}
+			if err := s.repo.saveRaw(ctx, rawBill, pa.ID, recs, time.Time{}, started); err != nil {
+				return rep, err
+			}
+			s.importBills(ctx, &rep, pa, bills)
 		}
 	}
 
@@ -370,6 +388,35 @@ func (s *Service) importAccount(ctx context.Context, rep *ItemReport, itemID str
 	return nil
 }
 
+// importBills hands the ledger a card's closed bills. A bill that cannot be
+// mapped is skipped and a ledger that refuses them only warns: the bills are
+// an addition to the card's transactions, never a reason to fail its sync.
+func (s *Service) importBills(ctx context.Context, rep *ItemReport, pa pluggy.Account, bills []pluggy.Bill) {
+	if len(bills) == 0 {
+		return
+	}
+	ext, err := ledger.NewExternalID(pa.ID)
+	if err != nil {
+		return
+	}
+	in := make([]ledger.ImportedBill, 0, len(bills))
+	for _, b := range bills {
+		ib, err := mapBill(b, pa)
+		if err != nil {
+			s.logger.WarnContext(ctx, "card bill skipped", "account", pa.ID, "bill", b.ID, "err", err)
+			rep.Skipped++
+			continue
+		}
+		in = append(in, ib)
+	}
+	n, err := s.ledger.ImportBills(ctx, ext, in)
+	if err != nil {
+		s.logger.WarnContext(ctx, "card bills not imported", "account", pa.ID, "err", err)
+		return
+	}
+	rep.Bills += n
+}
+
 // reprocessItem rebuilds the item's accounts and transactions in the ledger
 // from the stored raw records. Nothing is removed: the stored records are
 // the ones Pluggy still returned on the last read.
@@ -400,6 +447,13 @@ func (s *Service) reprocessItem(ctx context.Context, id string) (ItemReport, err
 		// hold (Pluggy's built copies of bill payments, say) is removed.
 		if err := s.importAccount(ctx, &rep, id, pa, txs, earliest(txs), balanceAt, false); err != nil {
 			return rep, err
+		}
+		if pa.Type == "CREDIT" {
+			bills, err := decodeRaw[pluggy.Bill](ctx, s, rawBill, pa.ID)
+			if err != nil {
+				return rep, err
+			}
+			s.importBills(ctx, &rep, pa, bills)
 		}
 	}
 	invs, err := decodeRaw[pluggy.Investment](ctx, s, rawInvestment, id)

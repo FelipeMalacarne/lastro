@@ -57,7 +57,7 @@ func newAnonymizer(key []byte, factorPercent int64) *Anonymizer {
 // Dir anonymizes every file of a dump into dst, keeping the layout. File
 // names are ids, so they are pseudonymized too.
 func (a *Anonymizer) Dir(src, dst string) error {
-	for _, kind := range []string{"items", "accounts", "transactions", "investments", "investment-transactions"} {
+	for _, kind := range []string{"items", "accounts", "transactions", "investments", "investment-transactions", "bills"} {
 		err := eachFile(src, kind, func(name string, b []byte) error {
 			a.investments = kind == "investments" || kind == "investment-transactions"
 			out, err := a.JSON(b)

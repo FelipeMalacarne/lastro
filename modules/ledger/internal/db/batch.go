@@ -17,14 +17,83 @@ var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
 
+const saveBill = `-- name: SaveBill :batchexec
+INSERT INTO ledger.bills (account_id, external_id, due_date, total_cents, minimum_cents, charges_cents, currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (account_id, external_id) DO UPDATE SET
+    due_date = EXCLUDED.due_date,
+    total_cents = EXCLUDED.total_cents,
+    minimum_cents = EXCLUDED.minimum_cents,
+    charges_cents = EXCLUDED.charges_cents,
+    updated_at = now()
+`
+
+type SaveBillBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type SaveBillParams struct {
+	AccountID    string
+	ExternalID   string
+	DueDate      time.Time
+	TotalCents   int64
+	MinimumCents *int64
+	ChargesCents int64
+	Currency     string
+}
+
+// A closed bill as the source reports it now; a later read replaces it.
+func (q *Queries) SaveBill(ctx context.Context, arg []SaveBillParams) *SaveBillBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AccountID,
+			a.ExternalID,
+			a.DueDate,
+			a.TotalCents,
+			a.MinimumCents,
+			a.ChargesCents,
+			a.Currency,
+		}
+		batch.Queue(saveBill, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &SaveBillBatchResults{br, len(arg), false}
+}
+
+func (b *SaveBillBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *SaveBillBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
 const saveTransaction = `-- name: SaveTransaction :batchexec
 INSERT INTO ledger.transactions (
     id, account_id, external_id, bank_ref, date, description, amount_cents, currency, source_kind, status,
-    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer,
+    bill_ref
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (id) DO UPDATE SET
     external_id = EXCLUDED.external_id,
     bank_ref = EXCLUDED.bank_ref,
+    bill_ref = EXCLUDED.bill_ref,
     date = EXCLUDED.date,
     description = EXCLUDED.description,
     amount_cents = EXCLUDED.amount_cents,
@@ -66,6 +135,7 @@ type SaveTransactionParams struct {
 	PairKind          *string
 	RemovedAt         *time.Time
 	MarkedTransfer    bool
+	BillRef           string
 }
 
 func (q *Queries) SaveTransaction(ctx context.Context, arg []SaveTransactionParams) *SaveTransactionBatchResults {
@@ -90,6 +160,7 @@ func (q *Queries) SaveTransaction(ctx context.Context, arg []SaveTransactionPara
 			a.PairKind,
 			a.RemovedAt,
 			a.MarkedTransfer,
+			a.BillRef,
 		}
 		batch.Queue(saveTransaction, vals...)
 	}

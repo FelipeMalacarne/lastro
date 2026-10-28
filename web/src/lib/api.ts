@@ -92,6 +92,36 @@ export type MonthView = {
   flows: Flow[];
 };
 
+/** Where a card bill stands (ledger.BillState). */
+export type BillState = "next" | "open" | "unpaid" | "overdue" | "partly_paid" | "paid";
+
+/** One of a card's bills (GET /api/v1/accounts/{id}/bills): the next, the open one, then the closed ones, the latest first. */
+export type CardBill = {
+  /** The source's id, or "open" and "next". */
+  id: string;
+  state: BillState;
+  dueDate: string | null;
+  /** Its latest transaction's day: names a closed bill the source gave no due date. */
+  lastDate: string | null;
+  /** What it asks for, positive when owed. */
+  totalCents: number;
+  minimumCents: number | null;
+  /** Interest and fees. */
+  chargesCents: number;
+  /** What the bill before left unpaid, in this one. */
+  carriedCents: number;
+  purchases: { cents: number; count: number };
+  installments: { cents: number; count: number };
+  refunds: { cents: number; count: number };
+  paidCents: number;
+  paidOn: string | null;
+  paidFrom: AccountRef | null;
+  /** The most spent first; a null category waits for one. */
+  byCategory: { category: string | null; cents: number }[];
+  /** Newest first, payments left out. */
+  transactions: { id: string; date: string; description: string; amountCents: number; installment: { number: number; total: number } | null; pending: boolean }[];
+};
+
 export type Purchase = {
   description: string;
   total: number;

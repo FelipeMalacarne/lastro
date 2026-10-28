@@ -61,6 +61,10 @@ func (f *fakePluggy) InvestmentTransactions(_ context.Context, investmentID stri
 	return f.set.InvestmentTransactions[investmentID], nil
 }
 
+func (f *fakePluggy) Bills(_ context.Context, accountID string) ([]pluggy.Bill, error) {
+	return f.set.Bills[accountID], nil
+}
+
 // positionsRecorder stands for portfolio: it keeps what the sync hands over.
 type positionsRecorder struct {
 	reports   int
@@ -402,4 +406,62 @@ func TestReadModelsOnMeuPluggyFixtures(t *testing.T) {
 			t.Errorf("an installment shows its purchase: %+v %v", d.Purchase, err)
 		}
 	}
+}
+
+func TestSyncReadsCardBills(t *testing.T) {
+	ctx := context.Background()
+	s, fake, led := newSync(t)
+	rep, err := s.Sync(ctx, SyncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Items[0].Bills != 1 {
+		t.Fatalf("the card's bill is read: %+v", rep.Items[0])
+	}
+	cardID := func() ledger.AccountID {
+		accs, err := led.Accounts(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range accs {
+			if a.Type == "credit_card" {
+				return a.ID
+			}
+		}
+		t.Fatal("no card")
+		return ""
+	}()
+	check := func(when string) {
+		t.Helper()
+		bills, err := led.Bills(ctx, cardID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var closed *ledger.BillView
+		for i := range bills {
+			if bills[i].ID == "d0000000-0000-4000-8000-000000000001" {
+				closed = &bills[i]
+			}
+		}
+		// The bill due on 10 Oct, paid that day from checking; the iFood
+		// purchase is the one transaction the fixtures put in it.
+		if closed == nil || closed.State != "paid" || closed.TotalCents != 148237 || *closed.MinimumCents != 22236 || closed.Purchases.Count != 1 || closed.PaidFrom == nil {
+			t.Errorf("%s: the closed bill: %+v", when, closed)
+		}
+		if bills[0].ID != "next" || bills[1].ID != "open" || *bills[1].DueDate != "2026-11-10" {
+			t.Errorf("%s: the next and open bills come first: %+v", when, bills[:2])
+		}
+	}
+	check("after a sync")
+
+	// Pluggy stops answering the bills endpoint: the sync still works and
+	// the ledger keeps what it had.
+	fake.set.Bills = nil
+	if _, err := s.Sync(ctx, SyncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Sync(ctx, SyncOptions{Reprocess: true}); err != nil {
+		t.Fatal(err)
+	}
+	check("after a reprocess")
 }

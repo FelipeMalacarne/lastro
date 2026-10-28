@@ -3,7 +3,7 @@
 //
 // The client authenticates with the Dashboard credentials, reuses the API key
 // for most of its 2-hour life, and handles the two pagination models: the
-// cursor of /v2/transactions and the page numbers of /investments.
+// cursor of /v2/transactions and the page numbers of /investments and /bills.
 package pluggy
 
 import (
@@ -179,6 +179,34 @@ func (c *Client) Investments(ctx context.Context, itemID string) ([]Investment, 
 			}
 			inv.Raw = raw
 			out = append(out, inv)
+		}
+		if page >= resp.TotalPages {
+			return out, nil
+		}
+	}
+}
+
+// Bills returns the closed bills of a credit card account, reading all
+// pages. Pluggy documents them for Open Finance connections; another
+// connector may answer with none.
+func (c *Client) Bills(ctx context.Context, accountID string) ([]Bill, error) {
+	var out []Bill
+	for page := 1; ; page++ {
+		var resp struct {
+			TotalPages int               `json:"totalPages"`
+			Results    []json.RawMessage `json:"results"`
+		}
+		q := url.Values{"accountId": {accountID}, "page": {strconv.Itoa(page)}, "pageSize": {"500"}}
+		if err := c.get(ctx, "/bills?"+q.Encode(), &resp); err != nil {
+			return nil, fmt.Errorf("pluggy: bills: %w", err)
+		}
+		for _, raw := range resp.Results {
+			b, err := decode[Bill](raw)
+			if err != nil {
+				return nil, fmt.Errorf("pluggy: bills: %w", err)
+			}
+			b.Raw = raw
+			out = append(out, b)
 		}
 		if page >= resp.TotalPages {
 			return out, nil

@@ -49,6 +49,12 @@ type Repository interface {
 	DailyNet(ctx context.Context, account AccountID, until time.Time) ([]DayNet, error)
 	MonthFlows(ctx context.Context, account AccountID) ([]MonthFlowRow, error)
 	Installments(ctx context.Context, account AccountID) ([]InstallmentRow, error)
+	// SaveBills stores a card's closed bills as the source reports them now.
+	SaveBills(ctx context.Context, account AccountID, bills []ImportedBill) error
+	Bills(ctx context.Context, account AccountID) ([]Bill, error)
+	// BillItems returns a card's live transactions, newest first, each with
+	// its category lines.
+	BillItems(ctx context.Context, account AccountID) ([]BillItem, error)
 	// DescriptionMonths counts the transactions that count with a
 	// description (ignoring case), by month, in [from, to).
 	DescriptionMonths(ctx context.Context, description string, from, to time.Time) ([]MonthTotal, error)
@@ -578,6 +584,59 @@ func (s *Service) Installments(ctx context.Context, id AccountID) ([]PurchaseVie
 		out[i] = purchaseView(p, today)
 	}
 	return out, nil
+}
+
+// ImportBills stores a card's closed bills as a source reports them now; a
+// bill read again replaces what it said before. It returns how many it
+// stored.
+func (s *Service) ImportBills(ctx context.Context, account ExternalID, bills []ImportedBill) (int, error) {
+	acc, err := s.repo.AccountByExternalID(ctx, account)
+	if err != nil {
+		return 0, fmt.Errorf("ledger: import bills into %s: %w", account, err)
+	}
+	if !acc.Type().IsCard() {
+		return 0, fmt.Errorf("ledger: import bills into %s: %w: not a credit card", account, ErrInvalid)
+	}
+	for _, b := range bills {
+		if err := b.validate(acc.Currency()); err != nil {
+			return 0, fmt.Errorf("ledger: import bills into %s: %w", account, err)
+		}
+	}
+	if err := s.repo.SaveBills(ctx, acc.ID(), bills); err != nil {
+		return 0, fmt.Errorf("ledger: import bills into %s: %w", account, err)
+	}
+	return len(bills), nil
+}
+
+// Bills returns a card's bills (CardBills): the next ones, the open one, then
+// the closed ones, the latest first. ErrInvalid for an account that is not a
+// card.
+func (s *Service) Bills(ctx context.Context, id AccountID) ([]BillView, error) {
+	acc, err := s.repo.AccountView(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: bills %s: %w", id, err)
+	}
+	if acc.Type != string(AccountCreditCard) {
+		return nil, fmt.Errorf("ledger: bills %s: %w: not a credit card", id, ErrInvalid)
+	}
+	closed, err := s.repo.Bills(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: bills %s: %w", id, err)
+	}
+	items, err := s.repo.BillItems(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: bills %s: %w", id, err)
+	}
+	accounts, err := s.repo.AccountViews(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: bills %s: %w", id, err)
+	}
+	var due time.Time
+	if acc.Card != nil && acc.Card.DueDate != nil {
+		due, _ = time.Parse(time.DateOnly, *acc.Card.DueDate)
+	}
+	bills := CardBills(closed, items, due, s.now(), money.Currency(acc.Currency))
+	return billViews(bills, accounts), nil
 }
 
 // Transaction returns one live transaction with the other side of its

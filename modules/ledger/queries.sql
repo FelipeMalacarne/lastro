@@ -46,11 +46,13 @@ WHERE t.id = ANY (sqlc.arg(ids)::uuid[]);
 -- name: SaveTransaction :batchexec
 INSERT INTO ledger.transactions (
     id, account_id, external_id, bank_ref, date, description, amount_cents, currency, source_kind, status,
-    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    installment_number, installment_total, category_id, category_source, counterpart_id, pair_kind, removed_at, marked_transfer,
+    bill_ref
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (id) DO UPDATE SET
     external_id = EXCLUDED.external_id,
     bank_ref = EXCLUDED.bank_ref,
+    bill_ref = EXCLUDED.bill_ref,
     date = EXCLUDED.date,
     description = EXCLUDED.description,
     amount_cents = EXCLUDED.amount_cents,
@@ -169,6 +171,34 @@ LEFT JOIN ledger.accounts ca ON ca.id = c.account_id
 WHERE t.account_id = $1 AND t.removed_at IS NULL AND t.amount_cents <> 0
 GROUP BY 1, 2, 3, 4, 5, 6, 7
 ORDER BY 1, 2, 3, 5;
+
+-- name: SaveBill :batchexec
+-- A closed bill as the source reports it now; a later read replaces it.
+INSERT INTO ledger.bills (account_id, external_id, due_date, total_cents, minimum_cents, charges_cents, currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (account_id, external_id) DO UPDATE SET
+    due_date = EXCLUDED.due_date,
+    total_cents = EXCLUDED.total_cents,
+    minimum_cents = EXCLUDED.minimum_cents,
+    charges_cents = EXCLUDED.charges_cents,
+    updated_at = now();
+
+-- name: ListBills :many
+-- A card's closed bills, the first due first.
+SELECT * FROM ledger.bills WHERE account_id = $1 ORDER BY due_date, external_id;
+
+-- name: ListBillLines :many
+-- A card's live transactions for its bills, one row per category line (a
+-- split gives one per part), with the account a bill payment came from.
+SELECT t.id, t.date, t.description, t.amount_cents, t.currency, t.source_kind, t.status,
+    t.installment_number, t.installment_total, t.bill_ref,
+    COALESCE(cl.category_id, '')::text AS category_id, cl.amount_cents AS line_cents,
+    c.account_id AS from_account_id
+FROM ledger.transactions t
+JOIN ledger.category_lines cl ON cl.id = t.id
+LEFT JOIN ledger.transactions c ON c.id = t.counterpart_id
+WHERE t.account_id = $1 AND t.removed_at IS NULL
+ORDER BY t.date DESC, t.id, 11;
 
 -- name: ListInstallments :many
 -- An account's live installments, for GroupInstallments.

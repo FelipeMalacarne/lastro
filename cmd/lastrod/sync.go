@@ -50,8 +50,8 @@ func runSync(ctx context.Context, args []string) error {
 			fmt.Printf("%s: failed: %v\n", name, it.Err)
 			continue
 		}
-		fmt.Printf("%s: %d accounts; %d new, %d updated, %d removed, %d unchanged transactions; %d investments stored, with %d movements",
-			name, it.Accounts, it.Created, it.Updated, it.Removed, it.Unchanged, it.Investments, it.Movements)
+		fmt.Printf("%s: %d accounts; %d new, %d updated, %d removed, %d unchanged transactions; %d card bills; %d investments stored, with %d movements",
+			name, it.Accounts, it.Created, it.Updated, it.Removed, it.Unchanged, it.Bills, it.Investments, it.Movements)
 		if it.Skipped > 0 {
 			fmt.Printf("; %d skipped (see the log)", it.Skipped)
 		}

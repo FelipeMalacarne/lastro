@@ -64,6 +64,18 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		writeView(w, r, logger, map[string]any{"purchases": v}, err)
 	})
 
+	mux.HandleFunc("GET /api/v1/accounts/{id}/bills", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := accountID(w, r, logger)
+		if !ok {
+			return
+		}
+		v, err := s.Bills(r.Context(), id)
+		if errors.Is(err, ErrInvalid) {
+			err = httpx.BadRequest("only a credit card has bills")
+		}
+		writeView(w, r, logger, map[string]any{"bills": v}, err)
+	})
+
 	// GET /api/v1/transactions/duplicates: the transactions I added by hand
 	// that may be a synced one told twice, each with it.
 	mux.HandleFunc("GET /api/v1/transactions/duplicates", func(w http.ResponseWriter, r *http.Request) {

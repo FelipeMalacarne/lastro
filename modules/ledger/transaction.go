@@ -34,6 +34,7 @@ type Transaction struct {
 	accountType AccountType
 	externalID  ExternalID
 	bankRef     string
+	billRef     string // the card bill it went into, the source's id
 	date        time.Time
 	description string
 	amount      money.Money
@@ -56,7 +57,11 @@ type ImportedTransaction struct {
 	// BankRef is the bank's own id for the transaction, when the source has
 	// one. It survives when the source deletes and recreates a transaction
 	// with a new ExternalID, so it is how the ledger recognizes it.
-	BankRef     string
+	BankRef string
+	// BillRef is the source's id for the card bill the transaction went
+	// into; empty while it is on the open bill, or when the source does not
+	// say.
+	BillRef     string
 	Date        time.Time // the calendar day is what counts
 	Description string
 	Amount      money.Money
@@ -102,6 +107,7 @@ func (t *Transaction) apply(in ImportedTransaction) {
 	if ref := strings.TrimSpace(in.BankRef); ref != "" {
 		t.bankRef = ref
 	}
+	t.billRef = strings.TrimSpace(in.BillRef)
 	t.date = civilDate(in.Date)
 	t.description = truncate(strings.TrimSpace(in.Description), maxDescription)
 	t.amount = in.Amount
@@ -111,7 +117,7 @@ func (t *Transaction) apply(in ImportedTransaction) {
 }
 
 func (t *Transaction) differs(o Transaction) bool {
-	return t.externalID != o.externalID || t.bankRef != o.bankRef || !t.date.Equal(o.date) ||
+	return t.externalID != o.externalID || t.bankRef != o.bankRef || t.billRef != o.billRef || !t.date.Equal(o.date) ||
 		t.description != o.description || t.amount != o.amount || t.sourceKind != o.sourceKind ||
 		t.status != o.status || t.installment != o.installment || t.counterpart != o.counterpart ||
 		!t.removedAt.Equal(o.removedAt)
@@ -278,6 +284,7 @@ func (t *Transaction) ID() TransactionID              { return t.id }
 func (t *Transaction) AccountID() AccountID           { return t.accountID }
 func (t *Transaction) ExternalID() ExternalID         { return t.externalID }
 func (t *Transaction) BankRef() string                { return t.bankRef }
+func (t *Transaction) BillRef() string                { return t.billRef }
 func (t *Transaction) Date() time.Time                { return t.date }
 func (t *Transaction) Description() string            { return t.description }
 func (t *Transaction) Amount() money.Money            { return t.amount }

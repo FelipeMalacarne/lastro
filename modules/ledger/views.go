@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 	"time"
@@ -455,4 +456,102 @@ type TagView struct {
 	OutCents int64  `json:"outCents"`
 	InCents  int64  `json:"inCents"`
 	Last     string `json:"last"`
+}
+
+// BillView is one of a card's bills (CardBills).
+type BillView struct {
+	ID           string                `json:"id"`    // the source's id, or "open" and "next"
+	State        string                `json:"state"` // next, open, unpaid, overdue, partly_paid, paid
+	DueDate      *string               `json:"dueDate"`
+	LastDate     *string               `json:"lastDate"`   // its latest transaction's day
+	TotalCents   int64                 `json:"totalCents"` // what it asks for, positive when owed
+	MinimumCents *int64                `json:"minimumCents"`
+	ChargesCents int64                 `json:"chargesCents"` // interest and fees
+	CarriedCents int64                 `json:"carriedCents"` // what the bill before left unpaid, in this one
+	Purchases    BillPartView          `json:"purchases"`
+	Installments BillPartView          `json:"installments"`
+	Refunds      BillPartView          `json:"refunds"`
+	PaidCents    int64                 `json:"paidCents"`
+	PaidOn       *string               `json:"paidOn"`
+	PaidFrom     *AccountRef           `json:"paidFrom"`
+	ByCategory   []BillCategoryView    `json:"byCategory"` // the most spent first
+	Transactions []BillTransactionView `json:"transactions"`
+}
+
+// BillPartView is one kind of movement in a bill, its amount positive.
+type BillPartView struct {
+	Cents int64 `json:"cents"`
+	Count int   `json:"count"`
+}
+
+// BillCategoryView is what a bill spent in one category; a null category is
+// spending still waiting for one.
+type BillCategoryView struct {
+	Category *string `json:"category"`
+	Cents    int64   `json:"cents"`
+}
+
+// BillTransactionView is one transaction in a bill.
+type BillTransactionView struct {
+	ID          TransactionID    `json:"id"`
+	Date        string           `json:"date"`
+	Description string           `json:"description"`
+	AmountCents int64            `json:"amountCents"`
+	Installment *InstallmentView `json:"installment"`
+	Pending     bool             `json:"pending"`
+}
+
+func billViews(bills []CardBill, accounts []AccountView) []BillView {
+	refs := make(map[AccountID]AccountRef, len(accounts))
+	for _, a := range accounts {
+		refs[a.ID] = AccountRef{ID: a.ID, Name: a.Name, Institution: a.Institution, Type: a.Type}
+	}
+	day := func(t time.Time) *string {
+		if t.IsZero() {
+			return nil
+		}
+		return dateString(&t)
+	}
+	out := make([]BillView, len(bills))
+	for i, b := range bills {
+		v := BillView{
+			ID:           cmp.Or(b.Ref, string(b.State)),
+			State:        string(b.State),
+			DueDate:      day(b.Due),
+			LastDate:     day(b.LastDay),
+			TotalCents:   b.Total.Cents(),
+			ChargesCents: b.Charges.Cents(),
+			CarriedCents: b.Carried.Cents(),
+			Purchases:    BillPartView{Cents: b.Purchases.Amount.Cents(), Count: b.Purchases.Count},
+			Installments: BillPartView{Cents: b.Installments.Amount.Cents(), Count: b.Installments.Count},
+			Refunds:      BillPartView{Cents: b.Refunds.Amount.Cents(), Count: b.Refunds.Count},
+			PaidCents:    b.Paid.Cents(),
+			PaidOn:       day(b.PaidOn),
+			ByCategory:   make([]BillCategoryView, len(b.ByCategory)),
+			Transactions: make([]BillTransactionView, len(b.Items)),
+		}
+		if b.Minimum != nil {
+			m := b.Minimum.Cents()
+			v.MinimumCents = &m
+		}
+		if ref, ok := refs[b.PaidFrom]; ok && b.PaidFrom != "" {
+			v.PaidFrom = &ref
+		}
+		for j, l := range b.ByCategory {
+			v.ByCategory[j] = BillCategoryView{Cents: l.Amount.Cents()}
+			if !l.Category.IsZero() {
+				c := l.Category.String()
+				v.ByCategory[j].Category = &c
+			}
+		}
+		for j, it := range b.Items {
+			t := BillTransactionView{ID: it.ID, Date: it.Date.Format(time.DateOnly), Description: it.Description, AmountCents: it.Amount.Cents(), Pending: it.Pending}
+			if !it.Installment.IsZero() {
+				t.Installment = &InstallmentView{Number: it.Installment.number, Total: it.Installment.total}
+			}
+			v.Transactions[j] = t
+		}
+		out[i] = v
+	}
+	return out
 }

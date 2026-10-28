@@ -95,6 +95,26 @@ type CreditCardMetadata struct {
 	BillID            string `json:"billId"`
 }
 
+// Bill is one closed bill of a credit card. Pluggy lists the bills it
+// collected for a card; the open one is not among them. TotalAmount is what
+// the bill asks for; minimumPaymentAmount may be null.
+type Bill struct {
+	ID                      string          `json:"id"`
+	DueDate                 string          `json:"dueDate"`
+	TotalAmount             json.Number     `json:"totalAmount"`
+	TotalAmountCurrencyCode string          `json:"totalAmountCurrencyCode"`
+	MinimumPaymentAmount    json.Number     `json:"minimumPaymentAmount"`
+	FinanceCharges          []FinanceCharge `json:"financeCharges"`
+	Raw                     json.RawMessage `json:"-"`
+}
+
+// FinanceCharge is interest or a fee in a bill (late payment interest, the
+// late fee, IOF and others).
+type FinanceCharge struct {
+	Type   string      `json:"type"`
+	Amount json.Number `json:"amount"`
+}
+
 // Investment is one position of an item. M4 maps them into portfolio; until
 // then ingest only stores them.
 type Investment struct {

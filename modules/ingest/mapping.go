@@ -169,10 +169,15 @@ func mapTransaction(t pluggy.Transaction, acc pluggy.Account) (ledger.ImportedTr
 		inst, _ = ledger.NewInstallment(m.InstallmentNumber, m.TotalInstallments) // a broken one is just not shown
 	}
 	description := cmp.Or(strings.TrimSpace(t.Description), strings.TrimSpace(t.DescriptionRaw), "No description")
+	var billRef string
+	if m := t.CreditCardMetadata; m != nil && card {
+		billRef = strings.TrimSpace(m.BillID)
+	}
 
 	return ledger.ImportedTransaction{
 		ExternalID:  ext,
 		BankRef:     t.ProviderID,
+		BillRef:     billRef,
 		Date:        date,
 		Description: description,
 		Amount:      amount,
@@ -180,6 +185,55 @@ func mapTransaction(t pluggy.Transaction, acc pluggy.Account) (ledger.ImportedTr
 		Status:      status,
 		Installment: inst,
 	}, nil
+}
+
+// mapBill turns one of a card's closed bills into a ledger import: when it is
+// due, what it asks for, the minimum when Pluggy has one and the interest and
+// fees in it, in the card's currency.
+func mapBill(b pluggy.Bill, acc pluggy.Account) (ledger.ImportedBill, error) {
+	ext, err := ledger.NewExternalID(b.ID)
+	if err != nil {
+		return ledger.ImportedBill{}, err
+	}
+	due, err := parseDate(b.DueDate)
+	if err != nil {
+		return ledger.ImportedBill{}, fmt.Errorf("ingest: bill %s: %w", b.ID, err)
+	}
+	cur := money.Currency(cmp.Or(b.TotalAmountCurrencyCode, acc.CurrencyCode))
+	amount := func(n json.Number) (money.Money, error) {
+		cents, err := parseCents(n)
+		if err != nil {
+			return money.Money{}, fmt.Errorf("ingest: bill %s: %w", b.ID, err)
+		}
+		m, err := money.New(cents, cur)
+		if err != nil {
+			return money.Money{}, fmt.Errorf("%w: bill %s in %q", errUnsupported, b.ID, cur)
+		}
+		return m, nil
+	}
+	in := ledger.ImportedBill{ExternalID: ext, Due: due}
+	if in.Total, err = amount(b.TotalAmount); err != nil {
+		return ledger.ImportedBill{}, err
+	}
+	if b.MinimumPaymentAmount != "" {
+		m, err := amount(b.MinimumPaymentAmount)
+		if err != nil {
+			return ledger.ImportedBill{}, err
+		}
+		in.Minimum = &m
+	}
+	var charges int64
+	for _, c := range b.FinanceCharges {
+		cents, err := parseCents(c.Amount)
+		if err != nil {
+			return ledger.ImportedBill{}, fmt.Errorf("ingest: bill %s charge: %w", b.ID, err)
+		}
+		charges += abs(cents)
+	}
+	if in.Charges, err = money.New(charges, cur); err != nil {
+		return ledger.ImportedBill{}, fmt.Errorf("%w: bill %s in %q", errUnsupported, b.ID, cur)
+	}
+	return in, nil
 }
 
 var (

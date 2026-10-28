@@ -137,6 +137,18 @@ type LedgerBalanceSnapshot struct {
 	TakenAt      time.Time
 }
 
+type LedgerBill struct {
+	AccountID    string
+	ExternalID   string
+	DueDate      time.Time
+	TotalCents   int64
+	MinimumCents *int64
+	ChargesCents int64
+	Currency     string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type LedgerCategoryLine struct {
 	ID          string
 	AccountID   string
@@ -186,6 +198,7 @@ type LedgerTransaction struct {
 	Tags              []string
 	MarkedTransfer    bool
 	Kind              string
+	BillRef           string
 }
 
 type MarketBond struct {

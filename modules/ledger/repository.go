@@ -288,6 +288,7 @@ func transactionFromRow(row db.LedgerTransaction, accountType string) (*Transact
 		accountType: at,
 		externalID:  ext,
 		bankRef:     row.BankRef,
+		billRef:     row.BillRef,
 		date:        civilDate(row.Date),
 		description: row.Description,
 		amount:      amount,
@@ -326,6 +327,7 @@ func transactionParams(t *Transaction) db.SaveTransactionParams {
 		AccountID:   string(t.accountID),
 		ExternalID:  t.externalID.String(),
 		BankRef:     t.bankRef,
+		BillRef:     t.billRef,
 		Date:        t.date,
 		Description: t.description,
 		AmountCents: t.amount.Cents(),
@@ -829,4 +831,111 @@ func (r *PostgresRepository) PossibleDuplicates(ctx context.Context, id Transact
 // KeepApart remembers that the two are different movements.
 func (r *PostgresRepository) KeepApart(ctx context.Context, manual, synced TransactionID) error {
 	return r.q.KeepApart(ctx, db.KeepApartParams{ManualID: string(manual), SyncedID: string(synced)})
+}
+
+func (r *PostgresRepository) SaveBills(ctx context.Context, account AccountID, bills []ImportedBill) error {
+	if len(bills) == 0 {
+		return nil
+	}
+	params := make([]db.SaveBillParams, len(bills))
+	for i, b := range bills {
+		params[i] = db.SaveBillParams{
+			AccountID:    string(account),
+			ExternalID:   b.ExternalID.String(),
+			DueDate:      civilDate(b.Due),
+			TotalCents:   b.Total.Cents(),
+			ChargesCents: b.Charges.Cents(),
+			Currency:     string(b.Total.Currency()),
+		}
+		if b.Minimum != nil {
+			c := b.Minimum.Cents()
+			params[i].MinimumCents = &c
+		}
+	}
+	var errs []error
+	r.q.SaveBill(ctx, params).Exec(func(i int, err error) {
+		if err != nil {
+			errs = append(errs, fmt.Errorf("save bill %s: %w", bills[i].ExternalID, err))
+		}
+	})
+	return errors.Join(errs...)
+}
+
+func (r *PostgresRepository) Bills(ctx context.Context, account AccountID) ([]Bill, error) {
+	rows, err := r.q.ListBills(ctx, string(account))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Bill, len(rows))
+	for i, row := range rows {
+		cur := money.Currency(row.Currency)
+		total, err := money.New(row.TotalCents, cur)
+		if err != nil {
+			return nil, err
+		}
+		charges, err := money.New(row.ChargesCents, cur)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = Bill{Ref: row.ExternalID, Due: civilDate(row.DueDate), Total: total, Charges: charges}
+		if row.MinimumCents != nil {
+			m, err := money.New(*row.MinimumCents, cur)
+			if err != nil {
+				return nil, err
+			}
+			out[i].Minimum = &m
+		}
+	}
+	return out, nil
+}
+
+// BillItems returns a card's live transactions, newest first, each with its
+// category lines.
+func (r *PostgresRepository) BillItems(ctx context.Context, account AccountID) ([]BillItem, error) {
+	rows, err := r.q.ListBillLines(ctx, string(account))
+	if err != nil {
+		return nil, err
+	}
+	var out []BillItem
+	for _, row := range rows {
+		cur := money.Currency(row.Currency)
+		line, err := money.New(row.LineCents, cur)
+		if err != nil {
+			return nil, err
+		}
+		var cat CategoryID
+		if row.CategoryID != "" {
+			if cat, err = NewCategoryID(row.CategoryID); err != nil {
+				return nil, err
+			}
+		}
+		if n := len(out); n > 0 && out[n-1].ID == TransactionID(row.ID) {
+			out[n-1].Lines = append(out[n-1].Lines, CategoryLine{Category: cat, Amount: line})
+			continue
+		}
+		amount, err := money.New(row.AmountCents, cur)
+		if err != nil {
+			return nil, err
+		}
+		it := BillItem{
+			ID:          TransactionID(row.ID),
+			Date:        civilDate(row.Date),
+			Description: row.Description,
+			Amount:      amount,
+			Payment:     Kind(row.SourceKind) == KindBillPayment,
+			Pending:     Status(row.Status) == StatusPending,
+			BillRef:     row.BillRef,
+			Lines:       []CategoryLine{{Category: cat, Amount: line}},
+		}
+		if row.InstallmentNumber != nil && row.InstallmentTotal != nil {
+			if it.Installment, err = NewInstallment(int(*row.InstallmentNumber), int(*row.InstallmentTotal)); err != nil {
+				return nil, err
+			}
+		}
+		if row.FromAccountID != nil {
+			it.From = AccountID(*row.FromAccountID)
+		}
+		out = append(out, it)
+	}
+	return out, nil
 }
