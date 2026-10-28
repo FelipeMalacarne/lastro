@@ -1,6 +1,6 @@
 # ADR-0011: Funds, categories that save up month by month
 
-**Status:** Proposed (amends ADR-0006)
+**Status:** Accepted (amends ADR-0006)
 **Date:** 2026-10-28
 **Deciders:** Felipe
 

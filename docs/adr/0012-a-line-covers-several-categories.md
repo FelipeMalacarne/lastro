@@ -1,6 +1,6 @@
 # ADR-0012: A budget line can cover several categories
 
-**Status:** Proposed (amends ADR-0006)
+**Status:** Accepted (amends ADR-0006)
 **Date:** 2026-10-28
 **Deciders:** Felipe
 
