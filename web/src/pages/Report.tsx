@@ -92,7 +92,7 @@ export function Report() {
                     const cat = byId.get(c.category);
                     const over = c.spentCents > c.availableCents;
                     return (
-                      <div key={c.category} className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 sm:grid-cols-[150px_minmax(0,1fr)_190px]">
+                      <div key={c.category || c.name} className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 sm:grid-cols-[150px_minmax(0,1fr)_190px]">
                         <CategoryTag name={cat?.name ?? c.name} color={cat?.color} />
                         <span className="relative h-2.5 rounded-xs bg-paper-sunken">
                           <span

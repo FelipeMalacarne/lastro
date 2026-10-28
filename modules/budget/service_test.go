@@ -4,11 +4,18 @@ package budget
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"lastro/migrations"
 	"lastro/modules/categorize"
 	"lastro/modules/ledger"
 	"lastro/money"
@@ -215,15 +222,18 @@ func TestAlertsAreSentOnce(t *testing.T) {
 	}
 }
 
-func category(t *testing.T, v MonthView, c ledger.CategoryID) CategoryView {
+// category is the line that covers a category.
+func category(t *testing.T, v MonthView, c ledger.CategoryID) LineView {
 	t.Helper()
 	for _, x := range v.Categories {
-		if x.Category == c.String() {
-			return x
+		for _, p := range x.ByCategory {
+			if p.Category == c.String() {
+				return x
+			}
 		}
 	}
 	t.Fatalf("%s has no limit in %s", c, v.Month)
-	return CategoryView{}
+	return LineView{}
 }
 
 func TestCopyAndReplaceLimits(t *testing.T) {
@@ -238,7 +248,7 @@ func TestCopyAndReplaceLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	// October gets its own limits, then all of them at once.
-	if err := w.budget.SetLimits(ctx, oct, []Line{{Category: fun, Limit: money.BRLCents(30000)}}); err != nil {
+	if err := w.budget.SetLimits(ctx, oct, []Line{one(fun, 30000, false)}); err != nil {
 		t.Fatal(err)
 	}
 	v, err := w.budget.Month(ctx, oct)
@@ -248,7 +258,7 @@ func TestCopyAndReplaceLimits(t *testing.T) {
 	if len(v.Categories) != 1 || v.Categories[0].Category != fun.String() || !v.Saved || !v.PrevDiffers {
 		t.Fatalf("after SetLimits: %d categories, saved %v, prevDiffers %v", len(v.Categories), v.Saved, v.PrevDiffers)
 	}
-	if err := w.budget.SetLimits(ctx, oct, []Line{{Category: w.cats["Income"], Limit: money.BRLCents(1)}}); !errors.Is(err, ErrNotBudgeted) {
+	if err := w.budget.SetLimits(ctx, oct, []Line{one(w.cats["Income"], 1, false)}); !errors.Is(err, ErrNotBudgeted) {
 		t.Errorf("a limit on Income: %v, want ErrNotBudgeted", err)
 	}
 
@@ -326,5 +336,324 @@ func TestRefundIsNotIncome(t *testing.T) {
 	}
 	if v.Summary.SpentCents != 60000 || v.Summary.SavingsRateBp != (1020000-60000)*10000/1020000 {
 		t.Errorf("summary %+v", v.Summary)
+	}
+}
+
+// Leisure and Shopping share one amount; each still says where its share
+// went, and the line keeps what it carried when Restaurants joins it.
+func TestSharedLine(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"CINEMA": "Leisure", "LOJA": "Shopping", "BAR": "Restaurants", "MERCADO": "Groceries"}, []tx{
+		{"2026-09-10", "CINEMA CENTRO", -20000, ""},
+		{"2026-09-12", "LOJA PECAS PC", -50000, ""},
+		{"2026-10-03", "LOJA PECAS PC", -90000, ""},
+		{"2026-10-04", "LOJA PECAS PC", -10000, ""},
+		{"2026-10-08", "BAR DO ZE", -15000, ""},
+		{"2026-10-09", "MERCADO BOM", -30000, ""},
+	})
+	sep, oct := month(t, "2026-09"), month(t, "2026-10")
+	fun, shop, bar := w.cats["Leisure"], w.cats["Shopping"], w.cats["Restaurants"]
+	if err := w.budget.SetLimit(ctx, sep, bar, money.BRLCents(20000), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.budget.AddLine(ctx, sep, Line{Name: "Free to spend", Categories: cats(fun, w.cats["Income"]), Limit: money.BRLCents(1)}); !errors.Is(err, ErrNotBudgeted) {
+		t.Errorf("a line with Income: %v, want ErrNotBudgeted", err)
+	}
+	free, err := w.budget.AddLine(ctx, sep, Line{Name: "Free to spend", Categories: cats(fun, shop), Limit: money.BRLCents(100000), Rollover: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, sep, shop, money.BRLCents(1), false); !errors.Is(err, ErrShared) {
+		t.Errorf("Shopping's own limit while it shares a line: %v, want ErrShared", err)
+	}
+
+	// October: Restaurants leaves its own limit for the line.
+	if err := w.budget.ChangeLine(ctx, oct, Line{ID: free, Name: "Free to spend", Categories: cats(fun, shop, bar), Limit: money.BRLCents(100000), Rollover: true}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Categories) != 1 {
+		t.Fatalf("October's lines: %+v", v.Categories)
+	}
+	l := v.Categories[0]
+	// September left 300 of 1.000; October spends 1.000 and 150.
+	if l.ID != free.String() || l.Name == nil || *l.Name != "Free to spend" || l.CarriedCents != 30000 || l.SpentCents != 115000 || l.LeftCents != 15000 || l.Count != 3 {
+		t.Errorf("the line: %+v", l)
+	}
+	if len(l.ByCategory) != 3 || l.ByCategory[0].Category != shop.String() || l.ByCategory[0].SpentCents != 100000 || l.ByCategory[0].Count != 2 || l.ByCategory[2].SpentCents != 0 {
+		t.Errorf("by category: %+v", l.ByCategory)
+	}
+	// The six months before are its three categories' together.
+	if l.History.History[5].SpentCents != 70000 {
+		t.Errorf("September, like with like: %+v", l.History.History)
+	}
+	if len(v.Unlimited) != 1 || *v.Unlimited[0].Category != w.cats["Groceries"].String() {
+		t.Errorf("unlimited: %+v", v.Unlimited)
+	}
+	sv, _ := w.budget.Month(ctx, sep)
+	if len(sv.Categories) != 2 || category(t, sv, bar).LimitCents != 20000 {
+		t.Errorf("September keeps Restaurants' own limit: %+v", sv.Categories)
+	}
+
+	// Copying September back gives Restaurants its limit again, and the
+	// line keeps its id.
+	if _, err := w.budget.CopyLimits(ctx, oct, sep); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = w.budget.Month(ctx, oct)
+	if l := category(t, v, fun); l.ID != free.String() || len(l.ByCategory) != 2 || category(t, v, bar).LimitCents != 20000 {
+		t.Errorf("after copying September: %+v", v.Categories)
+	}
+
+	if err := w.budget.RemoveLine(ctx, oct, free); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.RemoveLine(ctx, oct, free); !errors.Is(err, ErrNoLine) {
+		t.Errorf("removing it twice: %v, want ErrNoLine", err)
+	}
+}
+
+// The migration to lines turns each category's limit into a line of that
+// one category, with the category's id, so rollover keeps walking from the
+// months saved before it; rolled back, a shared line keeps one category.
+func TestLinesFromCategoryLimits(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	const before = 20261109100100
+	if err := migrations.DownTo(ctx, pool, before); err != nil {
+		t.Fatal(err)
+	}
+	food, fun := "6f1c9a52-3d2e-4b7a-9c1d-0a1b2c3d4e5f", "0b7e4c1d-8a9f-4e2b-b3c4-d5e6f7a8b9c0"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO budget.months (month, payday, pyf_cents, updated_at) VALUES
+		    ('2026-08-01', 5, 200000, now()), ('2026-10-01', 5, 200000, now())`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO budget.lines (month, category_id, limit_cents, rollover) VALUES
+		    ('2026-08-01', $1, 50000, true), ('2026-08-01', $2, 20000, false),
+		    ('2026-10-01', $1, 60000, true)`, food, fun); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Up(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool)
+	saved, err := repo.Saved(ctx, month(t, "2026-10"))
+	if err != nil || len(saved) != 2 {
+		t.Fatalf("saved %d, %v", len(saved), err)
+	}
+	f, ok := saved[0].LineOf(cat(t, food))
+	if !ok || f.ID.String() != food || f.Name != "" || len(f.Categories) != 1 || f.Limit.Cents() != 50000 || !f.Rollover {
+		t.Errorf("August's food: %+v", f)
+	}
+	if o, _ := saved[1].LineOf(cat(t, food)); o.ID != f.ID || len(saved[1].Lines()) != 1 {
+		t.Errorf("October's food keeps the id that carries: %+v", saved[1].Lines())
+	}
+	spending := spend(t, map[string]map[string]int64{"2026-08": {food: 40000}, "2026-09": {food: 45000}})
+	if got := find(t, Track(saved, spending, nil, month(t, "2026-10"), now, nil), food).Carried.Cents(); got != 15000 {
+		t.Errorf("October carried %d, want 15000", got)
+	}
+
+	// Rolled back, a shared line keeps the first of its categories.
+	oct := saved[1]
+	if _, err := oct.AddLine(Line{Name: "Free", Categories: cats(cat(t, fun), cat(t, food)), Limit: money.BRLCents(90000)}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, oct); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.DownTo(ctx, pool, before); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	var cents int64
+	if err := pool.QueryRow(ctx, `SELECT category_id::text, limit_cents FROM budget.lines WHERE month = '2026-10-01'`).Scan(&got, &cents); err != nil {
+		t.Fatal(err)
+	}
+	if got != fun || cents != 90000 {
+		t.Errorf("rolled back: %s %d, want %s 90000", got, cents, fun)
+	}
+}
+
+// The line endpoints, through the budget's routes: a shared line is made,
+// changed and removed by its id, and a category in it has no limit of its
+// own to change.
+func TestLineRoutes(t *testing.T) {
+	w := newWorld(t)
+	mux := http.NewServeMux()
+	w.budget.RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec
+	}
+	fun, shop, bar := w.cats["Leisure"].String(), w.cats["Shopping"].String(), w.cats["Restaurants"].String()
+
+	rec := do(http.MethodPost, "/api/v1/budget/2026-10/lines", `{"name": "Free to spend", "categories": ["`+fun+`", "`+shop+`"], "limitCents": 100000, "rollover": true}`)
+	var made struct{ ID string }
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &made) != nil || made.ID == "" {
+		t.Fatalf("POST lines: %d %s", rec.Code, rec.Body.String())
+	}
+	line := "/api/v1/budget/2026-10/lines/" + made.ID
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits/"+fun, `{"limitCents": 1, "rollover": false}`); rec.Code != http.StatusConflict {
+		t.Errorf("Leisure's own limit: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPut, line, `{"name": "Free", "categories": ["`+fun+`", "`+shop+`", "`+bar+`"], "limitCents": 120000}`); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT line: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/lines/0b7e4c1d-8a9f-4e2b-b3c4-d5e6f7a8b9c0", `{"categories": ["`+bar+`"], "limitCents": 1}`); rec.Code != http.StatusNotFound {
+		t.Errorf("PUT a line the month lacks: %d, want 404", rec.Code)
+	}
+	if rec := do(http.MethodPost, "/api/v1/budget/2026-10/lines", `{"categories": ["`+fun+`", "`+bar+`"], "limitCents": 1}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "needs a name") {
+		t.Errorf("a shared line without a name: %d %s", rec.Code, rec.Body.String())
+	}
+
+	v, err := w.budget.Month(context.Background(), month(t, "2026-10"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Categories) != 1 || v.Categories[0].ID != made.ID || *v.Categories[0].Name != "Free" || len(v.Categories[0].ByCategory) != 3 || v.LimitsCents != 120000 {
+		t.Errorf("October: %+v", v.Categories)
+	}
+
+	// Every line at once, in the shape that takes several categories.
+	body := `{"limits": [{"id": "` + made.ID + `", "name": "Free", "categories": ["` + fun + `", "` + shop + `"], "limitCents": 90000}, {"category": "` + bar + `", "limitCents": 20000}]}`
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits", body); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT limits: %d %s", rec.Code, rec.Body.String())
+	}
+	v, _ = w.budget.Month(context.Background(), month(t, "2026-10"))
+	if len(v.Categories) != 2 || category(t, v, w.cats["Leisure"]).ID != made.ID || category(t, v, w.cats["Restaurants"]).LimitCents != 20000 {
+		t.Errorf("after PUT limits: %+v", v.Categories)
+	}
+
+	if rec := do(http.MethodDelete, line, ""); rec.Code != http.StatusNoContent {
+		t.Errorf("DELETE line: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodDelete, line, ""); rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE it again: %d, want 404", rec.Code)
+	}
+}
+
+// ADR-0011's month: a car fund of 300 kept in a caixinha pays a repair of
+// 1.600 redeemed from it, and pay yourself first is still done; the fund is
+// in the red until an adjustment covers it from money already invested.
+func TestFund(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"SALARIO": "Income", "OFICINA": "Transport", "MERCADO": "Groceries"}, []tx{
+		{"2026-10-01", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-10-01", "APLICACAO RDB", -30000, ledger.KindTransfer},
+		{"2026-10-02", "COMPRA DE RENDA VARIAVEL", -400000, ledger.KindTransfer},
+		{"2026-10-09", "RESGATE RDB", 160000, ledger.KindTransfer},
+		{"2026-10-10", "OFICINA DO CARRO", -160000, ""},
+		{"2026-10-12", "MERCADO BOM", -50000, ""},
+	})
+	oct := month(t, "2026-10")
+	payday, _ := NewPayday(1)
+	if err := w.budget.SetPayYourselfFirst(ctx, oct, money.BRLCents(400000), payday); err != nil {
+		t.Fatal(err)
+	}
+	car, err := w.budget.AddLine(ctx, oct, Line{Categories: cats(w.cats["Transport"]), Limit: money.BRLCents(30000), Kind: KindFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, oct, w.cats["Groceries"], money.BRLCents(80000), false); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.PayYourselfFirst.MovedCents != 400000 || v.PayYourselfFirst.DoneOn == nil || v.Summary.ContributionCents != 400000 {
+		t.Errorf("pay yourself first %+v: the repair came from the fund, not from it", v.PayYourselfFirst)
+	}
+	c := category(t, v, w.cats["Transport"])
+	if !c.Fund || c.Rollover || c.LeftCents != -130000 || c.Pace != PaceOver {
+		t.Errorf("the car fund: %+v", c)
+	}
+	if f := v.Funds; f.Count != 1 || f.AmountCents != 30000 || f.SpentCents != 160000 || f.BalanceCents != -130000 || f.KeptCents != -130000 {
+		t.Errorf("funds %+v", f)
+	}
+	if v.AvailableCents != 80000 || v.SpentCents != 50000 || v.LimitsCents != 110000 || v.NotAssignedCents != 1000000-400000-110000 {
+		t.Errorf("the month's own totals leave the fund out, Not assigned does not: %+v", v)
+	}
+	alerts, err := w.budget.Alerts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 1 || alerts[0].Kind != AlertOverdrawn || alerts[0].Title != "Transport is R$ 1.300,00 in the red" {
+		t.Errorf("alerts %+v", alerts)
+	}
+
+	// What was already saved for the car covers it, without touching pay
+	// yourself first.
+	if err := w.budget.Adjust(ctx, oct, car, money.BRLCents(200000)); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = w.budget.Month(ctx, oct)
+	if c := category(t, v, w.cats["Transport"]); c.AdjustedCents != 200000 || c.LeftCents != 70000 || c.Pace != PaceOn || v.PayYourselfFirst.MovedCents != 400000 {
+		t.Errorf("after the adjustment: %+v, moved %d", c, v.PayYourselfFirst.MovedCents)
+	}
+	nov, _ := w.budget.Month(ctx, month(t, "2026-11"))
+	if c := category(t, nov, w.cats["Transport"]); c.CarriedCents != 70000 || c.LeftCents != 100000 {
+		t.Errorf("November carries the balance: %+v", c)
+	}
+	groceries, _ := ParseLineID(category(t, v, w.cats["Groceries"]).ID)
+	if err := w.budget.Adjust(ctx, oct, groceries, money.BRLCents(100)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("adjusting a limit: %v, want ErrInvalid", err)
+	}
+	if err := w.budget.RemoveAdjustment(ctx, oct, car); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.RemoveAdjustment(ctx, oct, car); !errors.Is(err, ErrNoAdjustment) {
+		t.Errorf("removing it twice: %v, want ErrNoAdjustment", err)
+	}
+}
+
+func TestFundRoutes(t *testing.T) {
+	w := newWorld(t)
+	mux := http.NewServeMux()
+	w.budget.RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec
+	}
+	moi, food := w.cats["Leisure"].String(), w.cats["Groceries"].String()
+	rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits", `{"limits": [{"category": "`+moi+`", "limitCents": 50000, "fund": true}, {"category": "`+food+`", "limitCents": 80000}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT limits with a fund: %d %s", rec.Code, rec.Body.String())
+	}
+	v, _ := w.budget.Month(context.Background(), month(t, "2026-10"))
+	fund, limit := category(t, v, w.cats["Leisure"]), category(t, v, w.cats["Groceries"])
+	if !fund.Fund || limit.Fund {
+		t.Fatalf("kinds: %+v %+v", fund, limit)
+	}
+	adj := "/api/v1/budget/2026-10/lines/" + fund.ID + "/adjustment"
+	if rec := do(http.MethodPut, adj, `{"amountCents": 100000}`); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT adjustment: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/lines/"+limit.ID+"/adjustment", `{"amountCents": 100}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "only a fund") {
+		t.Errorf("adjusting a limit: %d %s", rec.Code, rec.Body.String())
+	}
+	// The category's own limit changes the amount and keeps the fund.
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits/"+moi, `{"limitCents": 60000, "rollover": false}`); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT a fund's own limit: %d %s", rec.Code, rec.Body.String())
+	}
+	v, _ = w.budget.Month(context.Background(), month(t, "2026-10"))
+	if f := category(t, v, w.cats["Leisure"]); !f.Fund || f.LimitCents != 60000 || f.AdjustedCents != 100000 {
+		t.Errorf("after its limit changed: %+v", f)
+	}
+	if rec := do(http.MethodDelete, adj, ""); rec.Code != http.StatusNoContent {
+		t.Errorf("DELETE adjustment: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodDelete, adj, ""); rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE it again: %d, want 404", rec.Code)
 	}
 }

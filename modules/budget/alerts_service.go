@@ -30,12 +30,18 @@ func (s *Service) Alerts(ctx context.Context) ([]AlertView, error) {
 		names[c.ID.String()] = c.Name
 	}
 	var figures []Figures
-	for _, c := range v.Categories {
-		id, _ := ledger.NewCategoryID(c.Category)
-		figures = append(figures, Figures{
-			Category: id, Limited: true, Spent: money.BRLCents(c.SpentCents), Available: money.BRLCents(c.AvailableCents),
-			Left: money.BRLCents(c.LeftCents), Average: money.BRLCents(c.AverageCents), Pace: c.Pace,
-		})
+	for _, l := range v.Categories {
+		f := Figures{
+			Limited: true, Fund: l.Fund, Spent: money.BRLCents(l.SpentCents), Available: money.BRLCents(l.AvailableCents),
+			Left: money.BRLCents(l.LeftCents), Average: money.BRLCents(l.AverageCents), Pace: l.Pace,
+		}
+		f.Line, _ = ParseLineID(l.ID)
+		if len(l.ByCategory) == 1 {
+			f.Category, _ = ledger.NewCategoryID(l.Category)
+		} else if l.Name != nil {
+			f.Name = *l.Name
+		}
+		figures = append(figures, f)
 	}
 	for _, u := range v.Unlimited {
 		f := Figures{Spent: money.BRLCents(u.SpentCents), Average: money.BRLCents(u.AverageCents)}
@@ -52,12 +58,18 @@ func (s *Service) Alerts(ctx context.Context) ([]AlertView, error) {
 		if !a.Category.IsZero() {
 			id := a.Category.String()
 			av.Category = &id
+		} else if a.Name != "" {
+			name = a.Name
 		}
 		switch a.Kind {
 		case AlertOver:
 			av.Severity = "danger"
 			av.Title = fmt.Sprintf("%s is over its limit by %s", name, a.Amount)
 			av.Detail = fmt.Sprintf("%s spent in %s, with %s available.", money.BRLCents(a.Compare.Cents()+a.Amount.Cents()), monthName, a.Compare)
+		case AlertOverdrawn:
+			av.Severity = "warning"
+			av.Title = fmt.Sprintf("%s is %s in the red", name, a.Amount)
+			av.Detail = fmt.Sprintf("%s spent in %s from a fund that had %s; the months after pay it back.", money.BRLCents(a.Compare.Cents()+a.Amount.Cents()), monthName, a.Compare)
 		case AlertAhead:
 			av.Severity = "warning"
 			av.Title = fmt.Sprintf("%s has %s left for %d %s", name, a.Amount, a.DaysLeft, plural(a.DaysLeft, "day", "days"))
@@ -67,7 +79,9 @@ func (s *Service) Alerts(ctx context.Context) ([]AlertView, error) {
 			pct := (a.Amount.Cents() - a.Compare.Cents()) * 100 / a.Compare.Cents()
 			av.Title = fmt.Sprintf("%s is %d%% above its usual month", name, pct)
 			av.Detail = fmt.Sprintf("%s so far in %s, against %s on average in the six months before.", a.Amount, monthName, a.Compare)
-			av.Link = "/transactions?category=" + a.Category.String()
+			if !a.Category.IsZero() {
+				av.Link = "/transactions?category=" + a.Category.String()
+			}
 		case AlertPriceChange:
 			av.Severity = "info"
 			dir := "up"
