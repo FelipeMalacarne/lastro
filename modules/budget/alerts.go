@@ -14,6 +14,7 @@ type AlertKind string
 
 const (
 	AlertOver        AlertKind = "over"         // spent more than the line's limit
+	AlertOverdrawn   AlertKind = "overdrawn"    // a fund spent past its balance (ADR-0011)
 	AlertAhead       AlertKind = "ahead"        // likely to run out before the month ends
 	AlertUnusual     AlertKind = "unusual"      // far above the category's usual month
 	AlertPriceChange AlertKind = "price_change" // a recurring charge changed price this month
@@ -40,6 +41,7 @@ type Figures struct {
 	Name      string            // a shared line's
 	Category  ledger.CategoryID // zero for a shared line
 	Limited   bool
+	Fund      bool
 	Spent     money.Money
 	Available money.Money
 	Left      money.Money
@@ -58,9 +60,11 @@ const (
 // FindAlerts lists what is worth telling about a month: lines over their
 // limit or ahead of pace (only while the month runs), spending far above
 // the usual, and recurring charges that changed price this month or are
-// new. Over before ahead before unusual; charges after. A line's key is its
-// id, which for a line saved before lines could be shared is its
-// category's, so an alert already sent is not sent again.
+// new. A fund's one alert is going into the red: its spending comes in
+// lumps, so it is never ahead of pace nor unusual. Over and overdrawn
+// before ahead before unusual; charges after. A line's key is its id, which
+// for a line saved before lines could be shared is its category's, so an
+// alert already sent is not sent again.
 func FindAlerts(m Month, today time.Time, figures []Figures, recurring []Recurring, daysLeft int) []Alert {
 	current := m == MonthOf(today)
 	var out []Alert
@@ -71,6 +75,12 @@ func FindAlerts(m Month, today time.Time, figures []Figures, recurring []Recurri
 		}
 		at := Alert{Line: f.Line, Category: f.Category, Name: f.Name}
 		switch {
+		case f.Fund:
+			if f.Pace == PaceOver {
+				at.Key, at.Kind, at.Amount, at.Compare = fmt.Sprintf("overdrawn:%s:%s", m, id), AlertOverdrawn, f.Left.Neg(), f.Available
+				out = append(out, at)
+			}
+			continue
 		case f.Limited && f.Pace == PaceOver:
 			at.Key, at.Kind, at.Amount, at.Compare = fmt.Sprintf("over:%s:%s", m, id), AlertOver, f.Left.Neg(), f.Available
 			out = append(out, at)
@@ -94,7 +104,7 @@ func FindAlerts(m Month, today time.Time, figures []Figures, recurring []Recurri
 			out = append(out, Alert{Key: "new:" + r.Name, Kind: AlertNewCharge, Name: r.Name, Amount: r.Monthly})
 		}
 	}
-	rank := map[AlertKind]int{AlertOver: 0, AlertAhead: 1, AlertUnusual: 2, AlertPriceChange: 3, AlertNewCharge: 4}
+	rank := map[AlertKind]int{AlertOver: 0, AlertOverdrawn: 0, AlertAhead: 1, AlertUnusual: 2, AlertPriceChange: 3, AlertNewCharge: 4}
 	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Kind] < rank[out[j].Kind] })
 	return out
 }

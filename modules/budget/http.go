@@ -113,8 +113,8 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 
 	// POST /api/v1/budget/{month}/lines {"name", "categories", "limitCents",
-	// "rollover"}: a new line from that month on, taking its categories from
-	// the lines they were in; answers {"id"}.
+	// "rollover", "fund"}: a new line from that month on, taking its
+	// categories from the lines they were in; answers {"id"}.
 	mux.HandleFunc("POST /api/v1/budget/{month}/lines", func(w http.ResponseWriter, r *http.Request) {
 		m, err := ParseMonth(r.PathValue("month"))
 		if err != nil {
@@ -140,8 +140,8 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 
 	// PUT /api/v1/budget/{month}/lines/{id} {"name", "categories",
-	// "limitCents", "rollover"}: the line from that month on, keeping what
-	// it carried.
+	// "limitCents", "rollover", "fund"}: the line from that month on,
+	// keeping what it carried.
 	mux.HandleFunc("PUT /api/v1/budget/{month}/lines/{id}", func(w http.ResponseWriter, r *http.Request) {
 		m, id, err := monthAndLine(r)
 		if err != nil {
@@ -160,6 +160,46 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		}
 		l.ID = id
 		if err := s.ChangeLine(r.Context(), m, l); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// PUT /api/v1/budget/{month}/lines/{id}/adjustment {"amountCents"}:
+	// money already invested moved into the fund (positive) or out of it
+	// that month, replacing the adjustment it had.
+	mux.HandleFunc("PUT /api/v1/budget/{month}/lines/{id}/adjustment", func(w http.ResponseWriter, r *http.Request) {
+		m, id, err := monthAndLine(r)
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		var in struct {
+			AmountCents *int64 `json:"amountCents"`
+		}
+		if err := decode(w, r, &in, "amountCents"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if in.AmountCents == nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("amountCents is required"))
+			return
+		}
+		if err := s.Adjust(r.Context(), m, id, money.BRLCents(*in.AmountCents)); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("DELETE /api/v1/budget/{month}/lines/{id}/adjustment", func(w http.ResponseWriter, r *http.Request) {
+		m, id, err := monthAndLine(r)
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if err := s.RemoveAdjustment(r.Context(), m, id); err != nil {
 			httpx.WriteError(w, r, logger, apiError(err))
 			return
 		}
@@ -273,7 +313,8 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 }
 
-// lineIn is a line as the API takes it: one category or several.
+// lineIn is a line as the API takes it: one category or several, and a
+// fund or a limit; without "fund", a line keeps the kind it had.
 type lineIn struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -281,6 +322,7 @@ type lineIn struct {
 	Categories []string `json:"categories"`
 	LimitCents *int64   `json:"limitCents"`
 	Rollover   bool     `json:"rollover"`
+	Fund       *bool    `json:"fund"`
 }
 
 func (in lineIn) line() (Line, error) {
@@ -292,6 +334,13 @@ func (in lineIn) line() (Line, error) {
 		return Line{}, httpx.BadRequest("each line needs a category (or up to 50 categories) and limitCents")
 	}
 	l := Line{Name: in.Name, Limit: money.BRLCents(*in.LimitCents), Rollover: in.Rollover}
+	switch {
+	case in.Fund == nil:
+	case *in.Fund:
+		l.Kind = KindFund
+	default:
+		l.Kind = KindLimit
+	}
 	for _, id := range ids {
 		c, err := ledger.NewCategoryID(id)
 		if err != nil {
@@ -353,6 +402,8 @@ func apiError(err error) error {
 		return httpx.Conflict("that category shares a line with others: change the line")
 	case errors.Is(err, ErrNoLine):
 		return httpx.NotFound("that month's budget has no such line")
+	case errors.Is(err, ErrNoAdjustment):
+		return httpx.NotFound("that fund has no adjustment that month")
 	}
 	return err
 }

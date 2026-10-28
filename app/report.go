@@ -48,7 +48,7 @@ type ReportView struct {
 
 // ReportCategory is a limited category's month.
 type ReportCategory struct {
-	Category       string `json:"category"`
+	Category       string `json:"category"` // empty for a line shared by several categories, which goes by its name
 	Name           string `json:"name"`
 	SpentCents     int64  `json:"spentCents"`
 	AvailableCents int64  `json:"availableCents"`
@@ -90,11 +90,17 @@ func buildReport(in reportInput) ReportView {
 	}
 	var over []string
 	for _, c := range v.Categories {
-		name := in.names[c.Category]
+		name, cat := in.names[c.Category], c.Category
 		if c.Name != nil {
-			name = *c.Name // a line shared by several categories
+			name, cat = *c.Name, "" // a line shared by several categories
 		}
-		r.Categories = append(r.Categories, ReportCategory{Category: c.Category, Name: name, SpentCents: c.SpentCents, AvailableCents: c.AvailableCents})
+		if c.Fund { // not a limit: only a fund in the red is worth a word
+			if c.LeftCents < 0 {
+				r.Notes = append(r.Notes, fmt.Sprintf("%s ended %s in the red; the months after pay it back.", name, money.BRLCents(-c.LeftCents)))
+			}
+			continue
+		}
+		r.Categories = append(r.Categories, ReportCategory{Category: cat, Name: name, SpentCents: c.SpentCents, AvailableCents: c.AvailableCents})
 		if c.SpentCents > c.AvailableCents {
 			over = append(over, name)
 			r.Notes = append(r.Notes, fmt.Sprintf("%s went %s over.", name, money.BRLCents(c.SpentCents-c.AvailableCents)))

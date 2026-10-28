@@ -11,20 +11,52 @@ import (
 	"lastro/money"
 )
 
-// Line is one amount for one or more categories (ADR-0012): their monthly
-// limit together, and whether what is left of it rolls over to the next
-// month. A line with one category goes by its category's name; a line
-// shared by several has a name of its own.
+// Line is one amount for one or more categories (ADR-0012), and what kind
+// of amount it is (ADR-0011): a limit, of which what is left may roll over
+// to the next month, or a fund's monthly amount, which saves up. A line
+// with one category goes by its category's name; a line shared by several
+// has a name of its own.
 type Line struct {
 	ID         LineID
 	Name       string
 	Categories []ledger.CategoryID // in id order
-	Limit      money.Money
-	Rollover   bool
+	Limit      money.Money         // a fund's monthly amount
+	Rollover   bool                // a limit's; a fund always carries its balance
+	Kind       Kind
 }
+
+// Kind is what a line's amount is. A line given without one keeps the kind
+// it had, and a new line is a limit.
+type Kind string
+
+const (
+	KindLimit Kind = "limit"
+	KindFund  Kind = "fund"
+)
 
 // Shared reports whether the line covers more than one category.
 func (l Line) Shared() bool { return len(l.Categories) > 1 }
+
+// IsFund reports whether the line is a fund, which carries its balance,
+// debt included, instead of a limit.
+func (l Line) IsFund() bool { return l.Kind == KindFund }
+
+// as is the line with its kind settled: the one given, else the one it had
+// (had, when ok), else a limit. A fund does not roll over: it always
+// carries.
+func (l Line) as(had Line, ok bool) Line {
+	switch {
+	case l.Kind != "":
+	case ok:
+		l.Kind = had.Kind
+	default:
+		l.Kind = KindLimit
+	}
+	if l.IsFund() {
+		l.Rollover = false
+	}
+	return l
+}
 
 // Covers reports whether a category is one of the line's.
 func (l Line) Covers(c ledger.CategoryID) bool { return slices.Contains(l.Categories, c) }
@@ -63,7 +95,7 @@ func RestoreMonthlyBudget(m Month, payday Payday, pyf money.Money, lines []Line,
 	for _, l := range lines {
 		l = l.clone()
 		slices.SortFunc(l.Categories, byID)
-		b.lines[l.ID] = l
+		b.lines[l.ID] = l.as(Line{}, false)
 	}
 	return b
 }
@@ -133,10 +165,10 @@ func (b *MonthlyBudget) SetLimit(c ledger.CategoryID, limit money.Money, rollove
 	case ok && l.Shared():
 		return fmt.Errorf("%w: change the line %q", ErrShared, l.Name)
 	case !ok:
-		l = Line{ID: newLineID(), Categories: []ledger.CategoryID{c}}
+		l = Line{ID: newLineID(), Categories: []ledger.CategoryID{c}, Kind: KindLimit}
 	}
 	l.Limit, l.Rollover = limit, rollover
-	b.lines[l.ID] = l
+	b.lines[l.ID] = l.as(l, true)
 	b.updatedAt = now
 	return nil
 }
@@ -166,9 +198,10 @@ func (b *MonthlyBudget) AddLine(l Line, now time.Time) (LineID, error) {
 	return l.ID, nil
 }
 
-// ChangeLine changes a line by its id: its name, categories, limit and
-// rollover. What it carried stays with it; the categories it takes leave
-// the lines they were in, and a line left without any goes.
+// ChangeLine changes a line by its id: its name, categories, limit,
+// rollover and kind. What it carried stays with it, also when it turns from
+// a limit into a fund or back; the categories it takes leave the lines they
+// were in, and a line left without any goes.
 func (b *MonthlyBudget) ChangeLine(l Line, now time.Time) error {
 	if _, ok := b.lines[l.ID]; !ok {
 		return ErrNoLine
@@ -181,6 +214,8 @@ func (b *MonthlyBudget) put(l Line, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	had, ok := b.lines[l.ID]
+	l = l.as(had, ok)
 	if l.Name != "" {
 		for _, o := range b.lines {
 			if o.ID != l.ID && strings.EqualFold(o.Name, l.Name) {
@@ -226,7 +261,8 @@ func (b *MonthlyBudget) Limits() money.Money {
 // SetLimits replaces every line at once: the limits typed in together, or
 // another month's copied over. A line given without an id keeps the id of
 // the line that covered the same categories, so what it carried follows
-// it; otherwise it gets a new one. A category left out has no limit.
+// it; otherwise it gets a new one. A line given without a kind keeps the
+// one it had. A category left out has no limit.
 func (b *MonthlyBudget) SetLimits(lines []Line, now time.Time) error {
 	next := make(map[LineID]Line, len(lines))
 	seen := map[ledger.CategoryID]bool{}
@@ -254,6 +290,8 @@ func (b *MonthlyBudget) SetLimits(lines []Line, now time.Time) error {
 				l.ID = newLineID()
 			}
 		}
+		had, ok := b.lines[l.ID]
+		l = l.as(had, ok)
 		if _, dup := next[l.ID]; dup {
 			return fmt.Errorf("%w: two lines with one id", ErrInvalid)
 		}
@@ -306,10 +344,14 @@ func (b *MonthlyBudget) idOf(cats []ledger.CategoryID) (LineID, bool) {
 }
 
 // checked is a line that keeps the rules: at least one category, each
-// once, a name when it covers several and a limit in reais, never negative.
+// once, a name when it covers several, a known kind and a limit in reais,
+// never negative.
 func checked(l Line) (Line, error) {
 	if len(l.Categories) == 0 {
 		return Line{}, fmt.Errorf("%w: limit without a category", ErrInvalid)
+	}
+	if l.Kind != "" && l.Kind != KindLimit && l.Kind != KindFund {
+		return Line{}, fmt.Errorf("%w: a line is a limit or a fund, not %q", ErrInvalid, l.Kind)
 	}
 	l = l.clone()
 	slices.SortFunc(l.Categories, byID)

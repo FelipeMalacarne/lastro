@@ -129,13 +129,13 @@ func TestTrackSharedLine(t *testing.T) {
 		"2026-10": {"fun": 20000, "shop": 60000, "dev": 15000, "food": 9000},
 	})
 
-	sep := Track(budgets, spending, month(t, "2026-09"), now, nil)
+	sep := Track(budgets, spending, nil, month(t, "2026-09"), now, nil)
 	f := find(t, sep, "fun")
 	if f.Line.ID != free || f.Carried.Cents() != 20000 || f.Spent.Cents() != 110000 || f.Left.Cents() != 10000 || f.Pace != PaceOn {
 		t.Errorf("September's free line, where shop alone spent more than the limit: %+v", f)
 	}
 
-	tr := Track(budgets, spending, month(t, "2026-10"), now, nil)
+	tr := Track(budgets, spending, nil, month(t, "2026-10"), now, nil)
 	f = find(t, tr, "dev")
 	if f.Line.ID != free || f.Carried.Cents() != 10000 || f.Available.Cents() != 110000 || f.Spent.Cents() != 95000 || f.Left.Cents() != 15000 {
 		t.Errorf("October's free line, with dev: %+v", f)

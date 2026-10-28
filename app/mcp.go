@@ -94,7 +94,7 @@ func (a *App) MCPServer() *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "budget",
-		Description: "A month's budget as it stands: pay yourself first, income, each line's limit (one category, or several sharing one amount) with its spending by category and pace, and what is left.",
+		Description: "A month's budget as it stands: pay yourself first, income, each line (a limit or a fund that saves up, for one category or several sharing one amount) with its spending by category and pace, the funds' balance, and what is left.",
 		Annotations: readOnly("Budget"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in monthIn) (*mcp.CallToolResult, any, error) {
 		m, err := a.toolMonth(in.Month, 0)

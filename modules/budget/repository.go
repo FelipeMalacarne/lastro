@@ -58,7 +58,10 @@ func (r *PostgresRepository) Saved(ctx context.Context, until Month) ([]*Monthly
 			return nil, err
 		}
 		m := MonthOf(row.Month)
-		l := Line{ID: id, Categories: covers[key{m, row.LineID}], Limit: money.BRLCents(row.LimitCents), Rollover: row.Rollover}
+		l := Line{ID: id, Categories: covers[key{m, row.LineID}], Limit: money.BRLCents(row.LimitCents), Rollover: row.Rollover, Kind: KindLimit}
+		if row.Fund {
+			l.Kind = KindFund
+		}
 		if len(l.Categories) == 0 {
 			continue // Save writes a line with its categories; one without any covers nothing
 		}
@@ -99,7 +102,7 @@ func (r *PostgresRepository) Save(ctx context.Context, b *MonthlyBudget) error {
 				name = &l.Name
 			}
 			if err := q.InsertLine(ctx, db.InsertLineParams{
-				Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover,
+				Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover, Fund: l.IsFund(),
 			}); err != nil {
 				return fmt.Errorf("insert line: %w", err)
 			}
@@ -113,6 +116,40 @@ func (r *PostgresRepository) Save(ctx context.Context, b *MonthlyBudget) error {
 		}
 		return nil
 	})
+}
+
+// Adjustments are the funds' adjustments up to a month.
+func (r *PostgresRepository) Adjustments(ctx context.Context, until Month) (Adjustments, error) {
+	rows, err := r.q.ListAdjustments(ctx, until.First())
+	if err != nil {
+		return nil, err
+	}
+	out := Adjustments{}
+	for _, row := range rows {
+		id, err := ParseLineID(row.LineID)
+		if err != nil {
+			return nil, err
+		}
+		m := MonthOf(row.Month)
+		if out[m] == nil {
+			out[m] = map[LineID]money.Money{}
+		}
+		out[m][id] = money.BRLCents(row.Cents)
+	}
+	return out, nil
+}
+
+// SaveAdjustment writes a fund's adjustment for its month, replacing the
+// one it had.
+func (r *PostgresRepository) SaveAdjustment(ctx context.Context, a Adjustment) error {
+	return r.q.SaveAdjustment(ctx, db.SaveAdjustmentParams{Month: a.Month.First(), LineID: a.Line.String(), Cents: a.Amount.Cents()})
+}
+
+// RemoveAdjustment deletes a fund's adjustment for a month and reports
+// whether it had one.
+func (r *PostgresRepository) RemoveAdjustment(ctx context.Context, m Month, id LineID) (bool, error) {
+	n, err := r.q.DeleteAdjustment(ctx, db.DeleteAdjustmentParams{Month: m.First(), LineID: id.String()})
+	return n > 0, err
 }
 
 // sent is which of the keys were already pushed.

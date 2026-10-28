@@ -19,6 +19,8 @@ var (
 	ErrShared = errors.New("budget: the category shares a line")
 	// ErrNoLine means the month's budget has no line with that id.
 	ErrNoLine = errors.New("budget: no such line")
+	// ErrNoAdjustment means the fund has no adjustment that month.
+	ErrNoAdjustment = errors.New("budget: no such adjustment")
 )
 
 // LineID names a budget line from month to month, so what it carried

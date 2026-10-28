@@ -289,6 +289,9 @@ export type BudgetCategory = {
   spentCents: number;
   leftCents: number;
   rollover: boolean;
+  /** A fund (ADR-0011) carries its balance, debt included: available and left are its balance before and after spending. */
+  fund: boolean;
+  adjustedCents: number;
   usedBp: number;
   pace: Pace;
   count: number;
@@ -321,6 +324,8 @@ export type BudgetMonth = {
   leftCents: number;
   notAssignedCents: number;
   upcomingCents: number;
+  /** The funds together; carried, available, spent, left and upcoming above are the limits'. */
+  funds: { count: number; amountCents: number; carriedCents: number; adjustedCents: number; spentCents: number; balanceCents: number; keptCents: number };
   categories: BudgetCategory[];
   unlimited: BudgetSpend[];
   summary: { incomeCents: number; spentCents: number; contributionCents: number; savingsRateBp: number };

@@ -22,6 +22,9 @@ var ErrNotBudgeted = errors.New("budget: category does not count toward the budg
 type Repository interface {
 	Saved(ctx context.Context, until Month) ([]*MonthlyBudget, error)
 	Save(ctx context.Context, b *MonthlyBudget) error
+	Adjustments(ctx context.Context, until Month) (Adjustments, error)
+	SaveAdjustment(ctx context.Context, a Adjustment) error
+	RemoveAdjustment(ctx context.Context, m Month, id LineID) (bool, error)
 	sent(ctx context.Context, keys []string) (map[string]bool, error)
 	markSent(ctx context.Context, keys []string, at time.Time) error
 	rolloverNew(ctx context.Context) (bool, error)
@@ -91,7 +94,11 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			}
 		}
 	}
-	t := Track(saved, spending, m, s.today(), fixed)
+	adjusted, err := s.repo.Adjustments(ctx, m)
+	if err != nil {
+		return MonthView{}, fmt.Errorf("budget: month: %w", err)
+	}
+	t := Track(saved, spending, adjusted, m, s.today(), fixed)
 	rollNew, err := s.repo.rolloverNew(ctx)
 	if err != nil {
 		return MonthView{}, fmt.Errorf("budget: month: %w", err)
@@ -144,7 +151,7 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 	refunded, n := refunds(rows, budgeted, m)
 	v.IncomeCents -= refunded
 	v.IncomeCount = max(v.IncomeCount-n, 0)
-	v.PayYourselfFirst.MovedCents = SetAside(money.BRLCents(out), money.BRLCents(back)).Cents()
+	v.PayYourselfFirst.MovedCents = SetAside(money.BRLCents(out), money.BRLCents(back), t.Funds.Kept).Cents()
 	if pyf := v.PayYourselfFirst; pyf.PlannedCents > 0 && pyf.MovedCents >= pyf.PlannedCents {
 		d := last.Format(time.DateOnly)
 		v.PayYourselfFirst.DoneOn = &d
@@ -163,6 +170,8 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			SpentCents:     st.Spent.Cents(),
 			LeftCents:      st.Left.Cents(),
 			Rollover:       l.Rollover,
+			Fund:           l.IsFund(),
+			AdjustedCents:  st.Adjusted.Cents(),
 			UsedBp:         st.Used.Bps(),
 			Pace:           st.Pace,
 			FixedCents:     st.Fixed.Cents(),
@@ -181,9 +190,16 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			lv.Count += counts[m][c]
 		}
 		sort.SliceStable(lv.ByCategory, func(i, j int) bool { return lv.ByCategory[i].SpentCents > lv.ByCategory[j].SpentCents })
-		v.CarriedCents += lv.CarriedCents
-		v.UpcomingCents += lv.UpcomingCents
+		if !lv.Fund { // the month's totals are the limits'
+			v.CarriedCents += lv.CarriedCents
+			v.UpcomingCents += lv.UpcomingCents
+		}
 		v.Categories = append(v.Categories, lv)
+	}
+	f := t.Funds
+	v.Funds = FundsView{
+		Count: f.Count, AmountCents: f.Amount.Cents(), CarriedCents: f.Carried.Cents(), AdjustedCents: f.Adjusted.Cents(),
+		SpentCents: f.Spent.Cents(), BalanceCents: f.Balance.Cents(), KeptCents: f.Kept.Cents(),
 	}
 
 	// Every budgeted category without a limit shows, even with nothing
@@ -524,6 +540,39 @@ func (s *Service) RemoveLine(ctx context.Context, m Month, id LineID) error {
 	})
 	if err != nil {
 		return fmt.Errorf("budget: remove line: %w", err)
+	}
+	return nil
+}
+
+// Adjust moves money already invested into a fund (positive) or out of it
+// in a month, replacing the adjustment it had.
+func (s *Service) Adjust(ctx context.Context, m Month, id LineID, amt money.Money) error {
+	saved, err := s.repo.Saved(ctx, m)
+	if err != nil {
+		return fmt.Errorf("budget: adjust: %w", err)
+	}
+	b, ok := Effective(saved, m)
+	if !ok {
+		return fmt.Errorf("budget: adjust: %w", ErrNoLine)
+	}
+	a, err := NewAdjustment(b, id, amt)
+	if err != nil {
+		return fmt.Errorf("budget: adjust: %w", err)
+	}
+	if err := s.repo.SaveAdjustment(ctx, a); err != nil {
+		return fmt.Errorf("budget: adjust: %w", err)
+	}
+	return nil
+}
+
+// RemoveAdjustment takes back a fund's adjustment in a month.
+func (s *Service) RemoveAdjustment(ctx context.Context, m Month, id LineID) error {
+	ok, err := s.repo.RemoveAdjustment(ctx, m, id)
+	if err != nil {
+		return fmt.Errorf("budget: remove adjustment: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("budget: remove adjustment: %w", ErrNoAdjustment)
 	}
 	return nil
 }

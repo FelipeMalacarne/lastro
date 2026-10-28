@@ -7,7 +7,7 @@ WHERE month <= sqlc.arg(until)::date
 ORDER BY month;
 
 -- name: ListLines :many
-SELECT month, line_id, name, limit_cents, rollover
+SELECT month, line_id, name, limit_cents, rollover, fund
 FROM budget.lines
 WHERE month <= sqlc.arg(until)::date
 ORDER BY month, line_id;
@@ -29,12 +29,26 @@ SET payday = excluded.payday, pyf_cents = excluded.pyf_cents, updated_at = exclu
 DELETE FROM budget.lines WHERE month = $1;
 
 -- name: InsertLine :exec
-INSERT INTO budget.lines (month, line_id, name, limit_cents, rollover)
-VALUES ($1, $2, $3, $4, $5);
+INSERT INTO budget.lines (month, line_id, name, limit_cents, rollover, fund)
+VALUES ($1, $2, $3, $4, $5, $6);
 
 -- name: InsertLineCategory :exec
 INSERT INTO budget.line_categories (month, line_id, category_id)
 VALUES ($1, $2, $3);
+
+-- name: ListAdjustments :many
+SELECT month, line_id, cents
+FROM budget.adjustments
+WHERE month <= sqlc.arg(until)::date
+ORDER BY month, line_id;
+
+-- name: SaveAdjustment :exec
+INSERT INTO budget.adjustments (month, line_id, cents)
+VALUES ($1, $2, $3)
+ON CONFLICT (month, line_id) DO UPDATE SET cents = excluded.cents;
+
+-- name: DeleteAdjustment :execrows
+DELETE FROM budget.adjustments WHERE month = $1 AND line_id = $2;
 
 -- name: ListSentAlerts :many
 SELECT key FROM budget.alerts_sent WHERE key = ANY(sqlc.arg(keys)::text[]);

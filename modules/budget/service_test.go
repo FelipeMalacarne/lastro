@@ -455,7 +455,7 @@ func TestLinesFromCategoryLimits(t *testing.T) {
 		t.Errorf("October's food keeps the id that carries: %+v", saved[1].Lines())
 	}
 	spending := spend(t, map[string]map[string]int64{"2026-08": {food: 40000}, "2026-09": {food: 45000}})
-	if got := find(t, Track(saved, spending, month(t, "2026-10"), now, nil), food).Carried.Cents(); got != 15000 {
+	if got := find(t, Track(saved, spending, nil, month(t, "2026-10"), now, nil), food).Carried.Cents(); got != 15000 {
 		t.Errorf("October carried %d, want 15000", got)
 	}
 
@@ -535,6 +535,125 @@ func TestLineRoutes(t *testing.T) {
 		t.Errorf("DELETE line: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := do(http.MethodDelete, line, ""); rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE it again: %d, want 404", rec.Code)
+	}
+}
+
+// ADR-0011's month: a car fund of 300 kept in a caixinha pays a repair of
+// 1.600 redeemed from it, and pay yourself first is still done; the fund is
+// in the red until an adjustment covers it from money already invested.
+func TestFund(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"SALARIO": "Income", "OFICINA": "Transport", "MERCADO": "Groceries"}, []tx{
+		{"2026-10-01", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-10-01", "APLICACAO RDB", -30000, ledger.KindTransfer},
+		{"2026-10-02", "COMPRA DE RENDA VARIAVEL", -400000, ledger.KindTransfer},
+		{"2026-10-09", "RESGATE RDB", 160000, ledger.KindTransfer},
+		{"2026-10-10", "OFICINA DO CARRO", -160000, ""},
+		{"2026-10-12", "MERCADO BOM", -50000, ""},
+	})
+	oct := month(t, "2026-10")
+	payday, _ := NewPayday(1)
+	if err := w.budget.SetPayYourselfFirst(ctx, oct, money.BRLCents(400000), payday); err != nil {
+		t.Fatal(err)
+	}
+	car, err := w.budget.AddLine(ctx, oct, Line{Categories: cats(w.cats["Transport"]), Limit: money.BRLCents(30000), Kind: KindFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, oct, w.cats["Groceries"], money.BRLCents(80000), false); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.PayYourselfFirst.MovedCents != 400000 || v.PayYourselfFirst.DoneOn == nil || v.Summary.ContributionCents != 400000 {
+		t.Errorf("pay yourself first %+v: the repair came from the fund, not from it", v.PayYourselfFirst)
+	}
+	c := category(t, v, w.cats["Transport"])
+	if !c.Fund || c.Rollover || c.LeftCents != -130000 || c.Pace != PaceOver {
+		t.Errorf("the car fund: %+v", c)
+	}
+	if f := v.Funds; f.Count != 1 || f.AmountCents != 30000 || f.SpentCents != 160000 || f.BalanceCents != -130000 || f.KeptCents != -130000 {
+		t.Errorf("funds %+v", f)
+	}
+	if v.AvailableCents != 80000 || v.SpentCents != 50000 || v.LimitsCents != 110000 || v.NotAssignedCents != 1000000-400000-110000 {
+		t.Errorf("the month's own totals leave the fund out, Not assigned does not: %+v", v)
+	}
+	alerts, err := w.budget.Alerts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 1 || alerts[0].Kind != AlertOverdrawn || alerts[0].Title != "Transport is R$ 1.300,00 in the red" {
+		t.Errorf("alerts %+v", alerts)
+	}
+
+	// What was already saved for the car covers it, without touching pay
+	// yourself first.
+	if err := w.budget.Adjust(ctx, oct, car, money.BRLCents(200000)); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = w.budget.Month(ctx, oct)
+	if c := category(t, v, w.cats["Transport"]); c.AdjustedCents != 200000 || c.LeftCents != 70000 || c.Pace != PaceOn || v.PayYourselfFirst.MovedCents != 400000 {
+		t.Errorf("after the adjustment: %+v, moved %d", c, v.PayYourselfFirst.MovedCents)
+	}
+	nov, _ := w.budget.Month(ctx, month(t, "2026-11"))
+	if c := category(t, nov, w.cats["Transport"]); c.CarriedCents != 70000 || c.LeftCents != 100000 {
+		t.Errorf("November carries the balance: %+v", c)
+	}
+	groceries, _ := ParseLineID(category(t, v, w.cats["Groceries"]).ID)
+	if err := w.budget.Adjust(ctx, oct, groceries, money.BRLCents(100)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("adjusting a limit: %v, want ErrInvalid", err)
+	}
+	if err := w.budget.RemoveAdjustment(ctx, oct, car); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.RemoveAdjustment(ctx, oct, car); !errors.Is(err, ErrNoAdjustment) {
+		t.Errorf("removing it twice: %v, want ErrNoAdjustment", err)
+	}
+}
+
+func TestFundRoutes(t *testing.T) {
+	w := newWorld(t)
+	mux := http.NewServeMux()
+	w.budget.RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec
+	}
+	moi, food := w.cats["Leisure"].String(), w.cats["Groceries"].String()
+	rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits", `{"limits": [{"category": "`+moi+`", "limitCents": 50000, "fund": true}, {"category": "`+food+`", "limitCents": 80000}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT limits with a fund: %d %s", rec.Code, rec.Body.String())
+	}
+	v, _ := w.budget.Month(context.Background(), month(t, "2026-10"))
+	fund, limit := category(t, v, w.cats["Leisure"]), category(t, v, w.cats["Groceries"])
+	if !fund.Fund || limit.Fund {
+		t.Fatalf("kinds: %+v %+v", fund, limit)
+	}
+	adj := "/api/v1/budget/2026-10/lines/" + fund.ID + "/adjustment"
+	if rec := do(http.MethodPut, adj, `{"amountCents": 100000}`); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT adjustment: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/lines/"+limit.ID+"/adjustment", `{"amountCents": 100}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "only a fund") {
+		t.Errorf("adjusting a limit: %d %s", rec.Code, rec.Body.String())
+	}
+	// The category's own limit changes the amount and keeps the fund.
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits/"+moi, `{"limitCents": 60000, "rollover": false}`); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT a fund's own limit: %d %s", rec.Code, rec.Body.String())
+	}
+	v, _ = w.budget.Month(context.Background(), month(t, "2026-10"))
+	if f := category(t, v, w.cats["Leisure"]); !f.Fund || f.LimitCents != 60000 || f.AdjustedCents != 100000 {
+		t.Errorf("after its limit changed: %+v", f)
+	}
+	if rec := do(http.MethodDelete, adj, ""); rec.Code != http.StatusNoContent {
+		t.Errorf("DELETE adjustment: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodDelete, adj, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("DELETE it again: %d, want 404", rec.Code)
 	}
 }
