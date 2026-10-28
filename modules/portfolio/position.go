@@ -221,16 +221,15 @@ func Classify(kind Kind, idx Indexer, t Ticker, name string) Class {
 	case KindBDR:
 		return ClassGlobal
 	case KindETF:
-		switch s := t.String(); {
-		case globalETFs[s]:
-			return ClassGlobal
-		case ipcaETFs[s], strings.Contains(n, "IMA-B"), strings.Contains(n, "IMAB"), idx == IndexerIPCA:
-			return ClassIPCA
-		case bondETFs[s]:
-			return ClassCDI
+		if c, ok := etfClass(t, n, idx); ok {
+			return c
 		}
 		return ClassBR
 	case KindStock:
+		// Banks send some ETFs as stocks.
+		if c, ok := etfClass(t, n, idx); ok {
+			return c
+		}
 		// BDRs end in 32 to 39.
 		if s := t.String(); len(s) == 6 && s[4] == '3' && s[5] >= '2' {
 			return ClassGlobal
@@ -240,4 +239,19 @@ func Classify(kind Kind, idx Indexer, t Ticker, name string) Class {
 		return ClassBR
 	}
 	return ClassCDI
+}
+
+// etfClass is the class of an ETF that holds something other than
+// Brazilian stocks, known by its ticker or, for IMA-B, its name; ok is
+// false for the rest.
+func etfClass(t Ticker, upperName string, idx Indexer) (Class, bool) {
+	switch s := t.String(); {
+	case globalETFs[s]:
+		return ClassGlobal, true
+	case ipcaETFs[s], strings.Contains(upperName, "IMA-B"), strings.Contains(upperName, "IMAB"), idx == IndexerIPCA:
+		return ClassIPCA, true
+	case bondETFs[s]:
+		return ClassCDI, true
+	}
+	return "", false
 }
