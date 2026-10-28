@@ -7,10 +7,16 @@ WHERE month <= sqlc.arg(until)::date
 ORDER BY month;
 
 -- name: ListLines :many
-SELECT month, category_id, limit_cents, rollover
+SELECT month, line_id, name, limit_cents, rollover
 FROM budget.lines
 WHERE month <= sqlc.arg(until)::date
-ORDER BY month, category_id;
+ORDER BY month, line_id;
+
+-- name: ListLineCategories :many
+SELECT month, line_id, category_id
+FROM budget.line_categories
+WHERE month <= sqlc.arg(until)::date
+ORDER BY month, line_id, category_id;
 
 -- name: SaveMonth :exec
 INSERT INTO budget.months (month, payday, pyf_cents, updated_at)
@@ -19,11 +25,16 @@ ON CONFLICT (month) DO UPDATE
 SET payday = excluded.payday, pyf_cents = excluded.pyf_cents, updated_at = excluded.updated_at;
 
 -- name: DeleteLines :exec
+-- Their categories go with them (ON DELETE CASCADE).
 DELETE FROM budget.lines WHERE month = $1;
 
 -- name: InsertLine :exec
-INSERT INTO budget.lines (month, category_id, limit_cents, rollover)
-VALUES ($1, $2, $3, $4);
+INSERT INTO budget.lines (month, line_id, name, limit_cents, rollover)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: InsertLineCategory :exec
+INSERT INTO budget.line_categories (month, line_id, category_id)
+VALUES ($1, $2, $3);
 
 -- name: ListSentAlerts :many
 SELECT key FROM budget.alerts_sent WHERE key = ANY(sqlc.arg(keys)::text[]);

@@ -102,10 +102,13 @@ func TestMonthlyBudgetRules(t *testing.T) {
 	// A month's copy changes on its own.
 	next := b.For(month(t, "2026-11"))
 	_ = next.SetLimit(food, money.BRLCents(500), true, now)
-	if l, _ := b.Line(food); l.Limit.Cents() != 0 {
+	if l, _ := b.LineOf(food); l.Limit.Cents() != 0 {
 		t.Errorf("the copy changed the original: %v", l.Limit)
 	}
-	if !next.RemoveLimit(food, now) || next.RemoveLimit(food, now) {
+	if first, _ := next.RemoveLimit(food, now); !first {
+		t.Error("RemoveLimit should report the limit it removed")
+	}
+	if again, _ := next.RemoveLimit(food, now); again {
 		t.Error("RemoveLimit should report it once")
 	}
 }
@@ -119,26 +122,35 @@ func TestSetLimitsReplacesEveryLimit(t *testing.T) {
 		name  string
 		lines []Line
 	}{
-		{"twice", []Line{{Category: food, Limit: money.BRLCents(1)}, {Category: food, Limit: money.BRLCents(2)}}},
-		{"negative", []Line{{Category: food, Limit: money.BRLCents(-1)}}},
+		{"twice", []Line{one(food, 1, false), one(food, 2, false)}},
+		{"negative", []Line{one(food, -1, false)}},
 		{"no category", []Line{{Limit: money.BRLCents(1)}}},
+		{"twice in one line", []Line{{Name: "Food", Categories: []ledger.CategoryID{food, food}, Limit: money.BRLCents(1)}}},
+		{"shared without a name", []Line{{Categories: []ledger.CategoryID{food, fun}, Limit: money.BRLCents(1)}}},
 	}
 	for _, tt := range bad {
 		if err := b.SetLimits(tt.lines, now); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v, want ErrInvalid", tt.name, err)
 		}
 	}
-	if _, ok := b.Line(home); !ok {
+	before, ok := b.LineOf(home)
+	if !ok {
 		t.Fatal("a refused change must keep the limits there were")
 	}
 
-	if err := b.SetLimits([]Line{{Category: food, Limit: money.BRLCents(80000)}, {Category: fun, Limit: money.BRLCents(20000), Rollover: true}}, now); err != nil {
+	if err := b.SetLimits([]Line{one(food, 80000, false), one(fun, 20000, true), one(home, 300000, false)}, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := b.Line(home); ok {
+	if l, _ := b.LineOf(home); l.ID != before.ID {
+		t.Errorf("a line given again keeps its id, and what it carried: %s, want %s", l.ID, before.ID)
+	}
+	if err := b.SetLimits([]Line{one(food, 80000, false), one(fun, 20000, true)}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.LineOf(home); ok {
 		t.Error("a category left out should lose its limit")
 	}
-	if l, _ := b.Line(fun); !l.Rollover || l.Limit.Cents() != 20000 {
+	if l, _ := b.LineOf(fun); !l.Rollover || l.Limit.Cents() != 20000 {
 		t.Errorf("fun = %+v", l)
 	}
 	if got := b.Limits().Cents(); got != 100000 {
@@ -147,20 +159,26 @@ func TestSetLimitsReplacesEveryLimit(t *testing.T) {
 }
 
 // saved saves a budget per month given, each a map of category to limit
-// in cents; a category in rolls rolls over.
+// in cents; a category in rolls rolls over. Each month starts as a copy of
+// the one before, as editing a month does, so its lines keep their ids.
 func saved(t *testing.T, rolls map[string]bool, months map[string]map[string]int64) []*MonthlyBudget {
 	t.Helper()
 	var out []*MonthlyBudget
 	for _, k := range []string{"2026-07", "2026-08", "2026-09", "2026-10", "2026-11"} {
-		lines, ok := months[k]
+		limits, ok := months[k]
 		if !ok {
 			continue
 		}
 		b, _ := NewMonthlyBudget(month(t, k), now)
-		for c, cents := range lines {
-			if err := b.SetLimit(cat(t, c), money.BRLCents(cents), rolls[c], now); err != nil {
-				t.Fatal(err)
-			}
+		if len(out) > 0 {
+			b = out[len(out)-1].For(month(t, k))
+		}
+		var lines []Line
+		for c, cents := range limits {
+			lines = append(lines, one(cat(t, c), cents, rolls[c]))
+		}
+		if err := b.SetLimits(lines, now); err != nil {
+			t.Fatal(err)
 		}
 		out = append(out, b)
 	}
@@ -246,8 +264,8 @@ func TestTrackPace(t *testing.T) {
 		}
 	}
 	order := []string{}
-	for _, c := range tr.Categories {
-		order = append(order, c.Category.String())
+	for _, c := range tr.Lines {
+		order = append(order, c.Line.Categories[0].String())
 	}
 	if got := order[0] + "," + order[1] + "," + order[2]; got != "over,ahead,early" {
 		t.Errorf("order = %v", order)
@@ -276,15 +294,21 @@ func TestTrackLeavesFixedChargesOutOfThePace(t *testing.T) {
 	}
 }
 
-func find(t *testing.T, tr Tracking, c string) CategoryStatus {
+// find is the line that covers a category.
+func find(t *testing.T, tr Tracking, c string) LineStatus {
 	t.Helper()
-	for _, s := range tr.Categories {
-		if s.Category.String() == c {
+	for _, s := range tr.Lines {
+		if s.Line.Covers(cat(t, c)) {
 			return s
 		}
 	}
 	t.Fatalf("%s not tracked in %s", c, tr.Month)
-	return CategoryStatus{}
+	return LineStatus{}
+}
+
+// one is a line with one category.
+func one(c ledger.CategoryID, cents int64, rollover bool) Line {
+	return Line{Categories: []ledger.CategoryID{c}, Limit: money.BRLCents(cents), Rollover: rollover}
 }
 
 func TestSetAside(t *testing.T) {

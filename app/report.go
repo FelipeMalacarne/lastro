@@ -91,6 +91,9 @@ func buildReport(in reportInput) ReportView {
 	var over []string
 	for _, c := range v.Categories {
 		name := in.names[c.Category]
+		if c.Name != nil {
+			name = *c.Name // a line shared by several categories
+		}
 		r.Categories = append(r.Categories, ReportCategory{Category: c.Category, Name: name, SpentCents: c.SpentCents, AvailableCents: c.AvailableCents})
 		if c.SpentCents > c.AvailableCents {
 			over = append(over, name)

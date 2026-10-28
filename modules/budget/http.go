@@ -69,9 +69,10 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// PUT /api/v1/budget/{month}/limits {"limits": [{"category", "limitCents",
-	// "rollover"}]}: every limit at once, from that month on. A category left
-	// out has none.
+	// PUT /api/v1/budget/{month}/limits {"limits": [{"category" or
+	// "categories", "name", "id", "limitCents", "rollover"}]}: every line at
+	// once, from that month on. A category left out has no limit; a line
+	// without an id keeps the one that covered the same categories.
 	mux.HandleFunc("PUT /api/v1/budget/{month}/limits", func(w http.ResponseWriter, r *http.Request) {
 		m, err := ParseMonth(r.PathValue("month"))
 		if err != nil {
@@ -79,11 +80,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 			return
 		}
 		var in struct {
-			Limits []struct {
-				Category   string `json:"category"`
-				LimitCents *int64 `json:"limitCents"`
-				Rollover   bool   `json:"rollover"`
-			} `json:"limits"`
+			Limits []lineIn `json:"limits"`
 		}
 		if err := decodeUpTo(w, r, &in, "limits", 64<<10); err != nil {
 			httpx.WriteError(w, r, logger, err)
@@ -95,14 +92,87 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		}
 		lines := make([]Line, 0, len(in.Limits))
 		for _, l := range in.Limits {
-			c, err := ledger.NewCategoryID(l.Category)
-			if err != nil || l.LimitCents == nil {
-				httpx.WriteError(w, r, logger, httpx.BadRequest("each limit needs a category and limitCents"))
+			line, err := l.line()
+			if err != nil {
+				httpx.WriteError(w, r, logger, err)
 				return
 			}
-			lines = append(lines, Line{Category: c, Limit: money.BRLCents(*l.LimitCents), Rollover: l.Rollover})
+			if l.ID != "" {
+				if line.ID, err = ParseLineID(l.ID); err != nil {
+					httpx.WriteError(w, r, logger, apiError(err))
+					return
+				}
+			}
+			lines = append(lines, line)
 		}
 		if err := s.SetLimits(r.Context(), m, lines); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// POST /api/v1/budget/{month}/lines {"name", "categories", "limitCents",
+	// "rollover"}: a new line from that month on, taking its categories from
+	// the lines they were in; answers {"id"}.
+	mux.HandleFunc("POST /api/v1/budget/{month}/lines", func(w http.ResponseWriter, r *http.Request) {
+		m, err := ParseMonth(r.PathValue("month"))
+		if err != nil {
+			httpx.WriteError(w, r, logger, httpx.BadRequest("month must be YYYY-MM"))
+			return
+		}
+		var in lineIn
+		if err := decode(w, r, &in, "name, categories, limitCents and rollover"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		l, err := in.line()
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		id, err := s.AddLine(r.Context(), m, l)
+		if err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		httpx.JSON(w, http.StatusCreated, map[string]string{"id": id.String()})
+	})
+
+	// PUT /api/v1/budget/{month}/lines/{id} {"name", "categories",
+	// "limitCents", "rollover"}: the line from that month on, keeping what
+	// it carried.
+	mux.HandleFunc("PUT /api/v1/budget/{month}/lines/{id}", func(w http.ResponseWriter, r *http.Request) {
+		m, id, err := monthAndLine(r)
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		var in lineIn
+		if err := decode(w, r, &in, "name, categories, limitCents and rollover"); err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		l, err := in.line()
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		l.ID = id
+		if err := s.ChangeLine(r.Context(), m, l); err != nil {
+			httpx.WriteError(w, r, logger, apiError(err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("DELETE /api/v1/budget/{month}/lines/{id}", func(w http.ResponseWriter, r *http.Request) {
+		m, id, err := monthAndLine(r)
+		if err != nil {
+			httpx.WriteError(w, r, logger, err)
+			return
+		}
+		if err := s.RemoveLine(r.Context(), m, id); err != nil {
 			httpx.WriteError(w, r, logger, apiError(err))
 			return
 		}
@@ -203,6 +273,47 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 }
 
+// lineIn is a line as the API takes it: one category or several.
+type lineIn struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Category   string   `json:"category"`
+	Categories []string `json:"categories"`
+	LimitCents *int64   `json:"limitCents"`
+	Rollover   bool     `json:"rollover"`
+}
+
+func (in lineIn) line() (Line, error) {
+	ids := in.Categories
+	if in.Category != "" {
+		ids = append([]string{in.Category}, ids...)
+	}
+	if len(ids) == 0 || len(ids) > 50 || in.LimitCents == nil {
+		return Line{}, httpx.BadRequest("each line needs a category (or up to 50 categories) and limitCents")
+	}
+	l := Line{Name: in.Name, Limit: money.BRLCents(*in.LimitCents), Rollover: in.Rollover}
+	for _, id := range ids {
+		c, err := ledger.NewCategoryID(id)
+		if err != nil {
+			return Line{}, httpx.BadRequest("each line needs a category (or up to 50 categories) and limitCents")
+		}
+		l.Categories = append(l.Categories, c)
+	}
+	return l, nil
+}
+
+func monthAndLine(r *http.Request) (Month, LineID, error) {
+	m, err := ParseMonth(r.PathValue("month"))
+	if err != nil {
+		return Month{}, LineID{}, httpx.BadRequest("month must be YYYY-MM")
+	}
+	id, err := ParseLineID(r.PathValue("id"))
+	if err != nil {
+		return Month{}, LineID{}, httpx.BadRequest("no line id")
+	}
+	return m, id, nil
+}
+
 func monthAndCategory(r *http.Request) (Month, ledger.CategoryID, error) {
 	m, err := ParseMonth(r.PathValue("month"))
 	if err != nil {
@@ -238,6 +349,10 @@ func apiError(err error) error {
 		return httpx.BadRequest(err.Error())
 	case errors.Is(err, ErrNotBudgeted):
 		return httpx.BadRequest("that category does not count toward the budget")
+	case errors.Is(err, ErrShared):
+		return httpx.Conflict("that category shares a line with others: change the line")
+	case errors.Is(err, ErrNoLine):
+		return httpx.NotFound("that month's budget has no such line")
 	}
 	return err
 }

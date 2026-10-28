@@ -14,6 +14,7 @@ const deleteLines = `-- name: DeleteLines :exec
 DELETE FROM budget.lines WHERE month = $1
 `
 
+// Their categories go with them (ON DELETE CASCADE).
 func (q *Queries) DeleteLines(ctx context.Context, month time.Time) error {
 	_, err := q.db.Exec(ctx, deleteLines, month)
 	return err
@@ -31,13 +32,14 @@ func (q *Queries) GetPreferences(ctx context.Context) (bool, error) {
 }
 
 const insertLine = `-- name: InsertLine :exec
-INSERT INTO budget.lines (month, category_id, limit_cents, rollover)
-VALUES ($1, $2, $3, $4)
+INSERT INTO budget.lines (month, line_id, name, limit_cents, rollover)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertLineParams struct {
 	Month      time.Time
-	CategoryID string
+	LineID     string
+	Name       *string
 	LimitCents int64
 	Rollover   bool
 }
@@ -45,32 +47,85 @@ type InsertLineParams struct {
 func (q *Queries) InsertLine(ctx context.Context, arg InsertLineParams) error {
 	_, err := q.db.Exec(ctx, insertLine,
 		arg.Month,
-		arg.CategoryID,
+		arg.LineID,
+		arg.Name,
 		arg.LimitCents,
 		arg.Rollover,
 	)
 	return err
 }
 
-const listLines = `-- name: ListLines :many
-SELECT month, category_id, limit_cents, rollover
-FROM budget.lines
-WHERE month <= $1::date
-ORDER BY month, category_id
+const insertLineCategory = `-- name: InsertLineCategory :exec
+INSERT INTO budget.line_categories (month, line_id, category_id)
+VALUES ($1, $2, $3)
 `
 
-func (q *Queries) ListLines(ctx context.Context, until time.Time) ([]BudgetLine, error) {
+type InsertLineCategoryParams struct {
+	Month      time.Time
+	LineID     string
+	CategoryID string
+}
+
+func (q *Queries) InsertLineCategory(ctx context.Context, arg InsertLineCategoryParams) error {
+	_, err := q.db.Exec(ctx, insertLineCategory, arg.Month, arg.LineID, arg.CategoryID)
+	return err
+}
+
+const listLineCategories = `-- name: ListLineCategories :many
+SELECT month, line_id, category_id
+FROM budget.line_categories
+WHERE month <= $1::date
+ORDER BY month, line_id, category_id
+`
+
+func (q *Queries) ListLineCategories(ctx context.Context, until time.Time) ([]BudgetLineCategory, error) {
+	rows, err := q.db.Query(ctx, listLineCategories, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BudgetLineCategory
+	for rows.Next() {
+		var i BudgetLineCategory
+		if err := rows.Scan(&i.Month, &i.LineID, &i.CategoryID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLines = `-- name: ListLines :many
+SELECT month, line_id, name, limit_cents, rollover
+FROM budget.lines
+WHERE month <= $1::date
+ORDER BY month, line_id
+`
+
+type ListLinesRow struct {
+	Month      time.Time
+	LineID     string
+	Name       *string
+	LimitCents int64
+	Rollover   bool
+}
+
+func (q *Queries) ListLines(ctx context.Context, until time.Time) ([]ListLinesRow, error) {
 	rows, err := q.db.Query(ctx, listLines, until)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []BudgetLine
+	var items []ListLinesRow
 	for rows.Next() {
-		var i BudgetLine
+		var i ListLinesRow
 		if err := rows.Scan(
 			&i.Month,
-			&i.CategoryID,
+			&i.LineID,
+			&i.Name,
 			&i.LimitCents,
 			&i.Rollover,
 		); err != nil {

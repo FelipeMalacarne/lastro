@@ -15,9 +15,16 @@ type BudgetAlertsSent struct {
 
 type BudgetLine struct {
 	Month      time.Time
-	CategoryID string
 	LimitCents int64
 	Rollover   bool
+	LineID     string
+	Name       *string
+}
+
+type BudgetLineCategory struct {
+	Month      time.Time
+	LineID     string
+	CategoryID string
 }
 
 type BudgetMonth struct {

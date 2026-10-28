@@ -1,15 +1,74 @@
 package budget
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"lastro/money"
 )
 
-// ErrInvalid means a value broke one of the budget's rules.
-var ErrInvalid = errors.New("budget: invalid")
+var (
+	// ErrInvalid means a value broke one of the budget's rules.
+	ErrInvalid = errors.New("budget: invalid")
+	// ErrShared means a category's own limit was asked for while it shares
+	// a line with others: the line is what changes.
+	ErrShared = errors.New("budget: the category shares a line")
+	// ErrNoLine means the month's budget has no line with that id.
+	ErrNoLine = errors.New("budget: no such line")
+)
+
+// LineID names a budget line from month to month, so what it carried
+// follows it when its categories change (ADR-0012). A line saved before a
+// line could cover several categories has its category's id.
+type LineID struct{ s string }
+
+// ParseLineID reads a line's id as the API and the database write it: a
+// UUID.
+func ParseLineID(s string) (LineID, error) {
+	s = strings.ToLower(s)
+	if len(s) != 36 {
+		return LineID{}, fmt.Errorf("%w: line id %q, want a UUID", ErrInvalid, s)
+	}
+	for i, r := range s {
+		hyphen := i == 8 || i == 13 || i == 18 || i == 23
+		if hyphen != (r == '-') || !hyphen && !strings.ContainsRune("0123456789abcdef", r) {
+			return LineID{}, fmt.Errorf("%w: line id %q, want a UUID", ErrInvalid, s)
+		}
+	}
+	return LineID{s: s}, nil
+}
+
+// newLineID is a random (version 4) UUID.
+func newLineID() LineID {
+	var b [16]byte
+	_, _ = rand.Read(b[:]) // never fails: crypto/rand panics instead of returning an error
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return LineID{s: fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])}
+}
+
+func (id LineID) String() string { return id.s }
+func (id LineID) IsZero() bool   { return id.s == "" }
+
+// maxLineName is how long a shared line's name may be.
+const maxLineName = 40
+
+// lineName checks a line's name: required when it covers several
+// categories, at most 40 characters, without the spaces around it.
+func lineName(name string, shared bool) (string, error) {
+	name = strings.TrimSpace(name)
+	switch {
+	case name == "" && shared:
+		return "", fmt.Errorf("%w: a line with several categories needs a name", ErrInvalid)
+	case utf8.RuneCountInString(name) > maxLineName:
+		return "", fmt.Errorf("%w: a line's name is at most %d characters", ErrInvalid, maxLineName)
+	}
+	return name, nil
+}
 
 // Month is a calendar month, the budget's unit.
 type Month struct {

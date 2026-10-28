@@ -12,6 +12,15 @@ import (
 // positive when money went out.
 type Spending map[ledger.CategoryID]money.Money
 
+// on is the spending of some categories together, in cents.
+func (s Spending) on(cats []ledger.CategoryID) int64 {
+	var cents int64
+	for _, c := range cats {
+		cents += s[c].Cents()
+	}
+	return cents
+}
+
 // Pace says how a category's spending compares with the share of the month
 // gone.
 type Pace string
@@ -26,15 +35,13 @@ const (
 // pace: ten points, so a single early bill does not raise a flag.
 const aheadBy = 1000
 
-// CategoryStatus is one limited category in a month.
-type CategoryStatus struct {
-	Category  ledger.CategoryID
-	Limit     money.Money
-	Carried   money.Money // rolled over from the month before
-	Available money.Money // limit plus carried
-	Spent     money.Money
-	Left      money.Money // negative when over
-	Rollover  bool
+// LineStatus is one budget line in a month.
+type LineStatus struct {
+	Line      Line
+	Carried   money.Money   // rolled over from the month before
+	Available money.Money   // limit plus carried
+	Spent     money.Money   // its categories' together
+	Left      money.Money   // negative when over
 	Used      money.Percent // spent over available; zero when nothing is available
 	// Fixed is what recurring charges already took this month, left out of
 	// the pace: rent paid on the 5th is not spending ahead of the month.
@@ -56,14 +63,14 @@ type Tracking struct {
 	// none for a future one.
 	Elapsed  money.Percent
 	DaysLeft int // today included; zero for a past month
-	// Categories are the limited ones: what needs attention first (over,
-	// then ahead of pace), then by spending.
-	Categories []CategoryStatus
-	// Unlimited is spending in categories without a limit, and with no
+	// Lines are the budget's: what needs attention first (over, then
+	// ahead of pace), then by spending.
+	Lines []LineStatus
+	// Unlimited is spending in categories no line covers, and with no
 	// category yet under the zero id.
 	Unlimited Spending
 	Available money.Money // every limit plus what rolled over
-	Spent     money.Money // in limited categories
+	Spent     money.Money // in the lines
 	Left      money.Money // available minus spent
 }
 
@@ -89,7 +96,7 @@ func Effective(saved []*MonthlyBudget, m Month) (*MonthlyBudget, bool) {
 	return nil, false
 }
 
-// Track follows a month's limits, rolling over what was left in every month
+// Track follows a month's lines, rolling over what was left in every month
 // since the first saved budget. saved must be in month order; spending needs
 // every month from the first saved one to m. fixed is what recurring charges
 // already took in m, by category, kept out of the pace; it may be nil.
@@ -114,23 +121,20 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, m Month, today t
 	carry := carried(saved, spending, m)
 	var avail, spent int64
 	for _, l := range b.Lines() {
-		c := l.Category
-		s := spending[m][c].Cents()
-		a := l.Limit.Cents() + carry[c]
-		st := CategoryStatus{
-			Category:  c,
-			Limit:     l.Limit,
-			Carried:   money.BRLCents(carry[c]),
+		s := spending[m].on(l.Categories)
+		a := l.Limit.Cents() + carry[l.ID]
+		st := LineStatus{
+			Line:      l,
+			Carried:   money.BRLCents(carry[l.ID]),
 			Available: money.BRLCents(a),
 			Spent:     money.BRLCents(s),
 			Left:      money.BRLCents(a - s),
-			Rollover:  l.Rollover,
 			Pace:      PaceOn,
 		}
 		if a > 0 {
 			st.Used = money.FromBps(s * 10000 / a)
 		}
-		f := min(max(fixed[c].Cents(), 0), s)
+		f := min(max(fixed.on(l.Categories), 0), s)
 		st.Fixed = money.BRLCents(f)
 		switch {
 		case s > a:
@@ -138,35 +142,36 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, m Month, today t
 		case a-f > 0 && (s-f)*10000/(a-f) > t.Elapsed.Bps()+aheadBy:
 			st.Pace = PaceAhead
 		}
-		t.Categories = append(t.Categories, st)
+		t.Lines = append(t.Lines, st)
 		avail += a
 		spent += s
 	}
 	for c, s := range spending[m] {
-		if _, limited := b.Line(c); !limited {
+		if _, covered := b.LineOf(c); !covered {
 			t.Unlimited[c] = s
 		}
 	}
 	rank := map[Pace]int{PaceOver: 0, PaceAhead: 1, PaceOn: 2}
-	sort.SliceStable(t.Categories, func(i, j int) bool {
-		a, b := t.Categories[i], t.Categories[j]
+	sort.SliceStable(t.Lines, func(i, j int) bool {
+		a, b := t.Lines[i], t.Lines[j]
 		if rank[a.Pace] != rank[b.Pace] {
 			return rank[a.Pace] < rank[b.Pace]
 		}
 		if a.Spent.Cents() != b.Spent.Cents() {
 			return a.Spent.Cents() > b.Spent.Cents()
 		}
-		return a.Category.String() < b.Category.String()
+		return a.Line.ID.String() < b.Line.ID.String()
 	})
 	t.Available, t.Spent, t.Left = money.BRLCents(avail), money.BRLCents(spent), money.BRLCents(avail-spent)
 	return t
 }
 
-// carried is what each category brings into m: walking from the first saved
-// month, a category that rolls over passes on what it has left, never a
-// debt; one without a limit, or that does not roll over, passes on nothing.
-func carried(saved []*MonthlyBudget, spending map[Month]Spending, m Month) map[ledger.CategoryID]int64 {
-	carry := map[ledger.CategoryID]int64{}
+// carried is what each line brings into m: walking from the first saved
+// month, a line that rolls over passes on what it has left, never a debt;
+// one that does not roll over passes on nothing. What a line carries
+// follows its id, whatever categories it covers.
+func carried(saved []*MonthlyBudget, spending map[Month]Spending, m Month) map[LineID]int64 {
+	carry := map[LineID]int64{}
 	if len(saved) == 0 {
 		return carry
 	}
@@ -175,11 +180,11 @@ func carried(saved []*MonthlyBudget, spending map[Month]Spending, m Month) map[l
 		if !ok {
 			continue
 		}
-		next := map[ledger.CategoryID]int64{}
+		next := map[LineID]int64{}
 		for _, l := range b.Lines() {
-			left := l.Limit.Cents() + carry[l.Category] - spending[k][l.Category].Cents()
+			left := l.Limit.Cents() + carry[l.ID] - spending[k].on(l.Categories)
 			if l.Rollover && left > 0 {
-				next[l.Category] = left
+				next[l.ID] = left
 			}
 		}
 		carry = next

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 	_ "time/tzdata" // the image has no zoneinfo; months turn in São Paulo
@@ -108,7 +109,7 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		AvailableCents: t.Available.Cents(),
 		SpentCents:     t.Spent.Cents(),
 		LeftCents:      t.Left.Cents(),
-		Categories:     []CategoryView{},
+		Categories:     []LineView{},
 		Unlimited:      []SpendView{},
 	}
 	p, _ := NewPayday(defaultPayday)
@@ -150,24 +151,39 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 	}
 	v.NotAssignedCents = v.IncomeCents - v.PayYourselfFirst.PlannedCents - v.LimitsCents
 
-	for _, c := range t.Categories {
-		v.CarriedCents += c.Carried.Cents()
-		v.Categories = append(v.Categories, CategoryView{
-			Category:       c.Category.String(),
-			LimitCents:     c.Limit.Cents(),
-			CarriedCents:   c.Carried.Cents(),
-			AvailableCents: c.Available.Cents(),
-			SpentCents:     c.Spent.Cents(),
-			LeftCents:      c.Left.Cents(),
-			Rollover:       c.Rollover,
-			UsedBp:         c.Used.Bps(),
-			Pace:           c.Pace,
-			Count:          counts[m][c.Category],
-			FixedCents:     c.Fixed.Cents(),
-			UpcomingCents:  upcoming[c.Category].Cents(),
-			History:        history(spending, m, c.Category),
-		})
-		v.UpcomingCents += upcoming[c.Category].Cents()
+	for _, st := range t.Lines {
+		l := st.Line
+		lv := LineView{
+			ID:             l.ID.String(),
+			Category:       l.Categories[0].String(),
+			ByCategory:     make([]LineCategoryView, 0, len(l.Categories)),
+			LimitCents:     l.Limit.Cents(),
+			CarriedCents:   st.Carried.Cents(),
+			AvailableCents: st.Available.Cents(),
+			SpentCents:     st.Spent.Cents(),
+			LeftCents:      st.Left.Cents(),
+			Rollover:       l.Rollover,
+			UsedBp:         st.Used.Bps(),
+			Pace:           st.Pace,
+			FixedCents:     st.Fixed.Cents(),
+			UpcomingCents:  upcoming.on(l.Categories),
+			History:        history(spending, m, l.Categories),
+		}
+		if l.Name != "" {
+			name := l.Name
+			lv.Name = &name
+		}
+		for _, c := range l.Categories {
+			lv.ByCategory = append(lv.ByCategory, LineCategoryView{
+				Category: c.String(), SpentCents: spending[m][c].Cents(), Count: counts[m][c],
+				AverageCents: history(spending, m, []ledger.CategoryID{c}).AverageCents,
+			})
+			lv.Count += counts[m][c]
+		}
+		sort.SliceStable(lv.ByCategory, func(i, j int) bool { return lv.ByCategory[i].SpentCents > lv.ByCategory[j].SpentCents })
+		v.CarriedCents += lv.CarriedCents
+		v.UpcomingCents += lv.UpcomingCents
+		v.Categories = append(v.Categories, lv)
 	}
 
 	// Every budgeted category without a limit shows, even with nothing
@@ -180,13 +196,13 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		for c := range spending[k] {
 			if t.Budget == nil {
 				unlimited[c] = true
-			} else if _, limited := t.Budget.Line(c); !limited {
+			} else if _, limited := t.Budget.LineOf(c); !limited {
 				unlimited[c] = true
 			}
 		}
 	}
 	for c := range unlimited {
-		sv := SpendView{SpentCents: spending[m][c].Cents(), Count: counts[m][c], History: history(spending, m, c)}
+		sv := SpendView{SpentCents: spending[m][c].Cents(), Count: counts[m][c], History: history(spending, m, []ledger.CategoryID{c})}
 		if !c.IsZero() {
 			id := c.String()
 			sv.Category = &id
@@ -333,13 +349,14 @@ func refunds(rows []ledger.CategoryMonth, budgeted map[ledger.CategoryID]bool, m
 	return cents, count
 }
 
-// history is a category's spending in the six months before m and their
-// average.
-func history(spending map[Month]Spending, m Month, c ledger.CategoryID) History {
+// history is the spending of some categories together in the six months
+// before m, and their average: a line's current categories, also in months
+// before they shared it, so the comparison is like with like.
+func history(spending map[Month]Spending, m Month, cats []ledger.CategoryID) History {
 	h := History{History: make([]MonthSpend, 0, historyMonths)}
 	var sum int64
 	for k := m.Add(-historyMonths); k.Before(m); k = k.Add(1) {
-		v := spending[k][c].Cents()
+		v := spending[k].on(cats)
 		h.History = append(h.History, MonthSpend{Month: k.String(), SpentCents: v})
 		sum += v
 	}
@@ -390,8 +407,8 @@ func (s *Service) SetLimit(ctx context.Context, m Month, c ledger.CategoryID, li
 // RemoveLimit leaves a category without a limit from a month on.
 func (s *Service) RemoveLimit(ctx context.Context, m Month, c ledger.CategoryID) error {
 	err := s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error {
-		b.RemoveLimit(c, now)
-		return nil
+		_, err := b.RemoveLimit(c, now)
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("budget: remove limit: %w", err)
@@ -418,29 +435,41 @@ func limitable(cats []categorize.Category) map[ledger.CategoryID]bool {
 	return out
 }
 
+// sameLines is whether two months have the same lines, whatever their ids:
+// copying one onto the other would change nothing.
 func sameLines(a, b []Line) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Category != b[i].Category || a[i].Limit.Cents() != b[i].Limit.Cents() || a[i].Rollover != b[i].Rollover {
-			return false
+	key := func(ls []Line) []string {
+		out := make([]string, len(ls))
+		for i, l := range ls {
+			out[i] = fmt.Sprintf("%v|%s|%d|%v", l.Categories, l.Name, l.Limit.Cents(), l.Rollover)
 		}
+		slices.Sort(out)
+		return out
 	}
-	return true
+	return slices.Equal(key(a), key(b))
 }
 
-// SetLimits replaces every limit from a month on with the ones given.
+// covered checks that every category of the lines can take a limit.
+func covered(cats []categorize.Category, lines ...Line) error {
+	ok := limitable(cats)
+	for _, l := range lines {
+		for _, c := range l.Categories {
+			if !ok[c] {
+				return ErrNotBudgeted
+			}
+		}
+	}
+	return nil
+}
+
+// SetLimits replaces every line from a month on with the ones given.
 func (s *Service) SetLimits(ctx context.Context, m Month, lines []Line) error {
 	cats, err := s.categorize.Categories(ctx)
 	if err != nil {
 		return fmt.Errorf("budget: set limits: %w", err)
 	}
-	ok := limitable(cats)
-	for _, l := range lines {
-		if !ok[l.Category] {
-			return fmt.Errorf("budget: set limits: %w", ErrNotBudgeted)
-		}
+	if err := covered(cats, lines...); err != nil {
+		return fmt.Errorf("budget: set limits: %w", err)
 	}
 	err = s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error { return b.SetLimits(lines, now) })
 	if err != nil {
@@ -449,13 +478,69 @@ func (s *Service) SetLimits(ctx context.Context, m Month, lines []Line) error {
 	return nil
 }
 
-// CopyLimits gives a month the limits another had, leaving out the
-// categories archived since. It returns how many were copied.
+// AddLine adds a line from a month on and returns its id.
+func (s *Service) AddLine(ctx context.Context, m Month, l Line) (LineID, error) {
+	cats, err := s.categorize.Categories(ctx)
+	if err != nil {
+		return LineID{}, fmt.Errorf("budget: add line: %w", err)
+	}
+	if err := covered(cats, l); err != nil {
+		return LineID{}, fmt.Errorf("budget: add line: %w", err)
+	}
+	var id LineID
+	err = s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error {
+		id, err = b.AddLine(l, now)
+		return err
+	})
+	if err != nil {
+		return LineID{}, fmt.Errorf("budget: add line: %w", err)
+	}
+	return id, nil
+}
+
+// ChangeLine changes a line from a month on.
+func (s *Service) ChangeLine(ctx context.Context, m Month, l Line) error {
+	cats, err := s.categorize.Categories(ctx)
+	if err != nil {
+		return fmt.Errorf("budget: change line: %w", err)
+	}
+	if err := covered(cats, l); err != nil {
+		return fmt.Errorf("budget: change line: %w", err)
+	}
+	err = s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error { return b.ChangeLine(l, now) })
+	if err != nil {
+		return fmt.Errorf("budget: change line: %w", err)
+	}
+	return nil
+}
+
+// RemoveLine takes a line out from a month on.
+func (s *Service) RemoveLine(ctx context.Context, m Month, id LineID) error {
+	err := s.edit(ctx, m, func(b *MonthlyBudget, now time.Time) error {
+		if !b.RemoveLine(id, now) {
+			return ErrNoLine
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("budget: remove line: %w", err)
+	}
+	return nil
+}
+
+// CopyLimits gives a month the lines another had (CopyLines), leaving out
+// the categories archived since and a line left without any. It returns
+// how many lines were copied.
 func (s *Service) CopyLimits(ctx context.Context, to, from Month) (int, error) {
-	saved, err := s.repo.Saved(ctx, from)
+	until := from
+	if to.Add(-1).After(until) {
+		until = to.Add(-1)
+	}
+	saved, err := s.repo.Saved(ctx, until)
 	if err != nil {
 		return 0, fmt.Errorf("budget: copy limits: %w", err)
 	}
+	prev, _ := Effective(saved, to.Add(-1))
 	src, ok := Effective(saved, from)
 	if !ok {
 		return 0, fmt.Errorf("budget: copy limits: %w: %s has no budget", ErrInvalid, from)
@@ -467,11 +552,12 @@ func (s *Service) CopyLimits(ctx context.Context, to, from Month) (int, error) {
 	live := limitable(cats)
 	var lines []Line
 	for _, l := range src.Lines() {
-		if live[l.Category] {
+		l.Categories = slices.DeleteFunc(l.Categories, func(c ledger.CategoryID) bool { return !live[c] })
+		if len(l.Categories) > 0 {
 			lines = append(lines, l)
 		}
 	}
-	err = s.edit(ctx, to, func(b *MonthlyBudget, now time.Time) error { return b.SetLimits(lines, now) })
+	err = s.edit(ctx, to, func(b *MonthlyBudget, now time.Time) error { return b.CopyLines(lines, prev, now) })
 	if err != nil {
 		return 0, fmt.Errorf("budget: copy limits: %w", err)
 	}

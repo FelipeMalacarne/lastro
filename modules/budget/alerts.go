@@ -13,7 +13,7 @@ import (
 type AlertKind string
 
 const (
-	AlertOver        AlertKind = "over"         // spent more than the limit
+	AlertOver        AlertKind = "over"         // spent more than the line's limit
 	AlertAhead       AlertKind = "ahead"        // likely to run out before the month ends
 	AlertUnusual     AlertKind = "unusual"      // far above the category's usual month
 	AlertPriceChange AlertKind = "price_change" // a recurring charge changed price this month
@@ -25,16 +25,20 @@ const (
 type Alert struct {
 	Key      string
 	Kind     AlertKind
-	Category ledger.CategoryID // zero for a recurring charge
-	Name     string            // a recurring charge's merchant
+	Line     LineID            // zero for a recurring charge and a category no line covers
+	Category ledger.CategoryID // zero for a recurring charge and a shared line
+	Name     string            // a recurring charge's merchant, or a shared line's name
 	Amount   money.Money       // over by, left, spent, or the new price
 	Compare  money.Money       // the limit, the average, or the old price
 	DaysLeft int
 }
 
-// Figures is what the alerts read of one category this month.
+// Figures is what the alerts read of one line, or of a category no line
+// covers, this month.
 type Figures struct {
-	Category  ledger.CategoryID
+	Line      LineID            // zero for a category no line covers
+	Name      string            // a shared line's
+	Category  ledger.CategoryID // zero for a shared line
 	Limited   bool
 	Spent     money.Money
 	Available money.Money
@@ -51,25 +55,35 @@ const (
 	usualMin      = 5000
 )
 
-// FindAlerts lists what is worth telling about a month: categories over
-// their limit or ahead of pace (only while the month runs), spending far
-// above the usual, and recurring charges that changed price this month or
-// are new. Over before ahead before unusual; charges after.
+// FindAlerts lists what is worth telling about a month: lines over their
+// limit or ahead of pace (only while the month runs), spending far above
+// the usual, and recurring charges that changed price this month or are
+// new. Over before ahead before unusual; charges after. A line's key is its
+// id, which for a line saved before lines could be shared is its
+// category's, so an alert already sent is not sent again.
 func FindAlerts(m Month, today time.Time, figures []Figures, recurring []Recurring, daysLeft int) []Alert {
 	current := m == MonthOf(today)
 	var out []Alert
 	for _, f := range figures {
 		id := f.Category.String()
+		if !f.Line.IsZero() {
+			id = f.Line.String()
+		}
+		at := Alert{Line: f.Line, Category: f.Category, Name: f.Name}
 		switch {
 		case f.Limited && f.Pace == PaceOver:
-			out = append(out, Alert{Key: fmt.Sprintf("over:%s:%s", m, id), Kind: AlertOver, Category: f.Category, Amount: f.Left.Neg(), Compare: f.Available})
+			at.Key, at.Kind, at.Amount, at.Compare = fmt.Sprintf("over:%s:%s", m, id), AlertOver, f.Left.Neg(), f.Available
+			out = append(out, at)
 			continue
 		case f.Limited && f.Pace == PaceAhead && current && daysLeft > 0:
-			out = append(out, Alert{Key: fmt.Sprintf("ahead:%s:%s", m, id), Kind: AlertAhead, Category: f.Category, Amount: f.Left, Compare: f.Available, DaysLeft: daysLeft})
+			ahead := at
+			ahead.Key, ahead.Kind, ahead.Amount, ahead.Compare, ahead.DaysLeft = fmt.Sprintf("ahead:%s:%s", m, id), AlertAhead, f.Left, f.Available, daysLeft
+			out = append(out, ahead)
 		}
 		avg := f.Average.Cents()
-		if !f.Category.IsZero() && avg >= usualMin && f.Spent.Cents()*10 >= avg*unusualTenths && f.Spent.Cents()-avg >= unusualMin {
-			out = append(out, Alert{Key: fmt.Sprintf("unusual:%s:%s", m, id), Kind: AlertUnusual, Category: f.Category, Amount: f.Spent, Compare: f.Average})
+		if id != "" && avg >= usualMin && f.Spent.Cents()*10 >= avg*unusualTenths && f.Spent.Cents()-avg >= unusualMin {
+			at.Key, at.Kind, at.Amount, at.Compare = fmt.Sprintf("unusual:%s:%s", m, id), AlertUnusual, f.Spent, f.Average
+			out = append(out, at)
 		}
 	}
 	for _, r := range recurring {

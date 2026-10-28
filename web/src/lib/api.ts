@@ -274,8 +274,15 @@ export type Pace = "on_pace" | "ahead" | "over";
 
 export type MonthSpend = { month: string; spentCents: number };
 
+/** One of a line's categories: its spending this month and, alone, its six-month average. */
+export type BudgetLinePart = { category: string; spentCents: number; count: number; averageCents: number };
+
+/** A budget line (ADR-0012): one or more categories under one limit. `category` is its only one, or a shared line's first. */
 export type BudgetCategory = {
+  id: string;
+  name: string | null;
   category: string;
+  byCategory: BudgetLinePart[];
   limitCents: number;
   carriedCents: number;
   availableCents: number;
