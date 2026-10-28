@@ -306,3 +306,99 @@ func (r *PostgresRepository) savePriceAlert(ctx context.Context, t Ticker, bps i
 func (r *PostgresRepository) deletePriceAlert(ctx context.Context, t Ticker) error {
 	return r.q.DeletePriceAlert(ctx, t.String())
 }
+
+// saveHistories keeps each investment as last reported and, when the read
+// brought movements, replaces its movements with them.
+func (r *PostgresRepository) saveHistories(ctx context.Context, hs []History, now time.Time) error {
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+		for _, h := range hs {
+			arg := db.SaveHistoryParams{
+				ExternalID: h.ExternalID, ItemID: h.Item, Institution: h.Institution, Kind: string(h.Kind), Name: h.Name,
+				Indexer: string(h.Indexer), RateBps: int32(h.Rate.Bps()), Maturity: h.Maturity, IssuedOn: h.Issued,
+				QuantityMicro: h.Quantity.Micro(), ValueCents: h.Value.Cents(), Active: h.Active, UpdatedAt: now,
+			}
+			if !h.Ticker.IsZero() {
+				t := h.Ticker.String()
+				arg.Ticker = &t
+			}
+			if h.Invested != nil {
+				c := h.Invested.Cents()
+				arg.InvestedCents = &c
+			}
+			if err := q.SaveHistory(ctx, arg); err != nil {
+				return err
+			}
+			if len(h.Movements) == 0 {
+				continue
+			}
+			if err := q.DeleteMovements(ctx, h.ExternalID); err != nil {
+				return err
+			}
+			for _, m := range h.Movements {
+				arg := db.SaveMovementParams{
+					ExternalID: m.ExternalID, HistoryID: h.ExternalID, Date: m.Date, Kind: string(m.Kind), AmountCents: m.Amount.Cents(),
+				}
+				if m.Quantity != nil {
+					micro := m.Quantity.Micro()
+					arg.QuantityMicro = &micro
+				}
+				if m.Net != nil {
+					c := m.Net.Cents()
+					arg.NetCents = &c
+				}
+				if err := q.SaveMovement(ctx, arg); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (r *PostgresRepository) histories(ctx context.Context) ([]History, error) {
+	rows, err := r.q.ListHistories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	moves, err := r.q.ListMovements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byHistory := map[string][]Movement{}
+	for _, m := range moves {
+		mv := Movement{ExternalID: m.ExternalID, Date: m.Date, Kind: MovementKind(m.Kind), Amount: money.BRLCents(m.AmountCents)}
+		if m.QuantityMicro != nil {
+			q := QuantityFromMicro(*m.QuantityMicro)
+			mv.Quantity = &q
+		}
+		if m.NetCents != nil {
+			n := money.BRLCents(*m.NetCents)
+			mv.Net = &n
+		}
+		byHistory[m.HistoryID] = append(byHistory[m.HistoryID], mv)
+	}
+	out := make([]History, 0, len(rows))
+	for _, row := range rows {
+		h := History{
+			Report: Report{
+				ExternalID: row.ExternalID, Item: row.ItemID, Institution: row.Institution, Kind: Kind(row.Kind), Name: row.Name,
+				Quantity: QuantityFromMicro(row.QuantityMicro), Value: money.BRLCents(row.ValueCents), Indexer: Indexer(row.Indexer),
+				Rate: money.FromBps(int64(row.RateBps)), Maturity: row.Maturity, AsOf: row.UpdatedAt, Active: row.Active,
+			},
+			Issued:    row.IssuedOn,
+			Movements: byHistory[row.ExternalID],
+		}
+		if row.Ticker != nil {
+			if t, err := NewTicker(*row.Ticker); err == nil {
+				h.Ticker = t
+			}
+		}
+		if row.InvestedCents != nil {
+			c := money.BRLCents(*row.InvestedCents)
+			h.Invested = &c
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}

@@ -94,3 +94,30 @@ ON CONFLICT (ticker) DO UPDATE SET drop_bps = excluded.drop_bps, updated_at = ex
 
 -- name: DeletePriceAlert :exec
 DELETE FROM portfolio.price_alerts WHERE ticker = $1;
+
+-- name: SaveHistory :exec
+INSERT INTO portfolio.histories (
+    external_id, item_id, institution, kind, name, ticker, indexer, rate_bps, maturity, issued_on,
+    invested_cents, quantity_micro, value_cents, active, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ON CONFLICT (external_id) DO UPDATE SET
+    item_id = excluded.item_id, institution = excluded.institution, kind = excluded.kind, name = excluded.name,
+    ticker = excluded.ticker, indexer = excluded.indexer, rate_bps = excluded.rate_bps, maturity = excluded.maturity,
+    issued_on = excluded.issued_on, invested_cents = excluded.invested_cents, quantity_micro = excluded.quantity_micro,
+    value_cents = excluded.value_cents, active = excluded.active, updated_at = excluded.updated_at;
+
+-- name: DeleteMovements :exec
+DELETE FROM portfolio.movements WHERE history_id = $1;
+
+-- name: SaveMovement :exec
+INSERT INTO portfolio.movements (external_id, history_id, date, kind, quantity_micro, amount_cents, net_cents)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (external_id) DO UPDATE SET
+    history_id = excluded.history_id, date = excluded.date, kind = excluded.kind,
+    quantity_micro = excluded.quantity_micro, amount_cents = excluded.amount_cents, net_cents = excluded.net_cents;
+
+-- name: ListHistories :many
+SELECT * FROM portfolio.histories ORDER BY institution, name, external_id;
+
+-- name: ListMovements :many
+SELECT * FROM portfolio.movements ORDER BY history_id, date, external_id;

@@ -39,12 +39,14 @@ type source interface {
 	Accounts(ctx context.Context, itemID string) ([]pluggy.Account, error)
 	Transactions(ctx context.Context, accountID string, from time.Time) ([]pluggy.Transaction, error)
 	Investments(ctx context.Context, itemID string) ([]pluggy.Investment, error)
+	InvestmentTransactions(ctx context.Context, investmentID string) ([]pluggy.InvestmentTransaction, error)
 }
 
 // Positions is where investments go: portfolio, through app. Nil in the
 // tests that only look at the ledger.
 type Positions interface {
 	SyncPositions(ctx context.Context, item string, reports []portfolio.Report) (int, error)
+	SyncHistories(ctx context.Context, item string, hs []portfolio.History) (int, error)
 }
 
 // Service is ingest's facade: it reads Pluggy and sends the ledger and
@@ -98,6 +100,7 @@ type ItemReport struct {
 	ledger.ImportResult
 	Skipped     int // records the ledger has no place for, or that could not be read
 	Investments int
+	Movements   int // investment transactions read
 	Err         error
 
 	from time.Time // the first day read; zero means the whole history
@@ -239,7 +242,53 @@ func (s *Service) syncItem(ctx context.Context, id string, full bool) (rep ItemR
 	if err := s.syncPositions(ctx, &rep, id, invs, balanceAt); err != nil {
 		return rep, err
 	}
+	txs := map[string][]pluggy.InvestmentTransaction{}
+	for _, inv := range invs {
+		// One investment that cannot be read keeps what it had.
+		t, err := s.pluggy.InvestmentTransactions(ctx, inv.ID)
+		if err != nil {
+			s.logger.WarnContext(ctx, "investment transactions not read", "item", id, "investment", inv.ID, "err", err)
+			continue
+		}
+		recs := make([]rawRecord, len(t))
+		for i, tx := range t {
+			recs[i] = rawRecord{ExternalID: tx.ID, Payload: tx.Raw}
+		}
+		if err := s.repo.saveRaw(ctx, rawInvestmentTransaction, inv.ID, recs, time.Time{}, started); err != nil {
+			return rep, err
+		}
+		txs[inv.ID] = t
+	}
+	if err := s.syncHistories(ctx, &rep, id, invs, txs, balanceAt); err != nil {
+		return rep, err
+	}
 	return rep, nil
+}
+
+// syncHistories hands portfolio what each investment did, for the days
+// before the first sync. Only the investments whose transactions were read
+// go; the others keep what portfolio has.
+func (s *Service) syncHistories(ctx context.Context, rep *ItemReport, item string, invs []pluggy.Investment, txs map[string][]pluggy.InvestmentTransaction, at time.Time) error {
+	hs := make([]portfolio.History, 0, len(txs))
+	for _, inv := range invs {
+		t, ok := txs[inv.ID]
+		if !ok {
+			continue
+		}
+		h, err := mapHistory(inv, t, item, rep.Institution, at)
+		if err != nil {
+			s.logger.WarnContext(ctx, "investment history skipped", "item", item, "investment", inv.ID, "err", err)
+			rep.Skipped++
+			continue
+		}
+		rep.Movements += len(h.Movements)
+		hs = append(hs, h)
+	}
+	if s.positions == nil {
+		return nil
+	}
+	_, err := s.positions.SyncHistories(ctx, item, hs)
+	return err
 }
 
 // syncPositions hands the item's investments to portfolio.
@@ -359,6 +408,17 @@ func (s *Service) reprocessItem(ctx context.Context, id string) (ItemReport, err
 	}
 	rep.Investments = len(invs)
 	if err := s.syncPositions(ctx, &rep, id, invs, balanceAt); err != nil {
+		return rep, err
+	}
+	txs := make(map[string][]pluggy.InvestmentTransaction, len(invs))
+	for _, inv := range invs {
+		t, err := decodeRaw[pluggy.InvestmentTransaction](ctx, s, rawInvestmentTransaction, inv.ID)
+		if err != nil {
+			return rep, err
+		}
+		txs[inv.ID] = t
+	}
+	if err := s.syncHistories(ctx, &rep, id, invs, txs, balanceAt); err != nil {
 		return rep, err
 	}
 	return rep, nil

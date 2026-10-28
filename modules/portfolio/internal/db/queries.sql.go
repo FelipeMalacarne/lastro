@@ -19,6 +19,15 @@ func (q *Queries) DeleteHoldings(ctx context.Context, date time.Time) error {
 	return err
 }
 
+const deleteMovements = `-- name: DeleteMovements :exec
+DELETE FROM portfolio.movements WHERE history_id = $1
+`
+
+func (q *Queries) DeleteMovements(ctx context.Context, historyID string) error {
+	_, err := q.db.Exec(ctx, deleteMovements, historyID)
+	return err
+}
+
 const deletePriceAlert = `-- name: DeletePriceAlert :exec
 DELETE FROM portfolio.price_alerts WHERE ticker = $1
 `
@@ -85,6 +94,46 @@ func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
 	return i, err
 }
 
+const listHistories = `-- name: ListHistories :many
+SELECT external_id, item_id, institution, kind, name, ticker, indexer, rate_bps, maturity, issued_on, invested_cents, quantity_micro, value_cents, active, updated_at FROM portfolio.histories ORDER BY institution, name, external_id
+`
+
+func (q *Queries) ListHistories(ctx context.Context) ([]PortfolioHistory, error) {
+	rows, err := q.db.Query(ctx, listHistories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PortfolioHistory
+	for rows.Next() {
+		var i PortfolioHistory
+		if err := rows.Scan(
+			&i.ExternalID,
+			&i.ItemID,
+			&i.Institution,
+			&i.Kind,
+			&i.Name,
+			&i.Ticker,
+			&i.Indexer,
+			&i.RateBps,
+			&i.Maturity,
+			&i.IssuedOn,
+			&i.InvestedCents,
+			&i.QuantityMicro,
+			&i.ValueCents,
+			&i.Active,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHoldings = `-- name: ListHoldings :many
 SELECT date, ticker, quantity_micro FROM portfolio.holdings ORDER BY ticker, date
 `
@@ -99,6 +148,38 @@ func (q *Queries) ListHoldings(ctx context.Context) ([]PortfolioHolding, error) 
 	for rows.Next() {
 		var i PortfolioHolding
 		if err := rows.Scan(&i.Date, &i.Ticker, &i.QuantityMicro); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMovements = `-- name: ListMovements :many
+SELECT external_id, history_id, date, kind, quantity_micro, amount_cents, net_cents FROM portfolio.movements ORDER BY history_id, date, external_id
+`
+
+func (q *Queries) ListMovements(ctx context.Context) ([]PortfolioMovement, error) {
+	rows, err := q.db.Query(ctx, listMovements)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PortfolioMovement
+	for rows.Next() {
+		var i PortfolioMovement
+		if err := rows.Scan(
+			&i.ExternalID,
+			&i.HistoryID,
+			&i.Date,
+			&i.Kind,
+			&i.QuantityMicro,
+			&i.AmountCents,
+			&i.NetCents,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -356,6 +437,57 @@ func (q *Queries) ListValuations(ctx context.Context, dateFrom time.Time) ([]Por
 	return items, nil
 }
 
+const saveHistory = `-- name: SaveHistory :exec
+INSERT INTO portfolio.histories (
+    external_id, item_id, institution, kind, name, ticker, indexer, rate_bps, maturity, issued_on,
+    invested_cents, quantity_micro, value_cents, active, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ON CONFLICT (external_id) DO UPDATE SET
+    item_id = excluded.item_id, institution = excluded.institution, kind = excluded.kind, name = excluded.name,
+    ticker = excluded.ticker, indexer = excluded.indexer, rate_bps = excluded.rate_bps, maturity = excluded.maturity,
+    issued_on = excluded.issued_on, invested_cents = excluded.invested_cents, quantity_micro = excluded.quantity_micro,
+    value_cents = excluded.value_cents, active = excluded.active, updated_at = excluded.updated_at
+`
+
+type SaveHistoryParams struct {
+	ExternalID    string
+	ItemID        string
+	Institution   string
+	Kind          string
+	Name          string
+	Ticker        *string
+	Indexer       string
+	RateBps       int32
+	Maturity      *time.Time
+	IssuedOn      *time.Time
+	InvestedCents *int64
+	QuantityMicro int64
+	ValueCents    int64
+	Active        bool
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) SaveHistory(ctx context.Context, arg SaveHistoryParams) error {
+	_, err := q.db.Exec(ctx, saveHistory,
+		arg.ExternalID,
+		arg.ItemID,
+		arg.Institution,
+		arg.Kind,
+		arg.Name,
+		arg.Ticker,
+		arg.Indexer,
+		arg.RateBps,
+		arg.Maturity,
+		arg.IssuedOn,
+		arg.InvestedCents,
+		arg.QuantityMicro,
+		arg.ValueCents,
+		arg.Active,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const saveHolding = `-- name: SaveHolding :exec
 INSERT INTO portfolio.holdings (date, ticker, quantity_micro) VALUES ($1, $2, $3)
 `
@@ -368,6 +500,37 @@ type SaveHoldingParams struct {
 
 func (q *Queries) SaveHolding(ctx context.Context, arg SaveHoldingParams) error {
 	_, err := q.db.Exec(ctx, saveHolding, arg.Date, arg.Ticker, arg.QuantityMicro)
+	return err
+}
+
+const saveMovement = `-- name: SaveMovement :exec
+INSERT INTO portfolio.movements (external_id, history_id, date, kind, quantity_micro, amount_cents, net_cents)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (external_id) DO UPDATE SET
+    history_id = excluded.history_id, date = excluded.date, kind = excluded.kind,
+    quantity_micro = excluded.quantity_micro, amount_cents = excluded.amount_cents, net_cents = excluded.net_cents
+`
+
+type SaveMovementParams struct {
+	ExternalID    string
+	HistoryID     string
+	Date          time.Time
+	Kind          string
+	QuantityMicro *int64
+	AmountCents   int64
+	NetCents      *int64
+}
+
+func (q *Queries) SaveMovement(ctx context.Context, arg SaveMovementParams) error {
+	_, err := q.db.Exec(ctx, saveMovement,
+		arg.ExternalID,
+		arg.HistoryID,
+		arg.Date,
+		arg.Kind,
+		arg.QuantityMicro,
+		arg.AmountCents,
+		arg.NetCents,
+	)
 	return err
 }
 

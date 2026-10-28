@@ -21,6 +21,8 @@ const (
 	rawAccount     = "account"
 	rawTransaction = "transaction"
 	rawInvestment  = "investment"
+	// rawInvestmentTransaction's parent is the investment.
+	rawInvestmentTransaction = "investment_transaction"
 )
 
 // rawRecord is one Pluggy record as received.

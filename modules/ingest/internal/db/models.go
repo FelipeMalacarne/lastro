@@ -220,10 +220,38 @@ type MarketRate struct {
 	FetchedAt time.Time
 }
 
+type PortfolioHistory struct {
+	ExternalID    string
+	ItemID        string
+	Institution   string
+	Kind          string
+	Name          string
+	Ticker        *string
+	Indexer       string
+	RateBps       int32
+	Maturity      *time.Time
+	IssuedOn      *time.Time
+	InvestedCents *int64
+	QuantityMicro int64
+	ValueCents    int64
+	Active        bool
+	UpdatedAt     time.Time
+}
+
 type PortfolioHolding struct {
 	Date          time.Time
 	Ticker        string
 	QuantityMicro int64
+}
+
+type PortfolioMovement struct {
+	ExternalID    string
+	HistoryID     string
+	Date          time.Time
+	Kind          string
+	QuantityMicro *int64
+	AmountCents   int64
+	NetCents      *int64
 }
 
 type PortfolioNetWorth struct {
