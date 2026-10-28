@@ -119,8 +119,11 @@ type CardBill struct {
 //   - A closed bill's total is the source's; what it holds beyond its own
 //     transactions and charges is what the bill before left unpaid.
 //   - A bill payment pays the closed bill before the one it is credited in,
-//     or the latest closed bill while it is on the open one. Paid in full,
-//     in part, nothing yet, or nothing and past due.
+//     or the latest closed bill while it is on the open one; what that bill
+//     no longer owes went into the bill it is credited in, ahead of time (an
+//     early payment before the open bill closes; once that bill closes, the
+//     source's total already has it). Paid in full, in part, nothing yet,
+//     or nothing and past due.
 //
 // The open bill is due a month after the last closed one, or on the card's
 // due day when no closed bill is known. Bills come out next, open, then the
@@ -180,17 +183,25 @@ func CardBills(closed []Bill, items []BillItem, cardDue, today time.Time, curren
 	}
 	slices.SortStableFunc(payments, func(a, b BillItem) int { return a.Date.Compare(b.Date) })
 	for _, p := range payments {
+		// The bill it is credited in: a closed one, or the open one.
+		credited := open
 		target := len(order) - 1
 		if i, ok := index[p.BillRef]; ok && p.BillRef != "" {
-			target = i - 1 // credited in this bill: it paid the one before
+			credited, target = order[i], i-1
 		}
 		if target < 0 {
 			continue // it paid a bill older than the history the source keeps
 		}
-		a := order[target]
-		a.paid += p.Amount.Cents()
-		if d := civilDate(p.Date); !d.Before(a.paidOn) {
-			a.paidOn, a.paidFrom = d, p.From
+		// It pays what the bill before still owes; anything beyond went into
+		// the bill it is credited in, ahead of time. A bill the source
+		// closed already has it in its total (as what the bill before left,
+		// below zero), so only one without the source's total takes it.
+		left := p.Amount.Cents()
+		before := order[target]
+		pay := min(left, max(0, before.owed()-before.paid))
+		before.pay(pay, p)
+		if !credited.known {
+			credited.pay(left-pay, p)
 		}
 	}
 
@@ -237,6 +248,26 @@ const (
 	partInstallments
 	partRefunds
 )
+
+// owed is what the bill asks for: the source's total, or its own
+// transactions.
+func (a *billSums) owed() int64 {
+	if a.known {
+		return a.total
+	}
+	return a.spent
+}
+
+// pay records part of a payment against the bill.
+func (a *billSums) pay(cents int64, p BillItem) {
+	if cents <= 0 {
+		return
+	}
+	a.paid += cents
+	if d := civilDate(p.Date); !d.Before(a.paidOn) {
+		a.paidOn, a.paidFrom = d, p.From
+	}
+}
 
 func (a *billSums) add(it BillItem) {
 	cents := it.Amount.Cents()

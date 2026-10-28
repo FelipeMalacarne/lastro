@@ -111,6 +111,39 @@ func TestCardBills(t *testing.T) {
 			},
 		},
 		{
+			name:   "an early payment, once the closed bill is paid, goes to the open bill; after it closes, its total is net of it",
+			closed: []Bill{closedBill("sep", billDay(10, 5), 98175, 0)},
+			items: []BillItem{
+				item("s1", billDay(9, 20), -98175, "sep"),
+				payment("paid-sep", billDay(9, 28), 98175, ""),
+				item("coffee", billDay(10, 2), -186633, "", pending),
+				payment("early", billDay(10, 28), 150000, ""),
+			},
+			want: []string{
+				"· open due 11-05 total 186633 paid 150000 carried 0 charges 0 buy 186633/1 inst 0/0 back 0/0",
+				"sep paid due 10-05 total 98175 paid 98175 carried 0 charges 0 buy 98175/1 inst 0/0 back 0/0",
+			},
+		},
+		{
+			name: "after the early-paid bill closes, its payment, credited in it, pays it",
+			closed: []Bill{
+				closedBill("sep", billDay(10, 5), 98175, 0),
+				closedBill("oct", billDay(11, 5), 36633, 0), // 1.866,33 less the 1.500,00 paid early
+			},
+			items: []BillItem{
+				item("s1", billDay(9, 20), -98175, "sep"),
+				payment("paid-sep", billDay(9, 28), 98175, "oct"),
+				item("coffee", billDay(10, 2), -186633, "oct"),
+				payment("early", billDay(10, 25), 150000, "oct"),
+			},
+			cardDue: billDay(11, 5),
+			want: []string{
+				"· open due 12-05 total 0 paid 0 carried 0 charges 0 buy 0/0 inst 0/0 back 0/0",
+				"oct unpaid due 11-05 total 36633 paid 0 carried -150000 charges 0 buy 186633/1 inst 0/0 back 0/0",
+				"sep paid due 10-05 total 98175 paid 98175 carried 0 charges 0 buy 98175/1 inst 0/0 back 0/0",
+			},
+		},
+		{
 			name:   "a closed bill not paid by its due date is overdue",
 			closed: []Bill{closedBill("oct", billDay(10, 5), 50000, 0)},
 			items:  []BillItem{item("o1", billDay(9, 20), -50000, "oct")},
