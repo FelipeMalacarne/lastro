@@ -89,10 +89,14 @@ func buildReport(in reportInput) ReportView {
 		r.SpendingChangeBp = &ch
 	}
 	var over []string
-	for _, c := range v.Categories {
-		name, cat := in.names[c.Category], c.Category
-		if c.Name != nil {
-			name, cat = *c.Name, "" // a line shared by several categories
+	for _, c := range v.Lines {
+		var name, cat string
+		if len(c.ByCategory) == 1 {
+			cat = c.ByCategory[0].Category
+			name = in.names[cat]
+		}
+		if c.Name != nil && len(c.ByCategory) > 1 {
+			name = *c.Name // a line shared by several categories goes by its name
 		}
 		if c.Fund { // not a limit: only a fund in the red is worth a word
 			if c.LeftCents < 0 {
@@ -172,7 +176,7 @@ func buildReport(in reportInput) ReportView {
 	}
 	switch len(over) {
 	case 0:
-		if len(v.Categories) > 0 {
+		if len(v.Lines) > 0 {
 			parts = append(parts, "every category stayed within its limit")
 		}
 	case 1:

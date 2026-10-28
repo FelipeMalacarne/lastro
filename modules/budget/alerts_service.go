@@ -30,14 +30,14 @@ func (s *Service) Alerts(ctx context.Context) ([]AlertView, error) {
 		names[c.ID.String()] = c.Name
 	}
 	var figures []Figures
-	for _, l := range v.Categories {
+	for _, l := range v.Lines {
 		f := Figures{
 			Limited: true, Fund: l.Fund, Spent: money.BRLCents(l.SpentCents), Available: money.BRLCents(l.AvailableCents),
 			Left: money.BRLCents(l.LeftCents), Average: money.BRLCents(l.AverageCents), Pace: l.Pace,
 		}
 		f.Line, _ = ParseLineID(l.ID)
 		if len(l.ByCategory) == 1 {
-			f.Category, _ = ledger.NewCategoryID(l.Category)
+			f.Category, _ = ledger.NewCategoryID(l.ByCategory[0].Category)
 		} else if l.Name != nil {
 			f.Name = *l.Name
 		}

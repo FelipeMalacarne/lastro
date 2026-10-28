@@ -285,19 +285,21 @@ export type MonthSpend = { month: string; spentCents: number };
 /** One of a line's categories: its spending this month and, alone, its six-month average. */
 export type BudgetLinePart = { category: string; spentCents: number; count: number; averageCents: number };
 
-/** A budget line (ADR-0012): one or more categories under one limit. `category` is its only one, or a shared line's first. */
-export type BudgetCategory = {
+/** A budget line (ADR-0012): one or more categories under one amount, a limit or a fund (ADR-0011). */
+export type BudgetLine = {
   id: string;
+  /** A shared line's own name; null for a line that goes by its one category's. */
   name: string | null;
-  category: string;
+  /** Every category the line covers, the most spent first. */
   byCategory: BudgetLinePart[];
+  /** A limit, or a fund's amount each month. */
   limitCents: number;
   carriedCents: number;
   availableCents: number;
   spentCents: number;
   leftCents: number;
   rollover: boolean;
-  /** A fund (ADR-0011) carries its balance, debt included: available and left are its balance before and after spending. */
+  /** A fund carries its balance, debt included: available and left are its balance before and after spending. */
   fund: boolean;
   adjustedCents: number;
   usedBp: number;
@@ -305,6 +307,8 @@ export type BudgetCategory = {
   count: number;
   fixedCents: number;
   upcomingCents: number;
+  /** A fund's balance at the end of each of the last six months, this one as it stands; null for a limit. */
+  balances: { month: string; balanceCents: number }[] | null;
   history: MonthSpend[];
   averageCents: number;
 };
@@ -334,7 +338,7 @@ export type BudgetMonth = {
   upcomingCents: number;
   /** The funds together; carried, available, spent, left and upcoming above are the limits'. */
   funds: { count: number; amountCents: number; carriedCents: number; adjustedCents: number; spentCents: number; balanceCents: number; keptCents: number };
-  categories: BudgetCategory[];
+  lines: BudgetLine[];
   unlimited: BudgetSpend[];
   summary: { incomeCents: number; spentCents: number; contributionCents: number; savingsRateBp: number };
 };

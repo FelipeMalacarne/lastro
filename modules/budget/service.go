@@ -116,7 +116,7 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		AvailableCents: t.Available.Cents(),
 		SpentCents:     t.Spent.Cents(),
 		LeftCents:      t.Left.Cents(),
-		Categories:     []LineView{},
+		Lines:          []LineView{},
 		Unlimited:      []SpendView{},
 	}
 	p, _ := NewPayday(defaultPayday)
@@ -162,7 +162,6 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		l := st.Line
 		lv := LineView{
 			ID:             l.ID.String(),
-			Category:       l.Categories[0].String(),
 			ByCategory:     make([]LineCategoryView, 0, len(l.Categories)),
 			LimitCents:     l.Limit.Cents(),
 			CarriedCents:   st.Carried.Cents(),
@@ -194,7 +193,10 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			v.CarriedCents += lv.CarriedCents
 			v.UpcomingCents += lv.UpcomingCents
 		}
-		v.Categories = append(v.Categories, lv)
+		for _, b := range st.Balances {
+			lv.Balances = append(lv.Balances, BalanceView{Month: b.Month.String(), BalanceCents: b.Balance.Cents()})
+		}
+		v.Lines = append(v.Lines, lv)
 	}
 	f := t.Funds
 	v.Funds = FundsView{

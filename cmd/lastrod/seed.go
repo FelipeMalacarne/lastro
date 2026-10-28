@@ -292,9 +292,9 @@ func seedRules(ctx context.Context, a *app.App) error {
 	return nil
 }
 
-// seedBudget saves a budget five months back, with pay yourself first and
-// the usual limits, and raises one limit two months ago, so months inherit
-// and roll over.
+// seedBudget saves a budget five months back, with pay yourself first, the
+// usual limits, a shared line and a fund, and raises one limit two months
+// ago, so months inherit and roll over.
 func seedBudget(ctx context.Context, a *app.App, start, now time.Time) error {
 	cats, err := a.Categorize.Categories(ctx)
 	if err != nil {
@@ -315,14 +315,29 @@ func seedBudget(ctx context.Context, a *app.App, start, now time.Time) error {
 		"Housing": {420000, false}, "Groceries": {80000, true}, "Restaurants": {70000, true}, "Transport": {70000, false},
 		"Health": {15000, false}, "Leisure": {15000, true}, "Shopping": {50000, false}, "Other": {10000, false},
 	}
+	// A category already in a shared line (a seed run before) keeps it.
+	v, err := a.Budget.Month(ctx, first)
+	if err != nil {
+		return err
+	}
+	shared := map[string]bool{}
+	for _, l := range v.Lines {
+		for _, p := range l.ByCategory {
+			shared[p.Category] = len(l.ByCategory) > 1
+		}
+	}
 	for _, c := range cats {
 		l, ok := limits[c.Name]
-		if !ok || c.Archived || !c.Budgeted {
+		if !ok || c.Archived || !c.Budgeted || shared[c.ID.String()] {
 			continue
 		}
 		if err := a.Budget.SetLimit(ctx, first, c.ID, money.BRLCents(l.cents), l.rollover); err != nil {
 			return err
 		}
+	}
+	// Before a later month is saved, so it copies them.
+	if err := seedLinesAndFunds(ctx, a, cats, first); err != nil {
+		return err
 	}
 	for _, c := range cats {
 		if c.Name == "Restaurants" && !c.Archived {
@@ -333,6 +348,56 @@ func seedBudget(ctx context.Context, a *app.App, start, now time.Time) error {
 	}
 	fmt.Printf("Saved a budget from %s\n", first)
 	return nil
+}
+
+// seedLinesAndFunds makes Leisure and Shopping share one limit (ADR-0012)
+// and Health a fund that started with what was already saved for it
+// (ADR-0011), from the budget's first month on. Running it again finds
+// them there.
+func seedLinesAndFunds(ctx context.Context, a *app.App, cats []categorize.Category, first budget.Month) error {
+	byName := map[string]ledger.CategoryID{}
+	for _, c := range cats {
+		if !c.Archived && c.Budgeted {
+			byName[c.Name] = c.ID
+		}
+	}
+	leisure, okL := byName["Leisure"]
+	shopping, okS := byName["Shopping"]
+	health, okH := byName["Health"]
+	if !okL || !okS || !okH {
+		return nil // renamed in this database
+	}
+	v, err := a.Budget.Month(ctx, first)
+	if err != nil {
+		return err
+	}
+	shared, fund := false, ""
+	for _, l := range v.Lines {
+		if l.Name != nil && *l.Name == "Free to spend" {
+			shared = true
+		}
+		if len(l.ByCategory) == 1 && l.ByCategory[0].Category == health.String() {
+			fund = l.ID
+		}
+	}
+	if !shared {
+		line := budget.Line{Name: "Free to spend", Categories: []ledger.CategoryID{leisure, shopping}, Limit: money.BRLCents(65000), Rollover: true}
+		if _, err := a.Budget.AddLine(ctx, first, line); err != nil {
+			return err
+		}
+	}
+	if fund == "" {
+		return nil
+	}
+	id, err := budget.ParseLineID(fund)
+	if err != nil {
+		return err
+	}
+	line := budget.Line{ID: id, Categories: []ledger.CategoryID{health}, Limit: money.BRLCents(15000), Kind: budget.KindFund}
+	if err := a.Budget.ChangeLine(ctx, first, line); err != nil {
+		return err
+	}
+	return a.Budget.Adjust(ctx, first, id, money.BRLCents(30000))
 }
 
 type seedAccount struct {

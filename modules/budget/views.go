@@ -36,11 +36,9 @@ type MonthView struct {
 	UpcomingCents int64     `json:"upcomingCents"`
 	Funds         FundsView `json:"funds"`
 
-	// Categories are the budget's lines (ADR-0012), what needs attention
-	// first.
-	Categories []LineView  `json:"categories"`
-	Unlimited  []SpendView `json:"unlimited"` // categories no line covers, by amount
-	Summary    SummaryView `json:"summary"`
+	Lines     []LineView  `json:"lines"`     // the budget's lines (ADR-0012), what needs attention first
+	Unlimited []SpendView `json:"unlimited"` // categories no line covers, by amount
+	Summary   SummaryView `json:"summary"`
 }
 
 // PYFView is pay yourself first: what was planned and what left for
@@ -53,14 +51,11 @@ type PYFView struct {
 	DoneOn       *string `json:"doneOn"` // the last transfer's day, once moved reaches planned
 }
 
-// LineView is one budget line in a month. Category is the category it
-// covers or, for a line shared by several, the first of them by id, so a
-// screen that shows one category per line keeps working; ByCategory says
-// where its spending went.
+// LineView is one budget line in a month; ByCategory says where its
+// spending went.
 type LineView struct {
 	ID             string             `json:"id"`
-	Name           *string            `json:"name"` // a shared line's; null for one that goes by its category's
-	Category       string             `json:"category"`
+	Name           *string            `json:"name"`       // a shared line's; null for one that goes by its category's
 	ByCategory     []LineCategoryView `json:"byCategory"` // every category it covers, the most spent first
 	LimitCents     int64              `json:"limitCents"`
 	CarriedCents   int64              `json:"carriedCents"`
@@ -75,7 +70,16 @@ type LineView struct {
 	Count          int                `json:"count"`
 	FixedCents     int64              `json:"fixedCents"`    // recurring charges already paid this month
 	UpcomingCents  int64              `json:"upcomingCents"` // recurring charges still to come this month
+	// Balances are a fund's balance at the end of each of the last six
+	// months, this one as it stands; null for a limit.
+	Balances []BalanceView `json:"balances"`
 	History
+}
+
+// BalanceView is a fund's balance at a month's end.
+type BalanceView struct {
+	Month        string `json:"month"`
+	BalanceCents int64  `json:"balanceCents"`
 }
 
 // FundsView is the month's funds together (ADR-0011). KeptCents is their
