@@ -4,10 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f1f4f5" />
+    <meta name="apple-mobile-web-app-title" content="lastro" />
     <title>lastro</title>
+    <!-- Installs on the phone's home screen (ADR-0013). Browsers fetch the
+         manifest without cookies unless asked, and it sits behind the login. -->
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
+    <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <script>
       // Pick the theme before the first paint, so dark mode never flashes light.
       // A choice made in Settings (or with the sidebar's moon) wins over the device's.
+      // The installed app's status bar takes the theme's paper (tokens.css).
       (function () {
         var saved = null;
         try {
@@ -15,6 +23,7 @@
         } catch (e) {}
         var dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
         document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#0e1418" : "#f1f4f5");
       })();
     </script>
   </head>
