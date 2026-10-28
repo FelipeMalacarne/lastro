@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ChevronDown, Plus, X } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
@@ -9,6 +9,7 @@ import { send, useResource, type TagView, type Transaction } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, inputBRL, parseBRL } from "@/lib/format";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
 type Part = { category: string; amount: string };
 
@@ -225,13 +226,32 @@ export function NoteSection({ t }: { t: Transaction }) {
   );
 }
 
-/** Tags that cut across categories ("trip-rio"). */
+/** "Trip Rio" → "trip-rio": the form a tag is kept in. */
+const asTag = (s: string) => s.trim().replace(/^#/, "").toLowerCase().split(/\s+/).filter(Boolean).join("-");
+
+/**
+ * Tags that cut across categories ("trip-rio"). The field suggests the tags
+ * used before as you type: ↑ ↓ move, Enter adds the highlighted one, Esc
+ * closes the list, and a word no tag has yet adds a new one.
+ */
 export function TagsSection({ t }: { t: Transaction }) {
   const all = useResource<{ tags: TagView[] }>("/api/v1/tags").data?.tags ?? [];
   const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  // Near the bottom of the screen, or over a phone's keyboard, the list opens upwards.
+  const [up, setUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const listId = useId();
+  const show = (input: HTMLInputElement) => {
+    const r = input.getBoundingClientRect();
+    const below = (window.visualViewport?.height ?? window.innerHeight) - r.bottom;
+    setUp(below < 260 && r.top > below);
+    setOpen(true);
+  };
   useEffect(() => {
     setText("");
+    setOpen(false);
     setError(null);
   }, [t.id]);
   async function save(tags: string[]) {
@@ -244,11 +264,22 @@ export function TagsSection({ t }: { t: Transaction }) {
     }
   }
   const add = (s: string) => {
-    const tag = s.trim().replace(/^#/, "").toLowerCase().split(/\s+/).join("-");
+    const tag = asTag(s);
+    setActive(0);
     if (tag && !t.tags.includes(tag)) void save([...t.tags, tag]);
     else setText("");
   };
-  const used = all.map((x) => x.tag).filter((x) => !t.tags.includes(x)).slice(0, 5);
+
+  // Tags that start with what is typed first, then those that contain it; the most used first.
+  const typed = asTag(text);
+  const options: { tag: string; count?: number }[] = all
+    .filter((x) => !t.tags.includes(x.tag) && x.tag.includes(typed))
+    .sort((a, b) => Number(b.tag.startsWith(typed)) - Number(a.tag.startsWith(typed)) || b.count - a.count)
+    .slice(0, 6);
+  if (typed && !t.tags.includes(typed) && !all.some((x) => x.tag === typed)) options.push({ tag: typed });
+  const shown = open && options.length > 0;
+  const at = Math.min(active, options.length - 1);
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -260,32 +291,87 @@ export function TagsSection({ t }: { t: Transaction }) {
             </Button>
           </span>
         ))}
-        <input
-          aria-label="Add a tag"
-          placeholder="Add a tag"
-          value={text}
-          maxLength={33}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              add(text);
-            }
-          }}
-          onBlur={() => text && add(text)}
-          className="h-7 min-w-0 flex-[1_1_120px] rounded-sm border border-dashed border-rule-strong bg-transparent px-2 font-figure text-[12px] text-ink placeholder:text-ink-muted focus-visible:focus-ring"
-        />
-      </div>
-      {used.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 type-caption text-ink-muted">
-          <span>Used before:</span>
-          {used.map((x) => (
-            <button key={x} type="button" onClick={() => add(x)} className="cursor-pointer border-0 bg-transparent p-0 font-figure text-[12px] text-tinta hover:text-tinta-strong focus-visible:focus-ring">
-              #{x}
-            </button>
-          ))}
+        <div className="relative min-w-0 flex-[1_1_160px]">
+          <input
+            role="combobox"
+            aria-label="Add a tag"
+            aria-expanded={shown}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={shown ? `${listId}-${at}` : undefined}
+            placeholder="Add a tag"
+            value={text}
+            maxLength={33}
+            onChange={(e) => {
+              setText(e.target.value);
+              setActive(0);
+              show(e.currentTarget);
+            }}
+            onFocus={(e) => show(e.currentTarget)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                show(e.currentTarget);
+                setActive((i) => (options.length ? (i + (e.key === "ArrowDown" ? 1 : options.length - 1)) % options.length : 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                add(shown ? options[at].tag : text);
+              } else if (e.key === ",") {
+                e.preventDefault();
+                add(text);
+              } else if (e.key === "Escape" && shown) {
+                e.preventDefault();
+                setOpen(false);
+              }
+            }}
+            onBlur={() => {
+              setOpen(false);
+              if (text) add(text);
+            }}
+            className="h-7 w-full rounded-sm border border-dashed border-rule-strong bg-transparent px-2 font-figure text-[12px] text-ink placeholder:text-ink-muted focus-visible:border-solid focus-visible:border-tinta focus-visible:focus-ring pointer-coarse:h-9"
+          />
+          {shown && (
+            <ul
+              id={listId}
+              role="listbox"
+              aria-label="Tags"
+              className={cn(
+                "absolute left-0 z-20 m-0 flex max-w-[calc(100vw-32px)] min-w-60 list-none flex-col rounded-md border border-rule bg-paper-raised p-1 shadow-pop",
+                up ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]",
+              )}
+            >
+              {options.map((o, i) => (
+                <li
+                  key={o.tag}
+                  id={`${listId}-${i}`}
+                  role="option"
+                  aria-selected={i === at}
+                  // Keeps the focus in the field, so the blur does not add what is typed.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => add(o.tag)}
+                  onMouseEnter={() => setActive(i)}
+                  className={cn(
+                    "flex min-h-8 cursor-pointer items-center justify-between gap-3 rounded-sm px-2 text-[13px] leading-[18px] pointer-coarse:min-h-11",
+                    i === at && "bg-paper-sunken",
+                    o.count === undefined && "mt-1 border-t border-rule text-ink-muted",
+                  )}
+                >
+                  {o.count === undefined ? (
+                    <span>
+                      Add a new tag, <span className="font-figure text-ink">#{o.tag}</span>
+                    </span>
+                  ) : (
+                    <>
+                      <span className="font-figure">#{o.tag}</span>
+                      <span className="type-figure-sm text-ink-muted">{o.count}</span>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      )}
+      </div>
       {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
     </>
   );

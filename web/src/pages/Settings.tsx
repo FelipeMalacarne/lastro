@@ -9,11 +9,13 @@ import { SyncStatus } from "@/components/SyncStatus";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
 import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { SyncButton, nextSync, useSync } from "@/lib/sync";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
 import { useBanks } from "@/shell/Accounts";
@@ -310,17 +312,16 @@ function BudgetSettings() {
   );
 }
 
-/** Whether a category given its first limit rolls over; saved as soon as it is ticked. */
+/** Whether a category given its first limit rolls over; saved the moment it is flipped. */
 function RolloverNew({ on }: { on: boolean }) {
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   async function toggle(next: boolean) {
     setBusy(true);
-    setError(null);
     try {
       await send("PUT", "/api/v1/budget/preferences", { rolloverNew: next });
     } catch (e) {
-      setError((e as Error).message);
+      // The switch shows the saved value, so it is already back where it was.
+      toast({ id: "rollover", tone: "error", text: `Could not save: ${(e as Error).message}.` });
     } finally {
       setBusy(false);
     }
@@ -328,13 +329,10 @@ function RolloverNew({ on }: { on: boolean }) {
   return (
     <div className="mt-4">
       <Row label="Roll over new categories" hint="What is left moves to next month. Each category can change it.">
-        <span className="flex flex-col gap-1">
-          <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[14px] leading-5 lg:min-h-0">
-            <input id="set-rollover" type="checkbox" checked={on} disabled={busy} onChange={(e) => void toggle(e.target.checked)} className="size-[18px] accent-[var(--tinta)]" />
-            {on ? "On for new categories" : "Off for new categories"}
-          </label>
-          {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
-        </span>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[14px] leading-5 text-ink-muted lg:min-h-0">
+          {on ? "On for new categories" : "Off for new categories"}
+          <Switch id="set-rollover" checked={on} disabled={busy} onCheckedChange={(v) => void toggle(v)} />
+        </label>
       </Row>
     </div>
   );

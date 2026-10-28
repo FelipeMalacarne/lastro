@@ -4,6 +4,7 @@ import { ChartPie, LayoutDashboard, List, Moon, Search, Settings as SettingsIcon
 import { Kbd } from "@/components/Kbd";
 import { MonthSwitcher } from "@/components/MonthSwitcher";
 import { Toaster } from "@/components/ui/toast";
+import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { useResource } from "@/lib/api";
 import { useWaiting } from "@/lib/categories";
 import { formatMonth } from "@/lib/format";
@@ -54,13 +55,12 @@ function NavItem({ to, label, icon: Icon, here, count, countLabel }: { to: strin
       <Icon className={cn("size-4 flex-none", here ? "text-tinta" : "text-ink-muted")} aria-hidden />
       <span className="flex-1">{label}</span>
       {count ? (
-        <span
-          title={countLabel}
-          className="inline-flex h-5 min-w-[22px] items-center justify-center rounded-sm bg-warning-soft px-1.5 font-figure text-[12px] leading-4 font-medium text-warning"
-        >
-          {count}
-          <span className="sr-only"> {countLabel}</span>
-        </span>
+        <Tooltip label={countLabel} side="right">
+          <span className="inline-flex h-5 min-w-[22px] items-center justify-center rounded-sm bg-warning-soft px-1.5 font-figure text-[12px] leading-4 font-medium text-warning">
+            {count}
+            <span className="sr-only"> {countLabel}</span>
+          </span>
+        </Tooltip>
       ) : null}
     </Link>
   );
@@ -69,15 +69,16 @@ function NavItem({ to, label, icon: Icon, here, count, countLabel }: { to: strin
 function ThemeToggle() {
   const { dark } = useTheme();
   return (
-    <button
-      type="button"
-      onClick={() => setTheme(dark ? "light" : "dark")}
-      aria-label={dark ? "Switch to the light theme" : "Switch to the dark theme"}
-      title={dark ? "Light theme" : "Dark theme"}
-      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-sm border border-transparent bg-transparent text-ink-muted hover:bg-paper-sunken hover:text-ink focus-visible:focus-ring"
-    >
-      {dark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
-    </button>
+    <Tooltip label={dark ? "Switch to the light theme" : "Switch to the dark theme"}>
+      <button
+        type="button"
+        onClick={() => setTheme(dark ? "light" : "dark")}
+        aria-label={dark ? "Switch to the light theme" : "Switch to the dark theme"}
+        className="inline-flex size-8 cursor-pointer items-center justify-center rounded-sm border border-transparent bg-transparent text-ink-muted hover:bg-paper-sunken hover:text-ink focus-visible:focus-ring"
+      >
+        {dark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -121,99 +122,101 @@ export function AppShell({ accounts, children }: Props) {
   const build = !me.data ? "" : me.data.version === "dev" ? "dev build" : `${me.data.version.slice(0, 7)} · ${me.data.env}`;
 
   return (
-    <div className="min-h-dvh bg-paper font-text text-ink lg:flex">
-      <aside className="sticky top-0 hidden h-dvh w-[232px] flex-none flex-col gap-6 overflow-y-auto border-r border-rule px-3 pt-5 pb-4 lg:flex">
-        <div className="flex flex-col gap-4">
-          <Link to="/dashboard" aria-label="lastro, go to Dashboard" className="self-start px-2 py-0.5 no-underline">
-            <Wordmark />
-          </Link>
-          <button
-            type="button"
-            onClick={openSearch}
-            className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border border-rule-strong bg-paper-raised pr-2 pl-2.5 text-left text-[14px] leading-5 text-ink-muted hover:text-ink focus-visible:focus-ring"
-          >
-            <Search className="size-4" aria-hidden />
-            <span className="flex-1">Search</span>
-            <Kbd>/</Kbd>
-          </button>
-        </div>
-        <nav aria-label="Main" className="flex flex-col gap-0.5">
-          {destinations.map((d) => (
-            <NavItem
-              key={d.to}
-              to={d.to}
-              label={d.label}
-              icon={d.icon}
-              here={path === d.to || (d.to === "/transactions" && path === "/review") || (d.to === "/portfolio" && path === "/contribute")}
-              count={d.to === "/transactions" ? waiting : undefined}
-              countLabel={waiting ? `${waiting} to review` : undefined}
-            />
-          ))}
-        </nav>
-        {accounts}
-        <div className="mt-auto flex flex-col gap-0.5 border-t border-rule pt-3">
-          <NavItem to="/categories" label="Categories and rules" icon={Tag} here={path === "/categories"} />
-          <NavItem to="/settings" label="Settings" icon={SettingsIcon} here={path === "/settings"} />
-          <div className="mt-1 flex h-9 items-center justify-between gap-2 pl-2">
-            <span className="type-figure-sm text-ink-muted">{build}</span>
-            <ThemeToggle />
-          </div>
-        </div>
-      </aside>
-
-      <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-rule bg-paper px-4 lg:hidden">
-          <Link to="/dashboard" aria-label="lastro, go to Dashboard" className="no-underline">
-            <Wordmark />
-          </Link>
-          <div className="flex items-center gap-1">
-            {!monthless.has(path) && !(path === "/transactions" && new URLSearchParams(location.search).get("scope") === "all") && <MonthSwitcher label={formatMonth(month, true)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
-            <Link
-              to="/settings"
-              aria-label="Settings"
-              aria-current={path === "/settings" ? "page" : undefined}
-              className={cn(
-                "inline-flex size-11 items-center justify-center rounded-sm no-underline",
-                path === "/settings" ? "text-tinta" : "text-ink-muted hover:text-ink",
-              )}
-            >
-              <SettingsIcon className="size-5" aria-hidden />
+    <TooltipProvider>
+      <div className="min-h-dvh bg-paper font-text text-ink lg:flex">
+        <aside className="sticky top-0 hidden h-dvh w-[232px] flex-none flex-col gap-6 overflow-y-auto border-r border-rule px-3 pt-5 pb-4 lg:flex">
+          <div className="flex flex-col gap-4">
+            <Link to="/dashboard" aria-label="lastro, go to Dashboard" className="self-start px-2 py-0.5 no-underline">
+              <Wordmark />
             </Link>
+            <button
+              type="button"
+              onClick={openSearch}
+              className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border border-rule-strong bg-paper-raised pr-2 pl-2.5 text-left text-[14px] leading-5 text-ink-muted hover:text-ink focus-visible:focus-ring"
+            >
+              <Search className="size-4" aria-hidden />
+              <span className="flex-1">Search</span>
+              <Kbd>/</Kbd>
+            </button>
           </div>
-        </header>
-        <main className="px-4 pt-4 pb-24 lg:px-8 lg:pt-8 lg:pb-14">
-          <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">{children}</div>
-        </main>
-        <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 grid h-16 grid-cols-5 border-t border-rule bg-paper-raised pb-[env(safe-area-inset-bottom)] lg:hidden">
-          {destinations
-            .filter((d) => d.phone)
-            .map((d) => {
-              const here = path === d.to || (d.to === "/transactions" && path === "/review") || (d.to === "/portfolio" && path === "/contribute");
-              return (
-                <Link
-                  key={d.to}
-                  to={d.to}
-                  aria-current={here ? "page" : undefined}
-                  className={cn(
-                    "relative flex flex-col items-center justify-center gap-1 text-[12px] leading-4 font-semibold no-underline",
-                    here ? "text-tinta hover:text-tinta" : "text-ink-muted hover:text-ink",
-                  )}
-                >
-                  <d.icon className="size-5" aria-hidden />
-                  {d.label}
-                  {d.to === "/transactions" && waiting ? (
-                    <span className="absolute top-2 left-[calc(50%+6px)] inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-warning-soft px-1 font-figure text-[11px] leading-4 font-medium text-warning">
-                      {waiting > 99 ? "99+" : waiting}
-                      <span className="sr-only"> to review</span>
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-        </nav>
+          <nav aria-label="Main" className="flex flex-col gap-0.5">
+            {destinations.map((d) => (
+              <NavItem
+                key={d.to}
+                to={d.to}
+                label={d.label}
+                icon={d.icon}
+                here={path === d.to || (d.to === "/transactions" && path === "/review") || (d.to === "/portfolio" && path === "/contribute")}
+                count={d.to === "/transactions" ? waiting : undefined}
+                countLabel={waiting ? `${waiting} to review` : undefined}
+              />
+            ))}
+          </nav>
+          {accounts}
+          <div className="mt-auto flex flex-col gap-0.5 border-t border-rule pt-3">
+            <NavItem to="/categories" label="Categories and rules" icon={Tag} here={path === "/categories"} />
+            <NavItem to="/settings" label="Settings" icon={SettingsIcon} here={path === "/settings"} />
+            <div className="mt-1 flex h-9 items-center justify-between gap-2 pl-2">
+              <span className="type-figure-sm text-ink-muted">{build}</span>
+              <ThemeToggle />
+            </div>
+          </div>
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-rule bg-paper px-4 lg:hidden">
+            <Link to="/dashboard" aria-label="lastro, go to Dashboard" className="no-underline">
+              <Wordmark />
+            </Link>
+            <div className="flex items-center gap-1">
+              {!monthless.has(path) && !(path === "/transactions" && new URLSearchParams(location.search).get("scope") === "all") && <MonthSwitcher label={formatMonth(month, true)} onPrev={prev} onNext={next} nextDisabled={isCurrent} />}
+              <Link
+                to="/settings"
+                aria-label="Settings"
+                aria-current={path === "/settings" ? "page" : undefined}
+                className={cn(
+                  "inline-flex size-11 items-center justify-center rounded-sm no-underline",
+                  path === "/settings" ? "text-tinta" : "text-ink-muted hover:text-ink",
+                )}
+              >
+                <SettingsIcon className="size-5" aria-hidden />
+              </Link>
+            </div>
+          </header>
+          <main className="px-4 pt-4 pb-24 lg:px-8 lg:pt-8 lg:pb-14">
+            <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">{children}</div>
+          </main>
+          <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 grid h-16 grid-cols-5 border-t border-rule bg-paper-raised pb-[env(safe-area-inset-bottom)] lg:hidden">
+            {destinations
+              .filter((d) => d.phone)
+              .map((d) => {
+                const here = path === d.to || (d.to === "/transactions" && path === "/review") || (d.to === "/portfolio" && path === "/contribute");
+                return (
+                  <Link
+                    key={d.to}
+                    to={d.to}
+                    aria-current={here ? "page" : undefined}
+                    className={cn(
+                      "relative flex flex-col items-center justify-center gap-1 text-[12px] leading-4 font-semibold no-underline",
+                      here ? "text-tinta hover:text-tinta" : "text-ink-muted hover:text-ink",
+                    )}
+                  >
+                    <d.icon className="size-5" aria-hidden />
+                    {d.label}
+                    {d.to === "/transactions" && waiting ? (
+                      <span className="absolute top-2 left-[calc(50%+6px)] inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-warning-soft px-1 font-figure text-[11px] leading-4 font-medium text-warning">
+                        {waiting > 99 ? "99+" : waiting}
+                        <span className="sr-only"> to review</span>
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
+          </nav>
+        </div>
+        <Toaster />
       </div>
-      <Toaster />
-    </div>
+    </TooltipProvider>
   );
 }
 

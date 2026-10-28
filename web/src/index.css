@@ -255,6 +255,23 @@
     opacity: 0.55;
   }
 }
+/* A list that folds open and shut, at its own height. */
+@keyframes lt-expand {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+@keyframes lt-collapse {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
 @keyframes lt-toast-out {
   to {
     opacity: 0;

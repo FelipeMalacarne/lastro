@@ -12,6 +12,7 @@ import { SyncNotice } from "@/components/SyncNotice";
 import { TransactionRow } from "@/components/TransactionRow";
 import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
+import { Tooltip } from "@/components/ui/tooltip";
 import { SyncButton } from "@/lib/sync";
 import {
   typeLabel,
@@ -482,7 +483,11 @@ function ByCategory({ v, byId, isCurrent }: { v: BudgetMonth; byId: Map<string, 
                       boxShadow: c ? undefined : "inset 0 0 0 1px var(--warning)",
                     }}
                   />
-                  {r.avg > 0 && <span title="6-month average" className="absolute -inset-y-1 w-0.5 bg-ink" style={{ left: `${(r.avg / max) * 100}%` }} />}
+                  {r.avg > 0 && (
+                    <Tooltip label={`6-month average, ${formatBRL(r.avg)}`}>
+                      <span className="absolute -inset-y-1 w-0.5 bg-ink before:absolute before:-inset-x-1.5 before:-inset-y-1 before:content-['']" style={{ left: `${(r.avg / max) * 100}%` }} />
+                    </Tooltip>
+                  )}
                 </span>
                 <Amount cents={r.spent} sign="none" size="sm" className="text-right" />
                 <span className="text-right type-figure-sm text-ink-muted max-sm:hidden">{total > 0 ? `${Math.round((Math.max(r.spent, 0) / total) * 100)}%` : ""}</span>

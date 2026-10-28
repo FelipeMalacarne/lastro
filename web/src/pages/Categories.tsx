@@ -10,6 +10,7 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { SkeletonRows } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Sheet, SheetActions } from "@/components/ui/sheet";
 import {
@@ -717,7 +718,7 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
         </div>
       </div>
       <label className="flex cursor-pointer items-start gap-2.5 pt-[26px]">
-        <input type="checkbox" checked={budgeted} onChange={(e) => setBudgeted(e.target.checked)} className="mt-0.5 size-4 accent-tinta" />
+        <Checkbox checked={budgeted} onCheckedChange={(v) => setBudgeted(v === true)} className="mt-px" />
         <span className="flex flex-col gap-0.5">
           <span className="text-[14px] leading-5 font-semibold">Counts toward the budget</span>
           <span className="type-caption text-ink-muted">Has a monthly limit on the Budget screen.</span>

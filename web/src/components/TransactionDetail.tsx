@@ -12,6 +12,7 @@ import { NoteSection, SplitSection, TagsSection } from "@/components/Transaction
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Tooltip } from "@/components/ui/tooltip";
 import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDate, formatDay, formatMonth, formatWeekday } from "@/lib/format";
@@ -36,16 +37,20 @@ export function DetailSteps({ prev, next, size = "sm" }: { prev?: string; next?:
   const step = size === "icon" ? "size-11 text-ink [&_svg:not([class*='size-'])]:size-5" : undefined;
   return (
     <>
-      <Button asChild variant="ghost" size={size} aria-label="Newer transaction" className={cn(step, !prev && "pointer-events-none opacity-40")}>
-        <Link to={prev ? hrefWith({ tx: prev }) : hrefWith({})} aria-disabled={!prev}>
-          <ChevronLeft aria-hidden />
-        </Link>
-      </Button>
-      <Button asChild variant="ghost" size={size} aria-label="Older transaction" className={cn(step, !next && "pointer-events-none opacity-40")}>
-        <Link to={next ? hrefWith({ tx: next }) : hrefWith({})} aria-disabled={!next}>
-          <ChevronRight aria-hidden />
-        </Link>
-      </Button>
+      <Tooltip label="Newer transaction">
+        <Button asChild variant="ghost" size={size} aria-label="Newer transaction" className={cn(step, !prev && "pointer-events-none opacity-40")}>
+          <Link to={prev ? hrefWith({ tx: prev }) : hrefWith({})} aria-disabled={!prev}>
+            <ChevronLeft aria-hidden />
+          </Link>
+        </Button>
+      </Tooltip>
+      <Tooltip label="Older transaction">
+        <Button asChild variant="ghost" size={size} aria-label="Older transaction" className={cn(step, !next && "pointer-events-none opacity-40")}>
+          <Link to={next ? hrefWith({ tx: next }) : hrefWith({})} aria-disabled={!next}>
+            <ChevronRight aria-hidden />
+          </Link>
+        </Button>
+      </Tooltip>
     </>
   );
 }
@@ -65,9 +70,11 @@ export function TransactionDetail({ id, onClose, prev, next, inSheet }: Props) {
               <Kbd>↓</Kbd> to move, <Kbd>Esc</Kbd> to close
             </span>
           </div>
-          <Button variant="ghost" size="sm" aria-label="Close" onClick={onClose}>
-            <X aria-hidden />
-          </Button>
+          <Tooltip label="Close">
+            <Button variant="ghost" size="sm" aria-label="Close" onClick={onClose}>
+              <X aria-hidden />
+            </Button>
+          </Tooltip>
         </div>
       )}
 

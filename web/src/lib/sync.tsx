@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { refreshAll, send, useResource } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -78,18 +79,18 @@ export function useSync() {
 /** "Sync now": every bank, through Meu Pluggy, then prices and the day's valuation. */
 export function SyncButton({ label = "Sync now", iconOnly, className }: { label?: string; iconOnly?: boolean; className?: string }) {
   const { running, start } = useSync();
-  return (
+  const button = (
     <Button
       variant={iconOnly ? "ghost" : "secondary"}
       size={iconOnly ? "icon-sm" : "sm"}
       onClick={() => void start()}
       disabled={running}
       aria-label={iconOnly ? (running ? "Syncing every account" : "Sync every account now") : undefined}
-      title={iconOnly ? "Sync every account now" : undefined}
       className={className}
     >
       <RefreshCw aria-hidden className={cn(running && "animate-spin motion-reduce:animate-none")} />
       {!iconOnly && (running ? "Syncing…" : label)}
     </Button>
   );
+  return iconOnly ? <Tooltip label={running ? "Syncing every account" : "Sync every account now"}>{button}</Tooltip> : button;
 }

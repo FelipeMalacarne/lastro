@@ -3,6 +3,7 @@ import { ArrowLeftRight, Clock, CreditCard } from "lucide-react";
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
 import { CategoryTag, type NoteColor } from "@/components/CategoryTag";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
 
@@ -54,7 +55,14 @@ export function TransactionRow(p: Props) {
     cat = (
       <span className="flex min-w-0 items-center gap-1.5">
         <CategoryTag name={p.category?.name} color={p.category?.color} onClick={p.onCategoryClick} />
-        {Boolean(p.moreCategories) && <span className="type-figure-sm text-ink-muted" title="Split across categories">+{p.moreCategories}</span>}
+        {Boolean(p.moreCategories) && (
+          <Tooltip label={`Split across ${(p.moreCategories ?? 0) + 1} categories`}>
+            <span className="type-figure-sm text-ink-muted">
+              +{p.moreCategories}
+              <span className="sr-only"> more categories in the split</span>
+            </span>
+          </Tooltip>
+        )}
       </span>
     );
   }

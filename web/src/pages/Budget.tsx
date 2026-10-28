@@ -9,6 +9,7 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetActions } from "@/components/ui/sheet";
 import { send, useResource, type BudgetCategory, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type TransactionList } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
@@ -853,7 +854,7 @@ function LimitEditor({
         hint={limit ? `From ${monthName} on; earlier months keep theirs.` : suggested ? `Suggested from the 6-month average of ${name}.` : `From ${monthName} on.`}
       />
       <label className="flex cursor-pointer items-start gap-2.5">
-        <input type="checkbox" checked={rollover} onChange={(e) => setRollover(e.target.checked)} className="mt-0.5 size-4 accent-[var(--tinta)]" />
+        <Checkbox checked={rollover} onCheckedChange={(v) => setRollover(v === true)} className="mt-px" />
         <span className="flex flex-col">
           <span className="text-[14px] leading-5 font-semibold">Roll over what is left</span>
           <span className="type-caption text-ink-muted">Whatever remains at the end of a month is added to the next one's limit.</span>
@@ -1204,13 +1205,7 @@ function LimitsEditor({ v, categories, onDone }: { v: BudgetMonth; categories: C
                   </label>
                 </span>
                 <span role="cell" className="flex justify-center">
-                  <input
-                    type="checkbox"
-                    aria-label={`${c.name} rolls over`}
-                    checked={val.rollover}
-                    onChange={(e) => set(c.id, { rollover: e.target.checked })}
-                    className="size-5 cursor-pointer accent-[var(--tinta)] lg:size-4"
-                  />
+                  <Checkbox aria-label={`${c.name} rolls over`} checked={val.rollover} onCheckedChange={(v) => set(c.id, { rollover: v === true })} />
                 </span>
               </div>
             );

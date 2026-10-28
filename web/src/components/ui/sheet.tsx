@@ -64,6 +64,10 @@ export function Sheet({ open, onOpenChange, label, actions, onCloseAutoFocus, ch
           ref={content}
           aria-describedby={undefined}
           onCloseAutoFocus={onCloseAutoFocus}
+          // Esc in a field with its suggestions open closes the suggestions, not the sheet.
+          onEscapeKeyDown={(e) => {
+            if ((e.target as Element | null)?.closest?.('[role=combobox][aria-expanded="true"]')) e.preventDefault();
+          }}
           className="fixed inset-x-0 bottom-0 z-30 flex max-h-[92dvh] flex-col rounded-t-lg bg-paper-raised text-ink shadow-pop outline-none data-[state=closed]:animate-[lt-sheet-out_200ms_ease-in] data-[state=open]:animate-[lt-sheet-in_240ms_cubic-bezier(0.2,0,0,1)]"
         >
           <div

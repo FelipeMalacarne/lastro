@@ -1,7 +1,10 @@
-import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Link2Off, TriangleAlert } from "lucide-react";
+import { Collapsible } from "radix-ui";
 
 import { Amount } from "@/components/Amount";
 import { SyncStatus } from "@/components/SyncStatus";
+import { Tooltip } from "@/components/ui/tooltip";
 import { typeName, useResource, type Account, type Connection } from "@/lib/api";
 import { formatBRL } from "@/lib/format";
 import { Link, useLocation } from "@/lib/router";
@@ -46,15 +49,15 @@ export function SidebarAccounts() {
       {banks.map((b) => (
         <div key={b.connection?.itemId ?? b.institution} className="flex flex-col gap-0.5">
           {b.manual ? (
-            <span className="flex min-h-8 items-center text-[14px] leading-5 font-semibold" title="Typed in by you">
-              {b.institution}
-            </span>
+            <Tooltip label="Typed in by you">
+              <span className="flex min-h-8 items-center self-start text-[14px] leading-5 font-semibold">{b.institution}</span>
+            </Tooltip>
           ) : (
             <SyncStatus compact institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.short ?? "never"} />
           )}
           {b.accounts.map((a) => {
             const here = path === `/accounts/${a.id}`;
-            return (
+            const link = (
               <Link
                 key={a.id}
                 to={`/accounts/${a.id}`}
@@ -65,9 +68,17 @@ export function SidebarAccounts() {
                   here ? "bg-tinta-soft font-semibold text-tinta hover:text-tinta" : "text-ink-muted hover:bg-paper-sunken hover:text-ink",
                 )}
               >
-                <span className="truncate" title={a.manual ? a.name : undefined}>{a.manual ? a.name : a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
+                <span className="truncate">{a.manual ? a.name : a.type === "credit_card" ? "Card" : typeName[a.type]}</span>
                 <Amount cents={a.balanceCents} size="sm" tone={here ? "ink" : "auto"} />
               </Link>
+            );
+            // A name typed in may not fit the sidebar.
+            return a.manual ? (
+              <Tooltip key={a.id} label={a.name} side="right">
+                {link}
+              </Tooltip>
+            ) : (
+              link
             );
           })}
         </div>
@@ -81,38 +92,57 @@ export function SidebarAccounts() {
 
 /** The same on a phone, as a panel at the top of Transactions. */
 export function AccountsPanel({ banks }: { banks: Bank[] }) {
+  const [open, setOpen] = useState(false);
   if (banks.length === 0) return null;
+  // Closed, the one connection that needs attention shows on the summary line,
+  // read as the sidebar reads it: a bank with no connection has never synced.
+  const health = (b: Bank) => (b.manual ? "ok" : (b.connection?.health ?? "stale"));
+  const worst = banks.find((b) => health(b) === "reauth") ?? banks.find((b) => health(b) === "stale");
+  const reauth = worst && health(worst) === "reauth";
+  const WorstIcon = reauth ? Link2Off : TriangleAlert;
   return (
     // Folded by default, so the month and the list come first on a phone.
-    <details className="group rounded-md border border-rule bg-paper-raised lg:hidden">
-      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-5 py-2 type-heading [&::-webkit-details-marker]:hidden">
-        Accounts · {banks.reduce((n, b) => n + b.accounts.length, 0)}
-        <ChevronRight className="size-4 text-ink-muted transition-transform group-open:rotate-90" aria-hidden />
-      </summary>
-      <div className="flex flex-col gap-3 px-5 pb-4">
-        {banks.map((b, i) => (
-          <div key={b.connection?.itemId ?? b.institution} className={i < banks.length - 1 ? "flex flex-col gap-1 border-b border-rule pb-3" : "flex flex-col gap-1"}>
-            {b.manual ? (
-              <span className="flex min-h-10 items-center text-[15px] leading-[22px] font-semibold">{b.institution}</span>
-            ) : (
-              <SyncStatus institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.detail ?? "Not synced yet"} />
-            )}
-            {b.accounts.map((a) => (
-              <Link
-                key={a.id}
-                to={`/accounts/${a.id}`}
-                className="flex min-h-11 items-center justify-between gap-2 pl-10 text-[14px] leading-5 text-ink no-underline hover:text-ink"
-              >
-                <span className="text-ink-muted">{a.manual ? a.name : typeName[a.type]}</span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Amount cents={a.balanceCents} />
-                  <ChevronRight className="size-3.5 text-ink-muted" aria-hidden />
-                </span>
-              </Link>
-            ))}
-          </div>
-        ))}
-      </div>
-    </details>
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="group rounded-md border border-rule bg-paper-raised lg:hidden">
+      <Collapsible.Trigger className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-md border-0 bg-transparent px-5 py-2 text-left text-ink focus-visible:focus-ring">
+        <span className="type-heading">Accounts · {banks.reduce((n, b) => n + b.accounts.length, 0)}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          {!open && worst && (
+            <span className={cn("inline-flex min-w-0 items-center gap-1.5 type-caption font-semibold", reauth ? "text-danger" : "text-warning")}>
+              <WorstIcon className="size-3.5 flex-none" aria-hidden />
+              <span className="truncate">
+                {worst.institution} {worst.connection?.short ?? "never"}
+              </span>
+            </span>
+          )}
+          <ChevronDown className="size-4 flex-none text-ink-muted transition-transform duration-[160ms] group-data-[state=open]:rotate-180" aria-hidden />
+        </span>
+      </Collapsible.Trigger>
+      <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-[lt-collapse_160ms_ease-in] data-[state=open]:animate-[lt-expand_160ms_ease-out]">
+        <div className="flex flex-col gap-3 border-t border-rule px-5 pt-3 pb-4">
+          {banks.map((b, i) => (
+            <div key={b.connection?.itemId ?? b.institution} className={i < banks.length - 1 ? "flex flex-col gap-1 border-b border-rule pb-3" : "flex flex-col gap-1"}>
+              {b.manual ? (
+                <span className="flex min-h-10 items-center text-[15px] leading-[22px] font-semibold">{b.institution}</span>
+              ) : (
+                <SyncStatus institution={b.institution} state={b.connection?.health ?? "stale"} detail={b.connection?.detail ?? "Not synced yet"} />
+              )}
+              {b.accounts.map((a) => (
+                <Link
+                  key={a.id}
+                  to={`/accounts/${a.id}`}
+                  className="flex min-h-11 items-center justify-between gap-2 pl-10 text-[14px] leading-5 text-ink no-underline hover:text-ink"
+                >
+                  <span className="text-ink-muted">{a.manual ? a.name : typeName[a.type]}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Amount cents={a.balanceCents} />
+                    <ChevronRight className="size-3.5 text-ink-muted" aria-hidden />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ))}
+        </div>
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
 }
