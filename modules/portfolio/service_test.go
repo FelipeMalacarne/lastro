@@ -305,3 +305,69 @@ func TestGroupsFromMarkedLots(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncHistories(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	s.now = func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) }
+	day := func(s string) time.Time { d, _ := time.Parse(time.DateOnly, s); return d }
+	q := func(s string) *Quantity { x, _ := ParseQuantity(s); return &x }
+	cents := func(c int64) *money.Money { m := money.BRLCents(c); return &m }
+	issued := day("2025-09-10")
+	cdb := History{
+		Report: Report{ExternalID: "cdb", Item: "it", Institution: "Nubank", Kind: KindFixedIncome, Name: "CDB", Indexer: IndexerCDI,
+			Rate: money.FromBps(12000), Invested: cents(300000), Value: money.BRLCents(0), Active: false},
+		Issued: &issued,
+		Movements: []Movement{
+			{ExternalID: "m1", Date: issued, Kind: MoveBuy, Quantity: q("300000"), Amount: money.BRLCents(300000), Net: cents(300000)},
+			{ExternalID: "m2", Date: day("2026-04-02"), Kind: MoveSell, Quantity: q("300000"), Amount: money.BRLCents(331000), Net: cents(326500)},
+		},
+	}
+	stock := History{
+		Report: Report{ExternalID: "stock", Item: "it", Institution: "Nubank", Kind: KindStock, Name: "WEGE3", Value: money.BRLCents(500000), Active: true},
+		Movements: []Movement{{ExternalID: "m3", Date: day("2025-05-12"), Kind: MoveTransferIn, Amount: money.BRLCents(160000)}},
+	}
+	stock.Ticker, _ = NewTicker("WEGE3")
+	if n, err := s.SyncHistories(ctx, "it", []History{cdb, stock}); err != nil || n != 2 {
+		t.Fatalf("sync: %d %v", n, err)
+	}
+
+	// A read that brought no movements keeps the ones stored.
+	cdb.Movements = nil
+	if _, err := s.SyncHistories(ctx, "it", []History{cdb}); err != nil {
+		t.Fatal(err)
+	}
+	hs, err := s.Histories(ctx)
+	if err != nil || len(hs) != 2 {
+		t.Fatalf("histories: %+v %v", hs, err)
+	}
+	got := hs[0]
+	if got.ExternalID != "cdb" || got.Active || got.Issued == nil || !got.Issued.Equal(issued) || got.Invested.Cents() != 300000 || got.Rate.Bps() != 12000 || len(got.Movements) != 2 {
+		t.Fatalf("the withdrawn CDB is kept with its movements: %+v", got)
+	}
+	if m := got.Movements[1]; m.Kind != MoveSell || m.Quantity.Micro() != 300000_000000 || m.Amount.Cents() != 331000 || m.Net.Cents() != 326500 {
+		t.Errorf("the withdrawal: %+v", m)
+	}
+	if m := hs[1].Movements[0]; hs[1].Ticker.String() != "WEGE3" || m.Kind != MoveTransferIn || m.Quantity != nil {
+		t.Errorf("a transfer in without a quantity: %+v %+v", hs[1], m)
+	}
+
+	// A movement that read again changed replaces the old one.
+	stock.Movements = []Movement{{ExternalID: "m3", Date: day("2025-05-13"), Kind: MoveTransferIn, Amount: money.BRLCents(160000)}}
+	if _, err := s.SyncHistories(ctx, "it", []History{stock}); err != nil {
+		t.Fatal(err)
+	}
+	if hs, _ := s.Histories(ctx); len(hs[1].Movements) != 1 || hs[1].Movements[0].Date.Format(time.DateOnly) != "2025-05-13" {
+		t.Errorf("replaced: %+v", hs[1].Movements)
+	}
+
+	bad := stock
+	bad.Movements = []Movement{{ExternalID: "m9", Date: day("2025-05-13"), Kind: "gift", Amount: money.BRLCents(1)}}
+	if _, err := s.SyncHistories(ctx, "it", []History{bad}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an unknown kind is refused: %v", err)
+	}
+	if _, err := s.SyncHistories(ctx, "other", []History{stock}); err == nil {
+		t.Error("a history of another item is refused")
+	}
+}

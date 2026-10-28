@@ -14,11 +14,12 @@
 - `Value` (domain service): the open lots on a day, group by group, a stock or ETF at the latest quote when it is newer than its bank's report; each group goes to its class but for the part set apart as the emergency fund. `Return` is the modified Dietz return between two valuations, with what was put in minus what was taken out (at value) counted for half the period. A class's flows include its closed positions.
 - `PlanContribution` (the contribution planner): takes each class's value, the targets, the band and the amount. Classes below their band come first, up to the band's lower edge; what is left goes to every class under its target in proportion to its gap; once every gap is closed, the rest follows the targets. A class above its target gets nothing.
 - `HeldHistory`: how many shares of each ticker were held on each valued day (`Valuate` writes them). `Earned` counts each dividend at the shares held on its com date, only from the first valued day on and only once the com date has passed. `Dropped` tells whether a close fell at least a price alert's threshold from the one before.
+- `History`: what an investment did, as its bank reports it: what it is (a `Report`), the day it was bought (fixed income) and its `Movement`s (buy, sell, transfer in or out, tax, income, amortization; a gross amount never negative, the net when sent, the quantity when sent). Kept for every investment, also one fully withdrawn before lastro knew it, which never becomes a `Position`: the days before the first sync are rebuilt from these. A read without movements keeps the ones stored.
 - `Thesis`: a stock's one-line thesis, what would break it and its next earnings report. `Purchase`: a planned buy (when, what, how much, on what condition), marked done or cancelled by hand.
 
 ## Flow
 
-`lastrod sync` reads the banks, `ingest` calls `SyncPositions` per item (what an item stops reporting closes), then `market` refreshes the quotes of the tickers held and `Valuate` stores the day: each class's value and basis, and the net worth with cash and card bills from `ledger`. The history starts at the first sync.
+`lastrod sync` reads the banks, `ingest` calls `SyncPositions` per item (what an item stops reporting closes) and `SyncHistories` with each investment's movements, then `market` refreshes the quotes of the tickers held and `Valuate` stores the day: each class's value and basis, and the net worth with cash and card bills from `ledger`. The history starts at the first sync.
 
 ## Invariants
 

@@ -134,7 +134,7 @@ The history starts at the first sync, so returns over 12 months, the comparison 
 
 - [x] `lastrod fixtures` downloads each investment's transactions (`GET /investments/{id}/transactions`), reports them in aggregate and anonymizes them
 - [x] Spike with my connection: the anonymized dump in `testdata/meupluggy`, now with each investment's transactions, and the "Confirmed" column of `docs/pluggy.md` (CDBs reconcile, stocks do not, movements arrive weeks late)
-- [ ] `ingest`: the sync stores investment transactions as raw records and hands them, with each investment's issue date and amount first invested, to `portfolio`
+- [x] `ingest`: the sync stores investment transactions as raw records and hands them, with each investment's issue date and amount first invested, to `portfolio` (`portfolio.histories` and `portfolio.movements`)
 - [ ] `portfolio`: fixed income before the first sync, lot by lot: from its issue date at the amount first invested, less each withdrawal, valued at cost plus the CDI or IPCA accrued at its rate; a backfill through `lastrod` that never overwrites a valued day and marks the rebuilt ones as estimates
 - [ ] `portfolio`: stocks and ETFs before the first sync, from their movements and the ledger's purchases of variable income, valued at the day's close
 - [ ] Net worth on the rebuilt days, with cash from the ledger's daily balance and the card bills

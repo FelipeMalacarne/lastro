@@ -77,6 +77,80 @@ func mapInvestment(inv pluggy.Investment, item, institution string, at time.Time
 	return r, nil
 }
 
+// mapHistory turns an investment and its transactions into what portfolio
+// keeps to rebuild the days before the first sync. Pluggy sends every
+// amount positive; the type, and for a transfer the movement type, says
+// the direction.
+func mapHistory(inv pluggy.Investment, txs []pluggy.InvestmentTransaction, item, institution string, at time.Time) (portfolio.History, error) {
+	r, err := mapInvestment(inv, item, institution, at)
+	if err != nil {
+		return portfolio.History{}, err
+	}
+	h := portfolio.History{Report: r, Movements: make([]portfolio.Movement, 0, len(txs))}
+	if inv.IssueDate != "" {
+		if d, err := parseDate(inv.IssueDate); err == nil {
+			h.Issued = &d
+		}
+	}
+	for _, t := range txs {
+		m, err := mapMovement(t)
+		if err != nil {
+			return portfolio.History{}, fmt.Errorf("investment %s: %w", inv.ID, err)
+		}
+		h.Movements = append(h.Movements, m)
+	}
+	return h, nil
+}
+
+func mapMovement(t pluggy.InvestmentTransaction) (portfolio.Movement, error) {
+	m := portfolio.Movement{ExternalID: t.ID}
+	switch t.Type {
+	case "BUY":
+		m.Kind = portfolio.MoveBuy
+	case "SELL":
+		m.Kind = portfolio.MoveSell
+	case "TRANSFER":
+		m.Kind = portfolio.MoveTransferIn
+		if t.MovementType == "DEBIT" {
+			m.Kind = portfolio.MoveTransferOut
+		}
+	case "TAX":
+		m.Kind = portfolio.MoveTax
+	case "INTEREST":
+		m.Kind = portfolio.MoveIncome
+	case "AMORTIZATION":
+		m.Kind = portfolio.MoveAmortization
+	default:
+		return portfolio.Movement{}, fmt.Errorf("%w: investment transaction of type %q", errUnsupported, t.Type)
+	}
+	d, err := parseDate(t.Date)
+	if err != nil {
+		return portfolio.Movement{}, err
+	}
+	m.Date = d
+	amount, err := parseCents(cmpNumber(t.Amount, "0"))
+	if err != nil {
+		return portfolio.Movement{}, err
+	}
+	m.Amount = money.BRLCents(abs(amount))
+	if t.NetAmount != "" {
+		net, err := parseCents(t.NetAmount)
+		if err != nil {
+			return portfolio.Movement{}, err
+		}
+		n := money.BRLCents(abs(net))
+		m.Net = &n
+	}
+	if t.Quantity != "" {
+		q, err := portfolio.ParseQuantity(strings.TrimPrefix(string(t.Quantity), "-"))
+		if err != nil {
+			return portfolio.Movement{}, err
+		}
+		m.Quantity = &q
+	}
+	return m, nil
+}
+
 func kindOfInvestment(inv pluggy.Investment) portfolio.Kind {
 	switch inv.Type {
 	case "FIXED_INCOME":

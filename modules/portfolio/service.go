@@ -76,6 +76,34 @@ func (s *Service) SyncPositions(ctx context.Context, item string, reports []Repo
 	return len(touched), nil
 }
 
+// SyncHistories keeps what each of an item's investments did, for
+// rebuilding the days before the first sync. An investment read without
+// movements keeps the ones it had: an empty read is not a removal.
+func (s *Service) SyncHistories(ctx context.Context, item string, hs []History) (int, error) {
+	for _, h := range hs {
+		if h.Item != item {
+			return 0, fmt.Errorf("portfolio: sync histories: %s belongs to %s, not %s", h.ExternalID, h.Item, item)
+		}
+		if err := h.validate(); err != nil {
+			return 0, fmt.Errorf("portfolio: sync histories: %w", err)
+		}
+	}
+	if err := s.repo.saveHistories(ctx, hs, s.now()); err != nil {
+		return 0, fmt.Errorf("portfolio: sync histories: %w", err)
+	}
+	return len(hs), nil
+}
+
+// Histories are every investment's movements, also those withdrawn before
+// lastro knew them.
+func (s *Service) Histories(ctx context.Context) ([]History, error) {
+	hs, err := s.repo.histories(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("portfolio: histories: %w", err)
+	}
+	return hs, nil
+}
+
 // Tickers are the open positions' tickers, for the market to quote.
 func (s *Service) Tickers(ctx context.Context) ([]string, error) {
 	ps, err := s.repo.positions(ctx)

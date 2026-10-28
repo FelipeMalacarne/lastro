@@ -13,6 +13,7 @@ import (
 	"lastro/modules/ingest/internal/fixtures"
 	"lastro/modules/ingest/internal/pluggy"
 	"lastro/modules/ledger"
+	"lastro/modules/portfolio"
 	"lastro/money"
 	"lastro/platform/db/dbtest"
 	"lastro/platform/events"
@@ -54,6 +55,26 @@ func (f *fakePluggy) Transactions(_ context.Context, accountID string, from time
 
 func (f *fakePluggy) Investments(_ context.Context, itemID string) ([]pluggy.Investment, error) {
 	return f.set.Investments[itemID], nil
+}
+
+func (f *fakePluggy) InvestmentTransactions(_ context.Context, investmentID string) ([]pluggy.InvestmentTransaction, error) {
+	return f.set.InvestmentTransactions[investmentID], nil
+}
+
+// positionsRecorder stands for portfolio: it keeps what the sync hands over.
+type positionsRecorder struct {
+	reports   int
+	histories []portfolio.History
+}
+
+func (p *positionsRecorder) SyncPositions(_ context.Context, _ string, reports []portfolio.Report) (int, error) {
+	p.reports = len(reports)
+	return len(reports), nil
+}
+
+func (p *positionsRecorder) SyncHistories(_ context.Context, _ string, hs []portfolio.History) (int, error) {
+	p.histories = hs
+	return len(hs), nil
 }
 
 func newSync(t *testing.T) (*Service, *fakePluggy, *ledger.Service) {
@@ -228,6 +249,8 @@ func TestSyncMeuPluggyFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake.set = set
+	rec := &positionsRecorder{}
+	s.positions = rec
 	s.itemIDs = []string{set.Items[0].ID}
 	s.now = func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) }
 
@@ -238,6 +261,19 @@ func TestSyncMeuPluggyFixtures(t *testing.T) {
 	it := rep.Items[0]
 	if it.Institution != "Nubank" || it.Accounts != 2 || it.Created != 549 || it.Skipped != 0 || it.Investments != 115 || rep.Paired != 22 {
 		t.Fatalf("first sync of the real connection: %+v, paired %d", it, rep.Paired)
+	}
+	if it.Movements != 178 || len(rec.histories) != 115 {
+		t.Errorf("every investment goes to portfolio with its movements: %d movements, %d histories", it.Movements, len(rec.histories))
+	}
+
+	// Reprocessing hands over the same movements, from the raw records.
+	rec.histories = nil
+	rep, err = s.Sync(ctx, SyncOptions{Reprocess: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rep.Items[0]; got.Movements != 178 || len(rec.histories) != 115 {
+		t.Errorf("reprocess: %d movements, %d histories", got.Movements, len(rec.histories))
 	}
 	rep, err = s.Sync(ctx, SyncOptions{})
 	if err != nil {
