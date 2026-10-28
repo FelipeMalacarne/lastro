@@ -1,0 +1,19 @@
+[
+  {
+    "agreedRate": null,
+    "amount": 2800,
+    "brokerageNumber": null,
+    "date": "2025-12-11T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "ef21bb4e-b7fe-4e93-a19d-d30f04cabd5c",
+    "indexerPercentage": null,
+    "movementType": "CREDIT",
+    "netAmount": 2800,
+    "priceFactor": null,
+    "quantity": 280000,
+    "tradeDate": "2025-12-11T00:00:00.000Z",
+    "type": "BUY",
+    "value": 0.01
+  }
+]

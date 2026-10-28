@@ -35,8 +35,9 @@ func TestMapInvestments(t *testing.T) {
 	}
 }
 
-// My own Nubank: 37 active CDBs, 3 stocks, 2 ETFs and a Tesouro bond come
-// through; the 72 fully withdrawn CDBs close.
+// My own Nubank: 37 active CDBs, 5 stocks and a Tesouro bond come through;
+// the 72 fully withdrawn CDBs close. Two of the stocks are ETFs Nubank
+// sends as stocks, which portfolio's Classify puts in their class.
 func TestMapMeuPluggyInvestments(t *testing.T) {
 	s, err := fixtures.Load("testdata/meupluggy")
 	if err != nil {
@@ -60,11 +61,11 @@ func TestMapMeuPluggyInvestments(t *testing.T) {
 			}
 		}
 	}
-	if active != 43 || kinds[portfolio.KindFixedIncome] != 37 || kinds[portfolio.KindStock] != 3 || kinds[portfolio.KindETF] != 2 || kinds[portfolio.KindTreasury] != 1 {
+	if active != 43 || kinds[portfolio.KindFixedIncome] != 37 || kinds[portfolio.KindStock] != 5 || kinds[portfolio.KindETF] != 0 || kinds[portfolio.KindTreasury] != 1 {
 		t.Errorf("active %d, kinds %v", active, kinds)
 	}
-	// The anonymizer scrambles codes, so only the stocks' still read as tickers.
-	if tickers != 3 {
-		t.Errorf("%d stocks with a ticker, want 3", tickers)
+	// The anonymizer scrambles codes keeping their shape, so they still read as tickers.
+	if tickers != 5 {
+		t.Errorf("%d stocks with a ticker, want 5", tickers)
 	}
 }

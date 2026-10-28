@@ -114,6 +114,7 @@ type Investment struct {
 	Rate         json.Number     `json:"rate"`            // % of the index: 100 is 100% of CDI
 	FixedRate    json.Number     `json:"fixedAnnualRate"` // % a year, over IPCA or on its own
 	Date         string          `json:"date"`
+	IssueDate    string          `json:"issueDate"` // fixed income: when it was bought
 	DueDate      string          `json:"dueDate"`
 	Status       string          `json:"status"`
 	RateType     string          `json:"rateType"`

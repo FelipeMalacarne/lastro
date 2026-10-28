@@ -1,0 +1,36 @@
+[
+  {
+    "agreedRate": null,
+    "amount": 16.1,
+    "brokerageNumber": null,
+    "date": "2025-07-05T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "37eb03a2-9f4d-4b47-9bd7-8356b31a657e",
+    "indexerPercentage": null,
+    "movementType": "CREDIT",
+    "netAmount": 16.1,
+    "priceFactor": null,
+    "quantity": 1610,
+    "tradeDate": "2025-07-05T00:00:00.000Z",
+    "type": "BUY",
+    "value": 0.01
+  },
+  {
+    "agreedRate": null,
+    "amount": 18.21,
+    "brokerageNumber": null,
+    "date": "2026-05-28T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "ebe17724-bd3a-4407-96a0-8b5a553a2029",
+    "indexerPercentage": null,
+    "movementType": "DEBIT",
+    "netAmount": 17.79,
+    "priceFactor": null,
+    "quantity": 1609.889498,
+    "tradeDate": "2026-05-28T00:00:00.000Z",
+    "type": "SELL",
+    "value": 0.00792
+  }
+]

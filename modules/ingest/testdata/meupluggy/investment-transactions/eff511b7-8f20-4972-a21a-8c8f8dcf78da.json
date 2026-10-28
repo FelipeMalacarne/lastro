@@ -1,0 +1,19 @@
+[
+  {
+    "agreedRate": null,
+    "amount": 296.79,
+    "brokerageNumber": null,
+    "date": "2025-03-21T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "d6061191-cbfe-4d2a-90b3-7660f3b000a0",
+    "indexerPercentage": null,
+    "movementType": "DEBIT",
+    "netAmount": 294.43,
+    "priceFactor": null,
+    "quantity": 28631.627285,
+    "tradeDate": "2025-03-21T00:00:00.000Z",
+    "type": "SELL",
+    "value": 0.007256
+  }
+]

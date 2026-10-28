@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
@@ -122,5 +123,87 @@ func TestMeuPluggyFixtures(t *testing.T) {
 	// came from elsewhere and stay unpaired bill payments, never counted.
 	if len(paired) != 44 || bills != 44 {
 		t.Errorf("want the 22 bill payments paired on both sides, got %d paired, %d bill payments", len(paired), bills)
+	}
+}
+
+// What the net worth before the first sync can be rebuilt from: each
+// investment's movements, as Nubank sends them over Open Finance.
+func TestMeuPluggyInvestmentTransactions(t *testing.T) {
+	s, err := fixtures.Load("testdata/meupluggy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rat := func(n string) *big.Rat {
+		r, ok := new(big.Rat).SetString(n)
+		if !ok {
+			return new(big.Rat)
+		}
+		return r
+	}
+	types := map[string]int{}
+	var n, cdbsChecked, withdrawnWithoutSell, recentWithout, olderWithout int
+	for _, inv := range s.Investments[s.Items[0].ID] {
+		txs := s.InvestmentTransactions[inv.ID]
+		held, sold := new(big.Rat), false
+		var firstBuy string
+		for _, tx := range txs {
+			n++
+			types[tx.Type]++
+			switch tx.Type {
+			case "BUY":
+				held.Add(held, rat(tx.Quantity.String()))
+				if firstBuy == "" || tx.Date < firstBuy {
+					firstBuy = tx.Date
+				}
+			case "SELL":
+				held.Sub(held, rat(tx.Quantity.String()))
+				sold = true
+			}
+			if tx.Date[:10] != tx.TradeDate[:10] {
+				t.Errorf("%s: made %s, settled %s", tx.ID, tx.Date, tx.TradeDate)
+			}
+		}
+		if inv.Subtype != "CDB" {
+			continue
+		}
+		switch {
+		case inv.Status == "TOTAL_WITHDRAWAL":
+			if !sold {
+				withdrawnWithoutSell++
+			}
+		case len(txs) == 0:
+			if inv.IssueDate >= "2026-09-01" {
+				recentWithout++
+			} else {
+				olderWithout++
+			}
+		case firstBuy != "":
+			// A CDB is bought on its issue date, and what it holds is
+			// what was bought less what was withdrawn.
+			if firstBuy[:10] != inv.IssueDate[:10] {
+				t.Errorf("%s: first bought %s, issued %s", inv.ID, firstBuy, inv.IssueDate)
+			}
+			diff := new(big.Rat).Sub(held, rat(inv.Quantity.String()))
+			if f, _ := diff.Abs(diff).Float64(); f > 0.001 {
+				t.Errorf("%s: bought less withdrawn is %s, holds %s", inv.ID, held.FloatString(6), inv.Quantity)
+			}
+			cdbsChecked++
+		}
+	}
+	// No INTEREST: dividends do not come this way. TRANSFER is a stock
+	// moved in from another broker, with an amount and no quantity.
+	if n != 178 || types["BUY"] != 88 || types["SELL"] != 88 || types["TRANSFER"] != 2 || len(types) != 3 {
+		t.Errorf("%d movements, by type %v", n, types)
+	}
+	if cdbsChecked != 26 {
+		t.Errorf("%d active CDBs with a purchase reconciled, want 26", cdbsChecked)
+	}
+	// Movements arrive weeks late, and some never do: the CDBs bought
+	// since September have none yet; of the older ones without any, two were
+	// bought before the history starts and one in May; two withdrawn ones
+	// lack their withdrawal. The issue date and the amount first invested
+	// are what is left for those.
+	if recentWithout != 7 || olderWithout != 3 || withdrawnWithoutSell != 2 {
+		t.Errorf("CDBs without movements: %d recent, %d older; withdrawn without a SELL %d", recentWithout, olderWithout, withdrawnWithoutSell)
 	}
 }

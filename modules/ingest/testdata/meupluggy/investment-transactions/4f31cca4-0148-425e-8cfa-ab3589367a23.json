@@ -1,0 +1,19 @@
+[
+  {
+    "agreedRate": null,
+    "amount": 19.23,
+    "brokerageNumber": null,
+    "date": "2026-05-28T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "4590e936-6446-409a-98e6-3f905adeb529",
+    "indexerPercentage": null,
+    "movementType": "DEBIT",
+    "netAmount": 18.68,
+    "priceFactor": null,
+    "quantity": 1609.708647,
+    "tradeDate": "2026-05-28T00:00:00.000Z",
+    "type": "SELL",
+    "value": 0.008362
+  }
+]

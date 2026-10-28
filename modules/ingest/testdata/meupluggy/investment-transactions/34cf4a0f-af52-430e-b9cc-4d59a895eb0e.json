@@ -1,0 +1,19 @@
+[
+  {
+    "agreedRate": null,
+    "amount": 16.1,
+    "brokerageNumber": null,
+    "date": "2026-06-05T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "e7d7707d-d0a8-42e6-be55-e5532a066d19",
+    "indexerPercentage": null,
+    "movementType": "CREDIT",
+    "netAmount": 16.1,
+    "priceFactor": null,
+    "quantity": 1610,
+    "tradeDate": "2026-06-05T00:00:00.000Z",
+    "type": "BUY",
+    "value": 0.01
+  }
+]

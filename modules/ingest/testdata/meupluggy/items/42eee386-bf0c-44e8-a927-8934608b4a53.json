@@ -34,7 +34,7 @@
     "supportsScheduledPayments": false,
     "supportsSmartTransfers": false,
     "type": "PERSONAL_BANK",
-    "updatedAt": "2026-10-27T02:47:20.128Z"
+    "updatedAt": "2026-10-28T04:27:20.433Z"
   },
   "consecutiveFailedLoginAttempts": 0,
   "consentExpiresAt": "2027-04-10T01:36:24.048Z",
@@ -42,9 +42,9 @@
   "error": null,
   "executionStatus": "SUCCESS",
   "hasResourcesPendingAuthorization": false,
-  "id": "acf0f404-e187-4681-9bb1-7aa574015a74",
-  "lastUpdatedAt": "2026-10-27T03:01:10.411Z",
-  "nextAutoSyncAt": "2026-10-28T03:01:10.411Z",
+  "id": "42eee386-bf0c-44e8-a927-8934608b4a53",
+  "lastUpdatedAt": "2026-10-27T14:47:29.927Z",
+  "nextAutoSyncAt": "2026-10-28T14:47:29.927Z",
   "oauthRedirectUri": null,
   "parameter": null,
   "products": [
@@ -52,10 +52,10 @@
     "CREDIT_CARDS",
     "TRANSACTIONS"
   ],
-  "resourcesCollectedAt": "2026-10-27T03:00:07.264Z",
+  "resourcesCollectedAt": "2026-10-27T14:47:24.739Z",
   "status": "UPDATED",
   "statusDetail": null,
-  "updatedAt": "2026-10-27T03:01:10.417Z",
+  "updatedAt": "2026-10-27T14:47:29.953Z",
   "userAction": null,
   "webhookUrl": null
 }
