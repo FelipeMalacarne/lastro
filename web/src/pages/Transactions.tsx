@@ -3,7 +3,7 @@ import { ChevronDown, Search, X } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { CategoryTag } from "@/components/CategoryTag";
-import { DayBars } from "@/components/charts/DayBars";
+import { DayBars, dayValue, type Measure } from "@/components/charts/DayBars";
 import { Kbd } from "@/components/Kbd";
 import { SyncNotice } from "@/components/SyncNotice";
 import { Panel } from "@/components/Panel";
@@ -69,24 +69,26 @@ export function Transactions() {
     return () => clearTimeout(t);
   }, [search, q]);
 
-  const url = useMemo(() => {
+  // The list and the month's chart read the same filters; only the list narrows to a day.
+  const filters = useMemo(() => {
     const p = new URLSearchParams({ month });
-    if (day) p.set("day", day);
     if (account) p.set("account", account);
     if (category) p.set("category", category);
     if (flow !== "all") p.set("flow", flow);
     if (q) p.set("q", q);
     if (tag) p.set("tag", tag);
-    if (everyMonth) p.set("scope", "all");
-    return "/api/v1/transactions?" + p.toString();
-  }, [month, day, account, category, flow, q, tag, everyMonth]);
-  const res = useResource<TransactionList>(url);
-  const days = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`);
+    return p.toString();
+  }, [month, account, category, flow, q, tag]);
+  const res = useResource<TransactionList>(`/api/v1/transactions?${filters}${day ? `&day=${day}` : ""}${everyMonth ? "&scope=all" : ""}`);
+  const days = useResource<DaysView>(`/api/v1/transactions/days?${filters}`);
 
-  // While a new filter loads, keep showing the last list instead of flashing empty.
+  // While a new filter loads, keep showing the last list and month instead of flashing empty.
   const last = useRef<TransactionList | undefined>(undefined);
   if (res.data) last.current = res.data;
   const list = res.data ?? last.current;
+  const lastDays = useRef<DaysView | undefined>(undefined);
+  if (days.data) lastDays.current = days.data;
+  const daysData = days.data ?? (lastDays.current?.month === month ? lastDays.current : undefined);
 
   // The detail moves through the list: newer above, older below.
   const ids = list?.transactions.map((t) => t.id) ?? [];
@@ -113,7 +115,8 @@ export function Transactions() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tx, prev, next]);
 
-  const filtered = Boolean(account || category || flow !== "all" || q || tag || day);
+  const byFilters = Boolean(account || category || flow !== "all" || q || tag);
+  const filtered = byFilters || Boolean(day);
   const currentCategory = category === "none" ? null : cats.byId.get(category);
   const monthName = formatMonth(month).split(" ")[0];
   const caption = list
@@ -127,6 +130,20 @@ export function Transactions() {
   const accounts = banks.flatMap((b) => b.accounts);
   const currentAccount = accounts.find((a) => a.id === account);
   const noAccounts = !res.loading && accounts.length === 0 && banks.length === 0;
+  const following: Following | null = byFilters
+    ? {
+        category: category === "none" ? "none" : (currentCategory ?? undefined),
+        text: [
+          currentAccount && `${currentAccount.institution} ${typeLabel[currentAccount.type]}`,
+          q && `“${q}”`,
+          tag && `#${tag}`,
+          flow !== "all" && flowsWide.find((f) => f.value === flow)?.label,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      }
+    : null;
+  const clearFilters = () => navigate(hrefWith({ q: null, flow: null, account: null, category: null, tag: null, scope: null }), { replace: true });
 
   return (
     <>
@@ -148,8 +165,6 @@ export function Transactions() {
       <SyncNotice banks={banks} />
 
       <AccountsPanel banks={banks} />
-
-      {!everyMonth && <MonthOverview month={month} current={current} data={days.data} error={days.error} day={day} />}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
         <TextField
@@ -250,6 +265,20 @@ export function Transactions() {
 
       {tag && <TagSummary tag={tag} info={tags.find((t) => t.tag === tag)} byId={cats.byId} />}
 
+      {!everyMonth && (
+        <MonthOverview
+          month={month}
+          current={current}
+          data={daysData}
+          error={days.error}
+          day={day}
+          flow={flow}
+          following={following}
+          color={currentCategory ? `var(--${currentCategory.color})` : undefined}
+          onClear={clearFilters}
+        />
+      )}
+
       {day && (
         <div className="flex flex-wrap items-center gap-2 text-[14px] leading-5">
           <span className="text-ink-muted">Showing</span>
@@ -336,39 +365,133 @@ function TagSummary({ tag, info, byId }: { tag: string; info?: TagView; byId: Ma
   );
 }
 
-/** The month at a glance: what counts, day by day, against the month before. */
-function MonthOverview({ month, current, data, error, day }: { month: string; current: string; data?: DaysView; error?: string; day: string | null }) {
+/** What the list and the month follow, said back above the figures. */
+type Following = { category?: Category | "none"; text: string };
+
+const measureOf: Record<Flow, Measure> = { all: "spent", out: "spent", in: "in", transfer: "moved" };
+const measureLead: Record<Measure, string> = {
+  spent: "Spending only: transfers between your accounts and card bills never count.",
+  in: "Money in that counts: income and refunds. Transfers from your own accounts never count.",
+  moved: "Moved, not counted: transfers out of your accounts and card bills paid.",
+};
+const measureColor: Record<Measure, string> = { spent: "var(--ink)", in: "var(--inflow)", moved: "var(--ink-muted)" };
+
+/**
+ * The month at a glance: what counts, day by day, against the month before,
+ * both under the list's filters (canvas: "Transactions: the month chart and
+ * its figures follow the filters"). The type picks the figure the chart
+ * draws; with a filter on, a figure at zero in both months is left out.
+ */
+function MonthOverview({
+  month,
+  current,
+  data,
+  error,
+  day,
+  flow,
+  following,
+  color,
+  onClear,
+}: {
+  month: string;
+  current: string;
+  data?: DaysView;
+  error?: string;
+  day: string | null;
+  flow: Flow;
+  following: Following | null;
+  color?: string;
+  onClear: () => void;
+}) {
   const monthName = formatMonth(month).split(" ")[0];
   const prevName = formatMonth(addMonths(month, -1)).split(" ")[0];
+  const measure = measureOf[flow];
   const s = data?.summary;
-  let delta: { text: string; tone: "inflow" | "warning" | "muted" } | undefined;
-  if (s && s.previousToDateCents > 0) {
-    const diff = s.previousToDateCents - s.spentCents;
-    const by = month === current ? `than by ${Number(todayISO().slice(8))} ${prevName.slice(0, 3)}` : `than ${prevName}`;
-    delta = diff === 0 ? { text: `The same as ${prevName}`, tone: "muted" } : { text: `${formatBRL(Math.abs(diff))} ${diff > 0 ? "less" : "more"} ${by}`, tone: diff > 0 ? "inflow" : "warning" };
+  const by = month === current ? `than by ${Number(todayISO().slice(8))} ${prevName.slice(0, 3)}` : `than ${prevName}`;
+  function delta(now: number, before: number, m: Measure): { text: string; tone: "inflow" | "warning" | "muted" } | undefined {
+    if (before <= 0) return undefined;
+    const diff = before - now;
+    if (diff === 0) return { text: `The same as ${prevName}`, tone: "muted" };
+    const tone = m === "spent" ? (diff > 0 ? "inflow" : "warning") : m === "in" && diff < 0 ? "inflow" : "muted";
+    return { text: `${formatBRL(Math.abs(diff))} ${diff > 0 ? "less" : "more"} ${by}`, tone };
   }
+  const total = (m: Measure) => (data?.previous ?? []).reduce((t, d) => t + dayValue(d, m), 0);
+  const purchases = (data?.days ?? []).reduce((t, d) => t + d.purchases, 0);
+  const lead = flow === "all" ? "spent" : measure;
+  const figures = s
+    ? [
+        {
+          m: "spent" as const,
+          label: "Spent",
+          now: s.spentCents,
+          cents: -s.spentCents,
+          toDate: s.previousToDateCents,
+          sign: "negative" as const,
+          tone: "ink" as const,
+          caption: following ? `${purchases} ${purchases === 1 ? "purchase" : "purchases"}` : undefined,
+        },
+        { m: "in" as const, label: "Came in", now: s.inCents, cents: s.inCents, toDate: s.previousInToDateCents, sign: "always" as const, tone: "inflow" as const, caption: "Income and refunds" },
+        {
+          m: "moved" as const,
+          label: "Moved, not counted",
+          now: s.movedCents,
+          cents: s.movedCents,
+          toDate: s.previousMovedToDateCents,
+          sign: "none" as const,
+          tone: "muted" as const,
+          caption: "Transfers out and card bills paid",
+        },
+      ].filter((f) => (flow === "all" ? !following || f.now !== 0 || total(f.m) !== 0 : f.m === measure))
+    : [];
+  const nothing = following && data && [...data.days, ...data.previous].every((d) => !d.spentCents && !d.inCents && !d.movedCents);
   return (
     <Panel
       title={month === current ? `${monthName} so far` : formatMonth(month)}
-      footer="Spending only: transfers between your accounts and card bills never count. A day far above the rest is cut at the dotted line, with its figure on top. Select a day to list it."
+      footer={`${measureLead[measure]}${following ? ` ${prevName} follows the same filters.` : ""} A day far above the rest is cut at the dotted line, with its figure on top. Select a day to list it.`}
     >
       {error && !data && <p className="m-0 type-body text-ink-muted">Could not load the month: {error}.</p>}
       {!data && !error && <p className="m-0 type-body text-ink-muted">Loading the month…</p>}
       {data && s && (
         <div className="flex flex-col gap-5">
-          <div className="flex flex-wrap gap-x-10 gap-y-4">
-            <Stat label="Spent" cents={-s.spentCents} delta={delta} />
-            <Stat label="Came in" cents={s.inCents} sign="always" tone="inflow" caption="Income and refunds" />
-            <Stat label="Moved, not counted" cents={s.movedCents} sign="none" tone="muted" caption="Transfers out and card bills paid" />
-          </div>
-          <DayBars
-            month={month}
-            days={data.days}
-            previous={data.previous}
-            today={todayISO()}
-            selected={day}
-            onSelect={(d) => navigate(hrefWith({ day: d, tx: null }), { replace: true })}
-          />
+          {following && (
+            <div className="-mt-1 flex flex-wrap items-center gap-2 text-[14px] leading-5">
+              <span className="text-ink-muted">Following the filters:</span>
+              {following.category === "none" ? <CategoryTag review /> : following.category && <CategoryTag name={following.category.name} color={following.category.color} />}
+              {following.text && (
+                <strong className="font-semibold">
+                  {following.category && "· "}
+                  {following.text}
+                </strong>
+              )}
+              <Button variant="ghost" size="sm" onClick={onClear}>
+                <X aria-hidden />
+                Clear filters
+              </Button>
+            </div>
+          )}
+          {nothing ? (
+            <p className="m-0 type-body text-ink-muted">
+              Nothing like this in {monthName} or {prevName}.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-x-10 gap-y-4">
+                {figures.map((f) => (
+                  <Stat key={f.m} label={f.label} cents={f.cents} sign={f.sign} tone={f.tone} delta={f.m === lead ? delta(f.now, f.toDate, f.m) : undefined} caption={f.caption} />
+                ))}
+              </div>
+              <DayBars
+                month={month}
+                days={data.days}
+                previous={data.previous}
+                today={todayISO()}
+                selected={day}
+                onSelect={(d) => navigate(hrefWith({ day: d, tx: null }), { replace: true })}
+                measure={measure}
+                color={color ?? measureColor[measure]}
+              />
+            </>
+          )}
         </div>
       )}
     </Panel>

@@ -52,7 +52,9 @@ type Repository interface {
 	// DescriptionMonths counts the transactions that count with a
 	// description (ignoring case), by month, in [from, to).
 	DescriptionMonths(ctx context.Context, description string, from, to time.Time) ([]MonthTotal, error)
-	DaySpending(ctx context.Context, from, to time.Time) ([]DayView, error)
+	// DaySpending sums the filter's live transactions by day in [from, to),
+	// whatever the filter's own month and day.
+	DaySpending(ctx context.Context, f TransactionFilter, from, to time.Time) ([]DayView, error)
 	// Categorizable returns the ones among ids that automation may
 	// categorize; Uncategorized, every one of those still without a category.
 	Categorizable(ctx context.Context, ids []TransactionID) ([]Categorizable, error)
@@ -638,18 +640,22 @@ func (s *Service) Transaction(ctx context.Context, id TransactionID) (Transactio
 	return d, nil
 }
 
-// Days returns a month's spending day by day, every account together, with
-// the month before. PreviousToDate compares like with like: for the month
-// in progress, the month before up to the same day.
-func (s *Service) Days(ctx context.Context, month time.Time) (DaysView, error) {
-	from := monthOf(month)
-	to := from.AddDate(0, 1, 0)
+// Days returns the filter's month day by day, every account together unless
+// it names one, with the month before under the same filter. It is always
+// the whole month: the filter's day only narrows the list. PreviousToDate
+// compares like with like: for the month in progress, the month before up
+// to the same day.
+func (s *Service) Days(ctx context.Context, f TransactionFilter) (DaysView, error) {
+	if f.Month.IsZero() || f.AllMonths {
+		return DaysView{}, fmt.Errorf("%w: days are one month's", ErrInvalid)
+	}
+	from, to := f.MonthRange()
 	prevFrom := from.AddDate(0, -1, 0)
-	days, err := s.repo.DaySpending(ctx, from, to)
+	days, err := s.repo.DaySpending(ctx, f, from, to)
 	if err != nil {
 		return DaysView{}, fmt.Errorf("ledger: days %s: %w", from.Format("2006-01"), err)
 	}
-	prev, err := s.repo.DaySpending(ctx, prevFrom, from)
+	prev, err := s.repo.DaySpending(ctx, f, prevFrom, from)
 	if err != nil {
 		return DaysView{}, fmt.Errorf("ledger: days %s: %w", from.Format("2006-01"), err)
 	}
@@ -666,6 +672,8 @@ func (s *Service) Days(ctx context.Context, month time.Time) (DaysView, error) {
 	for _, d := range prev {
 		if day, _ := time.Parse(time.DateOnly, d.Date); day.Day() <= cutoff {
 			v.Summary.PreviousToDateCents += d.SpentCents
+			v.Summary.PreviousInToDateCents += d.InCents
+			v.Summary.PreviousMovedToDateCents += d.MovedCents
 		}
 	}
 	return v, nil
