@@ -50,7 +50,21 @@ type LineStatus struct {
 	// the pace: rent paid on the 5th is not spending ahead of the month.
 	Fixed money.Money
 	Pace  Pace
+	// Balances are a fund's balance at the end of each of the last six
+	// months, this one included as it stands; a month it was not a fund is
+	// left out. Nil for a limit.
+	Balances []MonthBalance
 }
+
+// MonthBalance is a fund's balance at a month's end.
+type MonthBalance struct {
+	Month   Month
+	Balance money.Money
+}
+
+// balanceMonths is how many months a fund's balance history shows, this one
+// included.
+const balanceMonths = 6
 
 // Tracking is a month's budget against its spending.
 type Tracking struct {
@@ -137,7 +151,7 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 	}
 	t.Saved = t.From == m
 
-	carry := carried(saved, spending, adjusted, m)
+	carry, ends := carried(saved, spending, adjusted, m)
 	var avail, spent int64
 	var funds struct{ amount, carried, adjusted, spent, kept int64 }
 	for _, l := range b.Lines() {
@@ -166,6 +180,14 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 			st.Pace = PaceOver
 		case !l.IsFund() && a-f > 0 && (s-f)*10000/(a-f) > t.Elapsed.Bps()+aheadBy:
 			st.Pace = PaceAhead // a fund's spending comes in lumps: it is never ahead
+		}
+		if l.IsFund() {
+			for k := m.Add(1 - balanceMonths); k.Before(m); k = k.Add(1) {
+				if end, ok := ends[k][l.ID]; ok {
+					st.Balances = append(st.Balances, MonthBalance{Month: k, Balance: money.BRLCents(end)})
+				}
+			}
+			st.Balances = append(st.Balances, MonthBalance{Month: m, Balance: st.Left})
 		}
 		t.Lines = append(t.Lines, st)
 		if l.IsFund() {
@@ -207,11 +229,12 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 // month, a limit that rolls over passes on what it has left, never a debt,
 // and one that does not passes on nothing; a fund passes on its balance
 // after its monthly amount, adjustment and spending, debt included. What a
-// line carries follows its id, whatever categories it covers.
-func carried(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustments, m Month) map[LineID]int64 {
-	carry := map[LineID]int64{}
+// line carries follows its id, whatever categories it covers. ends is each
+// fund's balance at the end of every month walked.
+func carried(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustments, m Month) (carry map[LineID]int64, ends map[Month]map[LineID]int64) {
+	carry, ends = map[LineID]int64{}, map[Month]map[LineID]int64{}
 	if len(saved) == 0 {
-		return carry
+		return carry, ends
 	}
 	for k := saved[0].month; k.Before(m); k = k.Add(1) {
 		b, ok := Effective(saved, k)
@@ -224,13 +247,17 @@ func carried(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjus
 			switch {
 			case l.IsFund():
 				next[l.ID] = left + adjusted.of(k, l.ID)
+				if ends[k] == nil {
+					ends[k] = map[LineID]int64{}
+				}
+				ends[k][l.ID] = next[l.ID]
 			case l.Rollover && left > 0:
 				next[l.ID] = left
 			}
 		}
 		carry = next
 	}
-	return carry
+	return carry, ends
 }
 
 // intake is what a line takes of what it carried: a fund all of it, debt

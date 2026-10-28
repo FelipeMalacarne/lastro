@@ -295,7 +295,7 @@ function MonthSoFar({ v, days, isCurrent, byId }: { v: BudgetMonth; days: DaysVi
   // Where the income went: pay yourself first, spending by category, what the limits still hold, the rest.
   const segments: { key: string; label: string; cents: number; color: string }[] = [];
   if (pyf.movedCents > 0) segments.push({ key: "pyf", label: "Pay yourself first", cents: pyf.movedCents, color: "var(--ink)" });
-  const spend = [...v.categories.flatMap((c) => c.byCategory.map((p) => ({ id: p.category as string | null, cents: p.spentCents }))), ...v.unlimited.map((u) => ({ id: u.category, cents: u.spentCents }))]
+  const spend = [...v.lines.flatMap((c) => c.byCategory.map((p) => ({ id: p.category as string | null, cents: p.spentCents }))), ...v.unlimited.map((u) => ({ id: u.category, cents: u.spentCents }))]
     .filter((s) => s.cents > 0)
     .sort((a, b) => b.cents - a.cents);
   for (const s of spend) {
@@ -402,7 +402,7 @@ function Legend({ color, dashed, children }: { color?: string; dashed?: boolean;
 /** Each category's spending against its 6-month average, with one sentence on what stands out. */
 function ByCategory({ v, byId, isCurrent }: { v: BudgetMonth; byId: Map<string, Category>; isCurrent: boolean }) {
   const rows = [
-    ...v.categories.flatMap((c) => c.byCategory.map((p) => ({ id: p.category as string | null, spent: p.spentCents, avg: p.averageCents }))),
+    ...v.lines.flatMap((c) => c.byCategory.map((p) => ({ id: p.category as string | null, spent: p.spentCents, avg: p.averageCents }))),
     ...v.unlimited.map((u) => ({ id: u.category, spent: u.spentCents, avg: u.averageCents })),
   ]
     .filter((r) => r.spent > 0 || r.avg > 0)

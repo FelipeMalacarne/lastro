@@ -176,12 +176,12 @@ func TestBudgetMonth(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, _ = w.budget.Month(ctx, oct)
-	if !v.Saved || category(t, v, w.cats["Groceries"]).LimitCents != 70000 || len(v.Categories) != 1 || v.PayYourselfFirst.PlannedCents != 200000 {
-		t.Errorf("October after the change: saved %v %+v", v.Saved, v.Categories)
+	if !v.Saved || category(t, v, w.cats["Groceries"]).LimitCents != 70000 || len(v.Lines) != 1 || v.PayYourselfFirst.PlannedCents != 200000 {
+		t.Errorf("October after the change: saved %v %+v", v.Saved, v.Lines)
 	}
 	av, _ := w.budget.Month(ctx, aug)
-	if category(t, av, w.cats["Groceries"]).LimitCents != 80000 || len(av.Categories) != 2 {
-		t.Errorf("August changed: %+v", av.Categories)
+	if category(t, av, w.cats["Groceries"]).LimitCents != 80000 || len(av.Lines) != 2 {
+		t.Errorf("August changed: %+v", av.Lines)
 	}
 
 	rec, err := w.budget.Recurring(ctx)
@@ -225,7 +225,7 @@ func TestAlertsAreSentOnce(t *testing.T) {
 // category is the line that covers a category.
 func category(t *testing.T, v MonthView, c ledger.CategoryID) LineView {
 	t.Helper()
-	for _, x := range v.Categories {
+	for _, x := range v.Lines {
 		for _, p := range x.ByCategory {
 			if p.Category == c.String() {
 				return x
@@ -255,8 +255,8 @@ func TestCopyAndReplaceLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Categories) != 1 || v.Categories[0].Category != fun.String() || !v.Saved || !v.PrevDiffers {
-		t.Fatalf("after SetLimits: %d categories, saved %v, prevDiffers %v", len(v.Categories), v.Saved, v.PrevDiffers)
+	if len(v.Lines) != 1 || v.Lines[0].ByCategory[0].Category != fun.String() || !v.Saved || !v.PrevDiffers {
+		t.Fatalf("after SetLimits: %d categories, saved %v, prevDiffers %v", len(v.Lines), v.Saved, v.PrevDiffers)
 	}
 	if err := w.budget.SetLimits(ctx, oct, []Line{one(w.cats["Income"], 1, false)}); !errors.Is(err, ErrNotBudgeted) {
 		t.Errorf("a limit on Income: %v, want ErrNotBudgeted", err)
@@ -267,8 +267,8 @@ func TestCopyAndReplaceLimits(t *testing.T) {
 		t.Fatalf("CopyLimits = %d, %v", n, err)
 	}
 	v, _ = w.budget.Month(ctx, oct)
-	if len(v.Categories) != 1 || v.Categories[0].Category != food.String() || v.Categories[0].LimitCents != 120000 || !v.Categories[0].Rollover || v.PrevDiffers {
-		t.Fatalf("after copying September: %+v, prevDiffers %v", v.Categories, v.PrevDiffers)
+	if len(v.Lines) != 1 || v.Lines[0].ByCategory[0].Category != food.String() || v.Lines[0].LimitCents != 120000 || !v.Lines[0].Rollover || v.PrevDiffers {
+		t.Fatalf("after copying September: %+v, prevDiffers %v", v.Lines, v.PrevDiffers)
 	}
 	if _, err := w.budget.CopyLimits(ctx, oct, month(t, "2025-01")); !errors.Is(err, ErrInvalid) {
 		t.Errorf("copying a month without a budget: %v, want ErrInvalid", err)
@@ -376,10 +376,10 @@ func TestSharedLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Categories) != 1 {
-		t.Fatalf("October's lines: %+v", v.Categories)
+	if len(v.Lines) != 1 {
+		t.Fatalf("October's lines: %+v", v.Lines)
 	}
-	l := v.Categories[0]
+	l := v.Lines[0]
 	// September left 300 of 1.000; October spends 1.000 and 150.
 	if l.ID != free.String() || l.Name == nil || *l.Name != "Free to spend" || l.CarriedCents != 30000 || l.SpentCents != 115000 || l.LeftCents != 15000 || l.Count != 3 {
 		t.Errorf("the line: %+v", l)
@@ -395,8 +395,8 @@ func TestSharedLine(t *testing.T) {
 		t.Errorf("unlimited: %+v", v.Unlimited)
 	}
 	sv, _ := w.budget.Month(ctx, sep)
-	if len(sv.Categories) != 2 || category(t, sv, bar).LimitCents != 20000 {
-		t.Errorf("September keeps Restaurants' own limit: %+v", sv.Categories)
+	if len(sv.Lines) != 2 || category(t, sv, bar).LimitCents != 20000 {
+		t.Errorf("September keeps Restaurants' own limit: %+v", sv.Lines)
 	}
 
 	// Copying September back gives Restaurants its limit again, and the
@@ -406,7 +406,7 @@ func TestSharedLine(t *testing.T) {
 	}
 	v, _ = w.budget.Month(ctx, oct)
 	if l := category(t, v, fun); l.ID != free.String() || len(l.ByCategory) != 2 || category(t, v, bar).LimitCents != 20000 {
-		t.Errorf("after copying September: %+v", v.Categories)
+		t.Errorf("after copying September: %+v", v.Lines)
 	}
 
 	if err := w.budget.RemoveLine(ctx, oct, free); err != nil {
@@ -517,8 +517,8 @@ func TestLineRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Categories) != 1 || v.Categories[0].ID != made.ID || *v.Categories[0].Name != "Free" || len(v.Categories[0].ByCategory) != 3 || v.LimitsCents != 120000 {
-		t.Errorf("October: %+v", v.Categories)
+	if len(v.Lines) != 1 || v.Lines[0].ID != made.ID || *v.Lines[0].Name != "Free" || len(v.Lines[0].ByCategory) != 3 || v.LimitsCents != 120000 {
+		t.Errorf("October: %+v", v.Lines)
 	}
 
 	// Every line at once, in the shape that takes several categories.
@@ -527,8 +527,8 @@ func TestLineRoutes(t *testing.T) {
 		t.Errorf("PUT limits: %d %s", rec.Code, rec.Body.String())
 	}
 	v, _ = w.budget.Month(context.Background(), month(t, "2026-10"))
-	if len(v.Categories) != 2 || category(t, v, w.cats["Leisure"]).ID != made.ID || category(t, v, w.cats["Restaurants"]).LimitCents != 20000 {
-		t.Errorf("after PUT limits: %+v", v.Categories)
+	if len(v.Lines) != 2 || category(t, v, w.cats["Leisure"]).ID != made.ID || category(t, v, w.cats["Restaurants"]).LimitCents != 20000 {
+		t.Errorf("after PUT limits: %+v", v.Lines)
 	}
 
 	if rec := do(http.MethodDelete, line, ""); rec.Code != http.StatusNoContent {

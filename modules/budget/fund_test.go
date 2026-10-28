@@ -222,3 +222,31 @@ func TestFindAlertsForFunds(t *testing.T) {
 		t.Errorf("a fund's one alert is going into the red, never unusual: %+v", got)
 	}
 }
+
+// A fund's balance at each month's end, for its history: the months it was
+// a fund among the last six, this one as it stands.
+func TestFundBalances(t *testing.T) {
+	car, food := cat(t, "car"), cat(t, "food")
+	budgets := months(t, map[string][]Line{"2026-08": {fund(car, 30000), one(food, 80000, false)}})
+	spending := spend(t, map[string]map[string]int64{
+		"2026-09": {"car": 200000},
+		"2026-11": {"car": -90000},
+	})
+	tr := Track(budgets, spending, nil, month(t, "2026-11"), now, nil)
+	var got []string
+	for _, b := range find(t, tr, "car").Balances {
+		got = append(got, b.Month.String()+" "+b.Balance.String())
+	}
+	want := []string{"2026-08 R$ 300,00", "2026-09 -R$ 1.400,00", "2026-10 -R$ 1.100,00", "2026-11 R$ 100,00"}
+	if len(got) != len(want) {
+		t.Fatalf("balances %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("balance %d = %s, want %s", i, got[i], want[i])
+		}
+	}
+	if find(t, tr, "food").Balances != nil {
+		t.Error("a limit has no balances")
+	}
+}
