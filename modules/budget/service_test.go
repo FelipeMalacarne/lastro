@@ -303,3 +303,28 @@ func TestPayYourselfFirstIsNetOfRedemptions(t *testing.T) {
 		t.Errorf("contribution %d", v.Summary.ContributionCents)
 	}
 }
+
+// Money that comes in under a spending category is a refund: it lowers
+// that category's spending and is not income, or it would count twice.
+func TestRefundIsNotIncome(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.load(t, map[string]string{"SALARIO": "Income", "SEGURO": "Transport"}, []tx{
+		{"2026-10-01", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-10-03", "SEGURO AUTO", -100000, ""},
+		{"2026-10-06", "TRANSFERENCIA RECEBIDA SEGURO AUTO", 40000, ledger.KindIncome},
+		{"2026-10-07", "PIX RECEBIDO SEM REGRA", 20000, ledger.KindIncome},
+	})
+	oct, _ := ParseMonth("2026-10")
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The uncategorized Pix stays income: nothing says it is a refund.
+	if v.IncomeCents != 1020000 || v.IncomeCount != 2 {
+		t.Errorf("income %d from %d, want 1.020.000 from 2", v.IncomeCents, v.IncomeCount)
+	}
+	if v.Summary.SpentCents != 60000 || v.Summary.SavingsRateBp != (1020000-60000)*10000/1020000 {
+		t.Errorf("summary %+v", v.Summary)
+	}
+}
