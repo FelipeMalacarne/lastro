@@ -128,6 +128,16 @@ lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clie
 - [x] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed (lastro does not start without a provider outside dev) and ADR-0004 superseded
 - [ ] The Claude connector in use from the phone, with the pre-registered `lastro-claude` (and whether Zitadel needs it on Basic or POST)
 
+## Net worth before the first sync
+
+The history starts at the first sync, so returns over 12 months, the comparison with CDI and inflation, the scoreboard and the net worth in the monthly report stay empty for a year. Open Finance holds the movements behind each investment; rebuilding the days before the first sync from them fills those now. A rebuilt day is an estimate and says so.
+
+- [x] `lastrod fixtures` downloads each investment's transactions (`GET /investments/{id}/transactions`), reports them in aggregate and anonymizes them
+- [ ] Spike with my connection: run `lastrod fixtures`, commit the anonymized investment transactions to `testdata/meupluggy` and fill the "Confirmed" column of `docs/pluggy.md` (needs me)
+- [ ] `ingest`: the sync stores investment transactions as raw records and hands them to `portfolio`
+- [ ] `portfolio`: each lot's quantity and cost day by day from its transactions; stocks and ETFs valued at the day's close, fixed income at cost plus the CDI or IPCA accrued; a backfill through `lastrod` that never overwrites a day that was valued, and marks the rebuilt ones as estimates
+- [ ] Net worth on the rebuilt days, with cash from the ledger's daily balance and the card bills
+
 ## Parked
 
 - A phone app (Native client with PKCE in Zitadel, the API already accepts its tokens).

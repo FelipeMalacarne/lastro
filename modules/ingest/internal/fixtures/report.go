@@ -40,7 +40,57 @@ func Report(w io.Writer, s Set, now time.Time) {
 			kinds[inv.Type+"/"+cmp.Or(inv.Subtype, "-")+" "+cmp.Or(inv.Status, "-")]++
 		}
 		p("  investments: %d, by type:%s", len(invs), histogram(kinds))
+		reportInvestmentTransactions(p, invs, s.InvestmentTransactions)
 	}
+}
+
+// reportInvestmentTransactions says whether the movements behind the
+// investments came through: how many, of which types, over which dates,
+// and whether the fully withdrawn ones carry the withdrawal.
+func reportInvestmentTransactions(p func(string, ...any), invs []pluggy.Investment, byInvestment map[string][]pluggy.InvestmentTransaction) {
+	types, movements := map[string]int{}, map[string]int{}
+	var n, with, closed, closedWithSell, net, expenses int
+	var first, last string
+	for _, inv := range invs {
+		txs := byInvestment[inv.ID]
+		if len(txs) > 0 {
+			with++
+		}
+		sold := false
+		for _, t := range txs {
+			n++
+			types[cmp.Or(t.Type, "(none)")]++
+			movements[cmp.Or(t.MovementType, "(none)")]++
+			d := day(t.Date)
+			if first == "" || d < first {
+				first = d
+			}
+			if d > last {
+				last = d
+			}
+			if t.NetAmount != "" {
+				net++
+			}
+			if len(t.Expenses) > 0 && string(t.Expenses) != "null" {
+				expenses++
+			}
+			sold = sold || t.Type == "SELL"
+		}
+		if inv.Status == "TOTAL_WITHDRAWAL" {
+			closed++
+			if sold {
+				closedWithSell++
+			}
+		}
+	}
+	p("  investment transactions: %d, on %d of %d investments", n, with, len(invs))
+	if n == 0 {
+		return
+	}
+	p("    dates: %s to %s", first, last)
+	p("    by type:%s; movement types:%s", histogram(types), histogram(movements))
+	p("    with netAmount: %d; with expenses: %d", net, expenses)
+	p("    fully withdrawn investments with a SELL: %d of %d", closedWithSell, closed)
 }
 
 func reportAccount(p func(string, ...any), n int, a pluggy.Account, txs []pluggy.Transaction, now time.Time) {

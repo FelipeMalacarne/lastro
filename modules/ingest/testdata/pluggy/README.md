@@ -7,6 +7,8 @@ items/<item id>.json           GET /items/{id}
 accounts/<item id>.json        GET /accounts?itemId= (the results)
 transactions/<account id>.json GET /v2/transactions?accountId= (every page)
 investments/<item id>.json     GET /investments?itemId= (every page)
+investment-transactions/<investment id>.json
+                               GET /investments/{id}/transactions (every page)
 ```
 
 Two sets live in `testdata`:

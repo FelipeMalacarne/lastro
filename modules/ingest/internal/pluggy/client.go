@@ -186,6 +186,33 @@ func (c *Client) Investments(ctx context.Context, itemID string) ([]Investment, 
 	}
 }
 
+// InvestmentTransactions returns every movement of an investment, reading
+// all pages. Pluggy takes no date filter here.
+func (c *Client) InvestmentTransactions(ctx context.Context, investmentID string) ([]InvestmentTransaction, error) {
+	var out []InvestmentTransaction
+	for page := 1; ; page++ {
+		var resp struct {
+			TotalPages int               `json:"totalPages"`
+			Results    []json.RawMessage `json:"results"`
+		}
+		q := url.Values{"page": {strconv.Itoa(page)}, "pageSize": {"500"}}
+		if err := c.get(ctx, "/investments/"+url.PathEscape(investmentID)+"/transactions?"+q.Encode(), &resp); err != nil {
+			return nil, fmt.Errorf("pluggy: investment transactions: %w", err)
+		}
+		for _, raw := range resp.Results {
+			t, err := decode[InvestmentTransaction](raw)
+			if err != nil {
+				return nil, fmt.Errorf("pluggy: investment transactions: %w", err)
+			}
+			t.Raw = raw
+			out = append(out, t)
+		}
+		if page >= resp.TotalPages {
+			return out, nil
+		}
+	}
+}
+
 // get calls a read endpoint and decodes the JSON body into out. It renews the
 // API key once on 401 and waits out up to maxRateLimitRetries 429 answers.
 func (c *Client) get(ctx context.Context, path string, out any) error {

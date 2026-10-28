@@ -57,9 +57,9 @@ func newAnonymizer(key []byte, factorPercent int64) *Anonymizer {
 // Dir anonymizes every file of a dump into dst, keeping the layout. File
 // names are ids, so they are pseudonymized too.
 func (a *Anonymizer) Dir(src, dst string) error {
-	for _, kind := range []string{"items", "accounts", "transactions", "investments"} {
+	for _, kind := range []string{"items", "accounts", "transactions", "investments", "investment-transactions"} {
 		err := eachFile(src, kind, func(name string, b []byte) error {
-			a.investments = kind == "investments"
+			a.investments = kind == "investments" || kind == "investment-transactions"
 			out, err := a.JSON(b)
 			a.investments = false
 			if err != nil {
@@ -98,13 +98,16 @@ var amountKeys = set("amount", "amountInAccountCurrency", "balance", "totalAmoun
 	"closingBalance", "automaticallyInvestedBalance", "overdraftContractedLimit", "overdraftUsedLimit",
 	"unarrangedOverdraftAmount", "quantity", "amountOriginal", "amountProfit", "amountWithdrawal",
 	"taxes", "taxes2", "baseAmount", "interestAmount", "penaltyAmount", "discountAmount", "usedAmount",
-	"limitAmount", "customizedLimitAmount", "availableAmount")
+	"limitAmount", "customizedLimitAmount", "availableAmount", "netAmount",
+	// an investment transaction's expenses
+	"serviceTax", "brokerageFee", "incomeTax", "other", "tradingAssetsNoticeFee", "maintenanceFee",
+	"settlementFee", "clearingFee", "stockExchangeFee", "custodyFee", "operatingFee")
 
 // Keys whose values identify an account, a document or a record.
 var idKeys = set("id", "itemId", "accountId", "billId", "providerId", "providerCode", "referenceNumber",
 	"receiverReferenceId", "transferNumber", "number", "cardNumber", "accountNumber", "branchNumber",
 	"identificationNumber", "digitableLine", "barcode", "taxNumber", "cnpj", "cpf", "value",
-	"proposalNumber", "processNumber", "clientUserId", "issuerCNPJ")
+	"proposalNumber", "processNumber", "clientUserId", "issuerCNPJ", "brokerageNumber")
 
 // Keys of an investment that identify the asset: scrambled keeping their
 // shape, so "PETR4" stays four letters and a digit and an ISIN stays an ISIN.

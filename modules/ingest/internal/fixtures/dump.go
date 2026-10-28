@@ -7,6 +7,8 @@
 //	accounts/<item id>.json        its accounts
 //	transactions/<account id>.json every transaction of the account
 //	investments/<item id>.json     its investments
+//	investment-transactions/<investment id>.json
+//	                               every movement of the investment
 package fixtures
 
 import (
@@ -54,6 +56,15 @@ func Dump(ctx context.Context, c *pluggy.Client, itemIDs []string, dir string) e
 		if err := writeJSON(dir, "investments", id, raws(invs, func(i pluggy.Investment) json.RawMessage { return i.Raw })); err != nil {
 			return err
 		}
+		for _, inv := range invs {
+			txs, err := c.InvestmentTransactions(ctx, inv.ID)
+			if err != nil {
+				return err
+			}
+			if err := writeJSON(dir, "investment-transactions", inv.ID, raws(txs, func(t pluggy.InvestmentTransaction) json.RawMessage { return t.Raw })); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -86,6 +97,8 @@ type Set struct {
 	Accounts     map[string][]pluggy.Account     // by item id
 	Transactions map[string][]pluggy.Transaction // by account id
 	Investments  map[string][]pluggy.Investment  // by item id
+	// InvestmentTransactions are by investment id.
+	InvestmentTransactions map[string][]pluggy.InvestmentTransaction
 }
 
 // Load reads a dump or a fixtures directory.
@@ -94,6 +107,8 @@ func Load(dir string) (Set, error) {
 		Accounts:     map[string][]pluggy.Account{},
 		Transactions: map[string][]pluggy.Transaction{},
 		Investments:  map[string][]pluggy.Investment{},
+
+		InvestmentTransactions: map[string][]pluggy.InvestmentTransaction{},
 	}
 	err := eachFile(dir, "items", func(name string, b []byte) error {
 		var it pluggy.Item
@@ -122,6 +137,13 @@ func Load(dir string) (Set, error) {
 		err = eachFile(dir, "investments", func(name string, b []byte) error {
 			v, err := decodeList[pluggy.Investment](b, func(i *pluggy.Investment, r json.RawMessage) { i.Raw = r })
 			s.Investments[name] = v
+			return err
+		})
+	}
+	if err == nil {
+		err = eachFile(dir, "investment-transactions", func(name string, b []byte) error {
+			v, err := decodeList[pluggy.InvestmentTransaction](b, func(t *pluggy.InvestmentTransaction, r json.RawMessage) { t.Raw = r })
+			s.InvestmentTransactions[name] = v
 			return err
 		})
 	}

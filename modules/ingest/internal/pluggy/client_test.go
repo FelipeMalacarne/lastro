@@ -157,6 +157,29 @@ func TestInvestmentsReadEveryPage(t *testing.T) {
 	}
 }
 
+func TestInvestmentTransactionsReadEveryPage(t *testing.T) {
+	f, c := newFake(t)
+	f.HandleFunc("GET /investments/{id}/transactions", f.authorized(func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "i1" {
+			http.NotFound(w, r)
+			return
+		}
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = w.Write([]byte(`{"page":1,"totalPages":2,"results":[{"id":"t1","type":"BUY","quantity":10,"value":12.5,"amount":125,"date":"2025-03-10T00:00:00.000Z","tradeDate":"2025-03-12T00:00:00.000Z"}]}`))
+		case "2":
+			_, _ = w.Write([]byte(`{"page":2,"totalPages":2,"results":[{"id":"t2","type":"SELL","quantity":4,"value":15,"amount":60,"netAmount":59.2,"date":"2026-01-05T00:00:00.000Z","tradeDate":"2026-01-07T00:00:00.000Z"}]}`))
+		}
+	}))
+	txs, err := c.InvestmentTransactions(context.Background(), "i1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(txs) != 2 || txs[0].Type != "BUY" || txs[1].NetAmount.String() != "59.2" || txs[1].TradeDate[:10] != "2026-01-07" || len(txs[1].Raw) == 0 {
+		t.Fatalf("got %+v", txs)
+	}
+}
+
 func TestWaitsOutRateLimits(t *testing.T) {
 	f, c := newFake(t)
 	var calls atomic.Int32
