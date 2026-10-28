@@ -94,7 +94,7 @@ type Funds struct {
 // broker, the bank's own investments) put aside for the long term: what
 // went out, minus what came back, minus what the funds kept, never below
 // zero. Redeeming one investment to buy another puts nothing aside, and
-// neither does filling a fund kept in a caixinha; redeeming it to pay what
+// neither does filling a fund kept invested; redeeming it to pay what
 // the fund was for takes nothing away (ADR-0011).
 func SetAside(out, back, kept money.Money) money.Money {
 	cents := out.Cents() - back.Cents() - kept.Cents()

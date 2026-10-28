@@ -110,7 +110,7 @@ What living with the app asked for. Each screen change starts on the canvas.
 - [x] Caixinha contributions grouped: lots of the same product are one row in Positions, classified together, and the emergency fund is an amount set apart from a group (canvas: "Positions: contributions grouped, the emergency fund as an amount")
 - [x] Pay yourself first counts what went to investments net of what came back, so redeeming an RDB to buy stocks puts nothing aside
 - [x] A transaction the bank never sent (a Pix Meu Pluggy missed) can be added by hand to a synced account; when the bank sends it later, lastro asks whether the two are the same instead of merging on its own (canvas: "A transaction the bank never sent")
-- [x] ADR-0011 and ADR-0012 accepted: funds that save up month by month in a caixinha, and a line that covers several categories (both amend ADR-0006)
+- [x] ADR-0011 and ADR-0012 accepted: funds that save up month by month, kept invested, and a line that covers several categories (both amend ADR-0006)
 - [x] `budget`: a line has an id of its own and covers one or more categories, a category in at most one line a month; today's lines migrate as one-category lines; tracking, alerts, copy, the API, the monthly report and MCP follow
 - [x] `budget`: a line is a limit or a fund; a fund carries its balance, debt included, and takes adjustments; the month's totals leave the funds out; pay yourself first nets what the funds kept; the `overdrawn` alert; the API and the monthly report follow
 - [ ] Budget: lines with several categories, broken down by category; funds with their balance and the month's totals without them; a line's editor with its categories, limit or fund, and the starting balance (canvas: "Budget: shared lines and funds")
