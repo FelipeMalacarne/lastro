@@ -190,16 +190,42 @@ GROUP BY 1
 ORDER BY 1;
 
 -- name: ListDaySpending :many
--- Every account's live transactions by day: spending (outflows that count),
--- money in that counts, and money moved (transfers out and card bills paid).
+-- Live transactions by day: spending (outflows that count), money in that
+-- counts, and money moved (transfers out and card bills paid). The filters
+-- are ListTransactionViews': under a category, a split counts its part.
 SELECT
     date,
-    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0), 0)::bigint AS spent_cents,
-    count(*) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0)::int AS purchases,
-    COALESCE(sum(amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents > 0), 0)::bigint AS in_cents,
-    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('transfer', 'bill_payment') AND amount_cents < 0), 0)::bigint AS moved_cents
-FROM ledger.transactions
-WHERE removed_at IS NULL AND date >= sqlc.arg(date_from)::date AND date < sqlc.arg(date_to)::date
+    COALESCE(sum(-cents) FILTER (WHERE kind IN ('expense', 'income') AND cents < 0), 0)::bigint AS spent_cents,
+    count(*) FILTER (WHERE kind IN ('expense', 'income') AND cents < 0)::int AS purchases,
+    COALESCE(sum(cents) FILTER (WHERE kind IN ('expense', 'income') AND cents > 0), 0)::bigint AS in_cents,
+    COALESCE(sum(-cents) FILTER (WHERE kind IN ('transfer', 'bill_payment') AND cents < 0), 0)::bigint AS moved_cents
+FROM (
+    SELECT
+        t.date, t.kind,
+        COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text), t.amount_cents)::bigint AS cents
+    FROM ledger.transactions t
+    WHERE t.removed_at IS NULL
+      AND t.date >= sqlc.arg(date_from)::date AND t.date < sqlc.arg(date_to)::date
+      AND (sqlc.narg(account_id)::uuid IS NULL OR t.account_id = sqlc.narg(account_id)::uuid)
+      AND (
+          sqlc.narg(category)::text IS NULL
+          OR (sqlc.narg(category)::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+          OR t.category_id = sqlc.narg(category)::text
+          OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = sqlc.narg(category)::text)
+      )
+      AND (sqlc.narg(tag)::text IS NULL OR sqlc.narg(tag)::text = ANY (t.tags))
+      AND (
+          sqlc.narg(flow)::text IS NULL
+          OR (sqlc.narg(flow)::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+          OR (sqlc.narg(flow)::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+          OR (sqlc.narg(flow)::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+      )
+      AND (
+          sqlc.narg(search)::text IS NULL
+          OR translate(lower(t.description || ' ' || t.note), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+             LIKE '%' || translate(lower(sqlc.narg(search)::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+      )
+) f
 GROUP BY date
 ORDER BY date;
 

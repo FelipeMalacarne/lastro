@@ -5,6 +5,9 @@ import type { DayView } from "@/lib/api";
 import { formatAxis, formatBRL, formatDay, formatWeekday, niceStep } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+/** What the bars measure: spending, money in that counts, or money moved. */
+export type Measure = "spent" | "in" | "moved";
+
 type Props = {
   month: string; // "2026-10"
   days: DayView[];
@@ -12,22 +15,33 @@ type Props = {
   today: string; // "2026-10-26"
   selected: string | null;
   onSelect: (day: string | null) => void;
+  measure?: Measure;
+  /** The bars' colour, a CSS colour: ink unless a filter gives one. */
+  color?: string;
 };
 
+const verbs: Record<Measure, string> = { spent: "spent", in: "came in", moved: "moved" };
+
+/** What a day adds up to in one measure; zero for a day without any. */
+export function dayValue(d: DayView | undefined, m: Measure): number {
+  return !d ? 0 : m === "in" ? d.inCents : m === "moved" ? d.movedCents : d.spentCents;
+}
+
 /**
- * A month's spending day by day, the month before's same day faint behind
- * each bar. A day far above the rest (rent) is cut at a dotted line with its
- * figure on top, so the other days stay readable. Click a day to list it.
+ * A month's spending (or money in, or money moved) day by day, the month
+ * before's same day faint behind each bar. A day far above the rest (rent)
+ * is cut at a dotted line with its figure on top, so the other days stay
+ * readable. Click a day to list it.
  */
-export function DayBars({ month, days, previous, today, selected, onSelect }: Props) {
+export function DayBars({ month, days, previous, today, selected, onSelect, measure = "spent", color = "var(--ink)" }: Props) {
   const [hover, setHover] = useState<string | null>(null);
   const [y, m] = month.split("-").map(Number);
   const count = new Date(y, m, 0).getDate();
-  const spent = new Map(days.map((d) => [d.date, d]));
-  const before = new Map(previous.map((d) => [Number(d.date.slice(8)), d.spentCents]));
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const before = new Map(previous.map((d) => [Number(d.date.slice(8)), dayValue(d, measure)]));
   const all = Array.from({ length: count }, (_, i) => {
     const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-    return { date, n: i + 1, v: spent.get(date)?.spentCents ?? 0, count: spent.get(date)?.purchases ?? 0, prev: before.get(i + 1) ?? 0, future: date > today };
+    return { date, n: i + 1, v: dayValue(byDate.get(date), measure), count: byDate.get(date)?.purchases ?? 0, prev: before.get(i + 1) ?? 0, future: date > today };
   });
 
   // The scale: the largest day, unless one day dwarfs the others; then a
@@ -47,6 +61,7 @@ export function DayBars({ month, days, previous, today, selected, onSelect }: Pr
   const shift = (hi + 0.5) / count < 0.12 ? "0" : (hi + 0.5) / count > 0.88 ? "-100%" : "-50%";
   const todayIndex = all.findIndex((d) => d.date === today);
   const prevName = new Date(y, m - 2, 1).toLocaleString("en", { month: "short" });
+  const verb = verbs[measure];
 
   return (
     <div className="flex flex-col gap-3">
@@ -66,7 +81,7 @@ export function DayBars({ month, days, previous, today, selected, onSelect }: Pr
                 type="button"
                 disabled={d.future}
                 aria-pressed={on}
-                aria-label={d.future ? `${formatDay(d.date)}: still to come` : `${formatDay(d.date)}: ${formatBRL(d.v, { sign: "none" })} spent`}
+                aria-label={d.future ? `${formatDay(d.date)}: still to come` : `${formatDay(d.date)}: ${formatBRL(d.v, { sign: "none" })} ${verb}`}
                 onClick={() => onSelect(on ? null : d.date)}
                 onMouseEnter={() => !d.future && setHover(d.date)}
                 onFocus={() => !d.future && setHover(d.date)}
@@ -74,7 +89,10 @@ export function DayBars({ month, days, previous, today, selected, onSelect }: Pr
                 className={cn("relative h-full rounded-xs focus-visible:focus-ring", !d.future && "cursor-pointer", on && "bg-tinta-soft")}
               >
                 <span className="absolute inset-x-0 bottom-0 rounded-t-xs bg-rule" style={{ height: h(d.prev) }} />
-                <span className={cn("absolute inset-x-[22%] bottom-0 rounded-t-xs max-lg:inset-x-[15%]", on || hover === d.date ? "bg-tinta" : "bg-ink")} style={{ height: h(d.v) }} />
+                <span
+                  className={cn("absolute inset-x-[22%] bottom-0 rounded-t-xs max-lg:inset-x-[15%]", (on || hover === d.date) && "bg-tinta")}
+                  style={{ height: h(d.v), background: on || hover === d.date ? undefined : color }}
+                />
                 {d.v > top && (
                   <span className="pointer-events-none absolute bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2 type-figure-sm whitespace-nowrap text-ink max-lg:left-0 max-lg:translate-x-0">
                     {formatAxis(d.v)}
@@ -105,17 +123,22 @@ export function DayBars({ month, days, previous, today, selected, onSelect }: Pr
             style={{ left: `calc((100% + 3px) * ${((hi + 0.5) / count).toFixed(4)} - 1.5px)`, transform: `translateX(${shift})` }}
           >
             <span className="type-caption text-ink-muted">{formatWeekday(hd.date)}</span>
-            <Amount cents={-hd.v} />
+            <Amount
+              cents={measure === "spent" ? -hd.v : hd.v}
+              sign={measure === "in" ? "always" : measure === "moved" ? "none" : "negative"}
+              tone={measure === "moved" ? "muted" : "auto"}
+            />
             <span className="type-caption text-ink-muted">
-              {hd.count} {hd.count === 1 ? "purchase" : "purchases"} · {hd.n} {prevName}: {formatBRL(hd.prev, { sign: "none" })}
+              {measure === "spent" && `${hd.count} ${hd.count === 1 ? "purchase" : "purchases"} · `}
+              {hd.n} {prevName}: {formatBRL(hd.prev, { sign: "none" })}
             </span>
           </div>
         )}
       </div>
       <div className="flex flex-wrap gap-4 type-caption text-ink-muted">
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-2.5 rounded-xs bg-ink" aria-hidden />
-          {new Date(y, m - 1, 1).toLocaleString("en", { month: "long" })}
+          <span className="size-2.5 rounded-xs" style={{ background: color }} aria-hidden />
+          {new Date(y, m - 1, 1).toLocaleString("en", { month: "long" })}, {verb}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2.5 rounded-xs bg-rule" aria-hidden />
