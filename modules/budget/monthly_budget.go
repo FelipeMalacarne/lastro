@@ -165,7 +165,7 @@ func (b *MonthlyBudget) SetLimit(c ledger.CategoryID, limit money.Money, rollove
 	case ok && l.Shared():
 		return fmt.Errorf("%w: change the line %q", ErrShared, l.Name)
 	case !ok:
-		l = Line{ID: newLineID(), Categories: []ledger.CategoryID{c}, Kind: KindLimit}
+		l = Line{ID: b.newID([]ledger.CategoryID{c}, nil), Categories: []ledger.CategoryID{c}, Kind: KindLimit}
 	}
 	l.Limit, l.Rollover = limit, rollover
 	b.lines[l.ID] = l.as(l, true)
@@ -191,7 +191,7 @@ func (b *MonthlyBudget) RemoveLimit(c ledger.CategoryID, now time.Time) (bool, e
 // AddLine adds a line with a new id and returns it. The categories it
 // takes leave the lines they were in, and a line left without any goes.
 func (b *MonthlyBudget) AddLine(l Line, now time.Time) (LineID, error) {
-	l.ID = newLineID()
+	l.ID = b.newID(l.Categories, nil)
 	if err := b.put(l, now); err != nil {
 		return LineID{}, err
 	}
@@ -267,6 +267,10 @@ func (b *MonthlyBudget) SetLimits(lines []Line, now time.Time) error {
 	next := make(map[LineID]Line, len(lines))
 	seen := map[ledger.CategoryID]bool{}
 	names := map[string]bool{}
+	given := map[LineID]bool{}
+	for _, l := range lines {
+		given[l.ID] = true
+	}
 	for _, l := range lines {
 		l, err := checked(l)
 		if err != nil {
@@ -287,7 +291,7 @@ func (b *MonthlyBudget) SetLimits(lines []Line, now time.Time) error {
 		if l.ID.IsZero() {
 			var ok bool
 			if l.ID, ok = b.idOf(l.Categories); !ok {
-				l.ID = newLineID()
+				l.ID = b.newID(l.Categories, func(id LineID) bool { _, taken := next[id]; return taken || given[id] })
 			}
 		}
 		had, ok := b.lines[l.ID]
@@ -327,6 +331,21 @@ func (b *MonthlyBudget) CopyLines(lines []Line, prev *MonthlyBudget, now time.Ti
 		used[given[i].ID] = true
 	}
 	return b.SetLimits(given, now)
+}
+
+// newID is the id of a new line: for one category the category's own, as
+// every line had before lines could be shared, so a limit removed and set
+// again (Undo) carries what it did; a random one when that is taken by a
+// line of the budget or, when taken is given, by it.
+func (b *MonthlyBudget) newID(cats []ledger.CategoryID, taken func(LineID) bool) LineID {
+	if len(cats) == 1 {
+		id := LineID{s: cats[0].String()}
+		_, had := b.lines[id]
+		if !had && (taken == nil || !taken(id)) {
+			return id
+		}
+	}
+	return newLineID()
 }
 
 // idOf is the id of the line that covers exactly these categories, given

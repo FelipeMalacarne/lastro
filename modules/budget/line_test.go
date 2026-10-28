@@ -195,3 +195,43 @@ func TestParseLineID(t *testing.T) {
 		}
 	}
 }
+
+// Undo on the Budget screen removes a limit and sets it again: the line it
+// comes back as is the one that carried, as long as its category's id is
+// free.
+func TestLimitSetAgainCarriesWhatItDid(t *testing.T) {
+	food, fun, shop := cat(t, "food"), cat(t, "fun"), cat(t, "shop")
+	aug, _ := NewMonthlyBudget(month(t, "2026-08"), now)
+	_ = aug.SetLimit(food, money.BRLCents(50000), true, now)
+	if l, _ := aug.LineOf(food); l.ID.String() != "food" {
+		t.Fatalf("a new limit of one category has its id: %s", l.ID)
+	}
+	oct := aug.For(month(t, "2026-10"))
+	if _, err := oct.RemoveLimit(food, now); err != nil {
+		t.Fatal(err)
+	}
+	_ = oct.SetLimit(food, money.BRLCents(50000), true, now)
+	spending := spend(t, map[string]map[string]int64{"2026-08": {"food": 30000}, "2026-09": {"food": 40000}})
+	if c := find(t, Track([]*MonthlyBudget{aug, oct}, spending, nil, month(t, "2026-10"), now, nil), "food").Carried.Cents(); c != 30000 {
+		t.Errorf("October carried %d after the limit was removed and set again, want 30000", c)
+	}
+
+	// A shared line that grew from food's own keeps food's id; food on its
+	// own again gets a new one, and nothing of the shared line.
+	b, _ := NewMonthlyBudget(month(t, "2026-10"), now)
+	_ = b.SetLimit(food, money.BRLCents(50000), true, now)
+	grown, _ := b.LineOf(food)
+	if err := b.ChangeLine(Line{ID: grown.ID, Name: "Food and fun", Categories: cats(food, fun), Limit: money.BRLCents(80000)}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ChangeLine(Line{ID: grown.ID, Name: "Food and fun", Categories: cats(fun, shop), Limit: money.BRLCents(80000)}, now); err != nil {
+		t.Fatal(err)
+	}
+	_ = b.SetLimit(food, money.BRLCents(50000), false, now)
+	if l, _ := b.LineOf(food); l.ID == grown.ID || l.ID.IsZero() {
+		t.Errorf("food's own line took the shared line's id: %s", l.ID)
+	}
+	if err := b.SetLimits([]Line{{ID: grown.ID, Name: "Food and fun", Categories: cats(fun, shop), Limit: money.BRLCents(80000)}, one(food, 1, false)}, now); err != nil {
+		t.Errorf("every line at once, food's id given to the shared line: %v", err)
+	}
+}
