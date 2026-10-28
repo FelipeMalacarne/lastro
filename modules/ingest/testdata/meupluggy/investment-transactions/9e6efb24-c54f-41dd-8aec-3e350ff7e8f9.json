@@ -1,0 +1,19 @@
+[
+  {
+    "agreedRate": null,
+    "amount": 159.79,
+    "brokerageNumber": null,
+    "date": "2025-08-11T00:00:00.000Z",
+    "description": null,
+    "expenses": null,
+    "id": "b2ebdaa2-4632-46e1-adbb-ecbd7ee7e769",
+    "indexerPercentage": null,
+    "movementType": "DEBIT",
+    "netAmount": 156.54,
+    "priceFactor": null,
+    "quantity": 14122.135718,
+    "tradeDate": "2025-08-11T00:00:00.000Z",
+    "type": "SELL",
+    "value": 0.00792
+  }
+]
