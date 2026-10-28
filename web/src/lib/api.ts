@@ -120,7 +120,15 @@ export type DaysView = {
   month: string;
   days: DayView[];
   previous: DayView[];
-  summary: { spentCents: number; inCents: number; movedCents: number; previousToDateCents: number };
+  /** The month before by the same day as today (or by its end), for each figure. */
+  summary: {
+    spentCents: number;
+    inCents: number;
+    movedCents: number;
+    previousToDateCents: number;
+    previousInToDateCents: number;
+    previousMovedToDateCents: number;
+  };
 };
 
 type Entry<T> = { data?: T; error?: string; loading: boolean; at: number };

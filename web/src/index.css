@@ -49,6 +49,16 @@
   --radius: 6px;
 }
 
+/* The scrim under the phone sheet and dialogs: ink in the light theme, black
+   in the dark one, where ink turns light (Cédula: Colour). */
+:root,
+[data-theme="light"] {
+  --scrim: #13202a5c;
+}
+[data-theme="dark"] {
+  --scrim: #000000a3;
+}
+
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
@@ -204,10 +214,67 @@
   }
 }
 
-/* Menus and sheets: 160ms fade and 4px rise. */
+/* Menus, dialogs and toasts: 160ms fade and 4px rise. */
 @keyframes lt-pop {
   from {
     opacity: 0;
     transform: translateY(4px);
+  }
+}
+@keyframes lt-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes lt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+/* The phone sheet rises from the bottom edge; closing, it leaves from wherever
+   a drag left it. */
+@keyframes lt-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes lt-sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+/* Skeletons appear after 150ms, so a page from the cache never flashes, then
+   breathe between full and 55% opacity. */
+@keyframes lt-show {
+  from {
+    visibility: hidden;
+  }
+}
+@keyframes lt-breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+/* A list that folds open and shut, at its own height. */
+@keyframes lt-expand {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+@keyframes lt-collapse {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+@keyframes lt-toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(100%);
   }
 }

@@ -399,30 +399,32 @@ func accountView(row db.LedgerAccount) AccountView {
 	return v
 }
 
+// filterArgs is a filter as the queries' optional arguments, nil for the
+// ones it leaves open.
+type filterArgs struct {
+	account, flow, search, category, tag *string
+}
+
+func argsOf(f TransactionFilter) filterArgs {
+	opt := func(s string) *string {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	a := filterArgs{account: opt(string(f.Account)), search: opt(likePattern(f.Search)), category: opt(f.Category), tag: opt(f.Tag)}
+	if f.Flow != FlowAll {
+		a.flow = opt(string(f.Flow))
+	}
+	return a
+}
+
 func (r *PostgresRepository) TransactionViews(ctx context.Context, f TransactionFilter, limit int) ([]TransactionView, error) {
-	p := db.ListTransactionViewsParams{MaxRows: int32(limit)}
+	a := argsOf(f)
+	p := db.ListTransactionViewsParams{MaxRows: int32(limit), AccountID: a.account, Flow: a.flow, Search: a.search, Category: a.category, Tag: a.tag}
 	if !f.AllMonths || (f.Search == "" && f.Tag == "") {
 		from, to := f.Range()
 		p.DateFrom, p.DateTo = &from, &to
-	}
-	if f.Account != "" {
-		a := string(f.Account)
-		p.AccountID = &a
-	}
-	if f.Flow != FlowAll {
-		fl := string(f.Flow)
-		p.Flow = &fl
-	}
-	if q := likePattern(f.Search); q != "" {
-		p.Search = &q
-	}
-	if f.Category != "" {
-		c := f.Category
-		p.Category = &c
-	}
-	if f.Tag != "" {
-		t := f.Tag
-		p.Tag = &t
 	}
 	rows, err := r.q.ListTransactionViews(ctx, p)
 	if err != nil {
@@ -570,8 +572,12 @@ func (r *PostgresRepository) DescriptionMonths(ctx context.Context, description 
 	return out, nil
 }
 
-func (r *PostgresRepository) DaySpending(ctx context.Context, from, to time.Time) ([]DayView, error) {
-	rows, err := r.q.ListDaySpending(ctx, db.ListDaySpendingParams{DateFrom: civilDate(from), DateTo: civilDate(to)})
+func (r *PostgresRepository) DaySpending(ctx context.Context, f TransactionFilter, from, to time.Time) ([]DayView, error) {
+	a := argsOf(f)
+	rows, err := r.q.ListDaySpending(ctx, db.ListDaySpendingParams{
+		DateFrom: civilDate(from), DateTo: civilDate(to),
+		AccountID: a.account, Flow: a.flow, Search: a.search, Category: a.category, Tag: a.tag,
+	})
 	if err != nil {
 		return nil, err
 	}

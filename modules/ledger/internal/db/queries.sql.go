@@ -596,19 +596,49 @@ func (q *Queries) ListDailyNet(ctx context.Context, arg ListDailyNetParams) ([]L
 const listDaySpending = `-- name: ListDaySpending :many
 SELECT
     date,
-    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0), 0)::bigint AS spent_cents,
-    count(*) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents < 0)::int AS purchases,
-    COALESCE(sum(amount_cents) FILTER (WHERE kind IN ('expense', 'income') AND amount_cents > 0), 0)::bigint AS in_cents,
-    COALESCE(sum(-amount_cents) FILTER (WHERE kind IN ('transfer', 'bill_payment') AND amount_cents < 0), 0)::bigint AS moved_cents
-FROM ledger.transactions
-WHERE removed_at IS NULL AND date >= $1::date AND date < $2::date
+    COALESCE(sum(-cents) FILTER (WHERE kind IN ('expense', 'income') AND cents < 0), 0)::bigint AS spent_cents,
+    count(*) FILTER (WHERE kind IN ('expense', 'income') AND cents < 0)::int AS purchases,
+    COALESCE(sum(cents) FILTER (WHERE kind IN ('expense', 'income') AND cents > 0), 0)::bigint AS in_cents,
+    COALESCE(sum(-cents) FILTER (WHERE kind IN ('transfer', 'bill_payment') AND cents < 0), 0)::bigint AS moved_cents
+FROM (
+    SELECT
+        t.date, t.kind,
+        COALESCE((SELECT s.amount_cents FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text), t.amount_cents)::bigint AS cents
+    FROM ledger.transactions t
+    WHERE t.removed_at IS NULL
+      AND t.date >= $2::date AND t.date < $3::date
+      AND ($4::uuid IS NULL OR t.account_id = $4::uuid)
+      AND (
+          $1::text IS NULL
+          OR ($1::text = 'none' AND t.category_id IS NULL AND t.kind IN ('expense', 'income'))
+          OR t.category_id = $1::text
+          OR EXISTS (SELECT 1 FROM ledger.splits s WHERE s.transaction_id = t.id AND s.category_id = $1::text)
+      )
+      AND ($5::text IS NULL OR $5::text = ANY (t.tags))
+      AND (
+          $6::text IS NULL
+          OR ($6::text = 'in' AND t.kind IN ('expense', 'income') AND t.amount_cents > 0)
+          OR ($6::text = 'out' AND t.kind IN ('expense', 'income') AND t.amount_cents < 0)
+          OR ($6::text = 'transfer' AND t.kind IN ('transfer', 'bill_payment'))
+      )
+      AND (
+          $7::text IS NULL
+          OR translate(lower(t.description || ' ' || t.note), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc')
+             LIKE '%' || translate(lower($7::text), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc') || '%' ESCAPE '\'
+      )
+) f
 GROUP BY date
 ORDER BY date
 `
 
 type ListDaySpendingParams struct {
-	DateFrom time.Time
-	DateTo   time.Time
+	Category  *string
+	DateFrom  time.Time
+	DateTo    time.Time
+	AccountID *string
+	Tag       *string
+	Flow      *string
+	Search    *string
 }
 
 type ListDaySpendingRow struct {
@@ -619,10 +649,19 @@ type ListDaySpendingRow struct {
 	MovedCents int64
 }
 
-// Every account's live transactions by day: spending (outflows that count),
-// money in that counts, and money moved (transfers out and card bills paid).
+// Live transactions by day: spending (outflows that count), money in that
+// counts, and money moved (transfers out and card bills paid). The filters
+// are ListTransactionViews': under a category, a split counts its part.
 func (q *Queries) ListDaySpending(ctx context.Context, arg ListDaySpendingParams) ([]ListDaySpendingRow, error) {
-	rows, err := q.db.Query(ctx, listDaySpending, arg.DateFrom, arg.DateTo)
+	rows, err := q.db.Query(ctx, listDaySpending,
+		arg.Category,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.AccountID,
+		arg.Tag,
+		arg.Flow,
+		arg.Search,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -110,6 +110,7 @@ What living with the app asked for. Each screen change starts on the canvas.
 - [x] Caixinha contributions grouped: lots of the same product are one row in Positions, classified together, and the emergency fund is an amount set apart from a group (canvas: "Positions: contributions grouped, the emergency fund as an amount")
 - [x] Pay yourself first counts what went to investments net of what came back, so redeeming an RDB to buy stocks puts nothing aside
 - [x] A transaction the bank never sent (a Pix Meu Pluggy missed) can be added by hand to a synced account; when the bank sends it later, lastro asks whether the two are the same instead of merging on its own (canvas: "A transaction the bank never sent")
+- [x] On Transactions, the month chart and its figures follow the filters (search, type, account, category, tag), the month before under the same ones, and the type picks what the chart draws (canvas: "Transactions: the month chart and its figures follow the filters")
 - [x] ADR-0011 and ADR-0012 accepted: funds that save up month by month, kept invested, and a line that covers several categories (both amend ADR-0006)
 - [x] `budget`: a line has an id of its own and covers one or more categories, a category in at most one line a month; today's lines migrate as one-category lines; tracking, alerts, copy, the API, the monthly report and MCP follow
 - [x] `budget`: a line is a limit or a fund; a fund carries its balance, debt included, and takes adjustments; the month's totals leave the funds out; pay yourself first nets what the funds kept; the `overdrawn` alert; the API and the monthly report follow
@@ -132,6 +133,17 @@ lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clie
 - [ ] Sign out in Settings, and the screen for a signed-out or expired session (on the canvas first)
 - [x] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed (lastro does not start without a provider outside dev) and ADR-0004 superseded
 - [ ] The Claude connector in use from the phone, with the pre-registered `lastro-claude` (and whether Zitadel needs it on Basic or POST)
+
+## UI round 2: what the screens do
+
+The look stays; what the screens do gets better. An audit of every screen on a phone and on desktop, with the keyboard, touch and a slow network, found the gaps. The canvas has the answers in the "UI round 2" row, built on Cédula's new components (`Sheet`, `ConfirmDialog`, `Toast`, `Tooltip`, `Skeleton`, `Switch`, `Checkbox` and `ChartCursor`), each a Radix primitive, as shadcn/ui builds them, restyled with Cédula's tokens; no new dependency.
+
+- [x] `Sheet` for the detail on a phone: Tab stays inside, focus goes back to the row, the list keeps its scroll, the scrim stays dark in the dark theme, and it rises and closes by dragging. The budget category and the rule editor open in it too, instead of under the list (canvas: "a transaction in a sheet", "a budget category in a sheet", "a rule in a sheet")
+- [x] `Toast` for what an action did, with Undo where the server answers with one (a category choice, the review queue, copying last month's limits), and the outcome of Sync now wherever you are (canvas: "toasts", "a review choice with Undo")
+- [x] `ConfirmDialog` before archiving a category and deleting a rule; a removed limit, split, balance update, price alert or thesis goes at once, with Undo in a toast (canvas: "archive a category", "delete a rule, phone")
+- [x] `ChartCursor` on every line chart, from what the account's balance chart already does: spending through the month, growth, a position's price and the projection, with the mouse, touch and the arrow keys (canvas: "every line chart reads")
+- [x] `Skeleton` in place of "Loading…", at the size of what comes, so the page does not jump (canvas: "the dashboard while it loads")
+- [x] `Switch` for "Roll over new categories" in Settings, `Checkbox` in the budget and category forms, `Tooltip` on icon-only buttons and on the markers that only had a `title`, tag suggestions that follow what you type, and the accounts list on a phone opening without a jump (canvas: "switch, checkbox, tooltips, tag suggestions, accounts on a phone")
 
 ## Net worth before the first sync
 

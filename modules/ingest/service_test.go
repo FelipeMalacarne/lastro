@@ -349,7 +349,7 @@ func TestReadModelsOnMeuPluggyFixtures(t *testing.T) {
 			}
 		}
 	}
-	days, err := led.Days(ctx, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	days, err := led.Days(ctx, ledger.TransactionFilter{Month: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}

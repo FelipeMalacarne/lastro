@@ -393,8 +393,9 @@ type MonthTotal struct {
 	Count int    `json:"count"`
 }
 
-// DaysView is a month's spending day by day, with the month before for
-// comparison and what the month adds up to.
+// DaysView is a month's spending, money in and money moved day by day, with
+// the month before for comparison and what the month adds up to, under one
+// filter.
 type DaysView struct {
 	Month    string      `json:"month"`
 	Days     []DayView   `json:"days"`
@@ -415,8 +416,11 @@ type DaysSummary struct {
 	InCents    int64 `json:"inCents"`
 	MovedCents int64 `json:"movedCents"`
 	// PreviousToDateCents is what the month before had spent by the same day
-	// of the month as the last day listed (or by its end, when shorter).
+	// of the month as today, for the month in progress, or by its end.
 	PreviousToDateCents int64 `json:"previousToDateCents"`
+	// The same for money in and money moved.
+	PreviousInToDateCents    int64 `json:"previousInToDateCents"`
+	PreviousMovedToDateCents int64 `json:"previousMovedToDateCents"`
 }
 
 // descriptionStats fills the six months from from with what the rows count,

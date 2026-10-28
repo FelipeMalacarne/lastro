@@ -13,6 +13,7 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TransactionRow } from "@/components/TransactionRow";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import {
   typeLabel,
   typeName,
@@ -39,7 +40,19 @@ export function AccountPage({ id }: { id: string }) {
   const all = banks.flatMap((b) => b.accounts.map((a) => ({ a, bank: b })));
   const found = all.find((x) => x.a.id === id);
   if (!found) {
-    return <PageHeader title={loading ? "Loading the account…" : "No such account"} caption={loading ? undefined : "It may have been removed from Meu Pluggy."} />;
+    if (loading)
+      return (
+        <>
+          <Skeleton className="h-8 w-56" />
+          <Panel>
+            <div className="flex flex-col gap-4">
+              <SkeletonStat hero />
+              <Skeleton className="h-40" />
+            </div>
+          </Panel>
+        </>
+      );
+    return <PageHeader title="No such account" caption="It may have been removed from Meu Pluggy." />;
   }
   const { a, bank } = found;
   if (a.manual) {
@@ -192,7 +205,7 @@ function CheckingView({ a, bank }: { a: Account; bank: Bank }) {
           footer="Transfers between your accounts and card bills are included: this is the account, not your spending. Select a month for its numbers."
         >
           {past.length === 0 ? (
-            <p className="m-0 type-body text-ink-muted">{months.loading ? "Loading…" : "No months yet."}</p>
+            months.loading ? <Skeleton className="h-40" /> : <p className="m-0 type-body text-ink-muted">No months yet.</p>
           ) : (
             <div className="flex flex-col gap-4">
               <MonthBars months={past} selected={sel?.month ?? ""} onSelect={setMonth} />
@@ -387,7 +400,7 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
               {next && next.spentCents > 0 && ` ${formatBRL(next.spentCents)} is already committed for ${formatMonth(next.month).split(" ")[0]} in installments.`}
             </p>
           )}
-          {shown.length > 0 ? <CardMonthBars months={shown} current={current} /> : <p className="m-0 type-body text-ink-muted">{months.loading ? "Loading…" : "No months yet."}</p>}
+          {shown.length > 0 ? <CardMonthBars months={shown} current={current} /> : months.loading ? <Skeleton className="h-[200px]" /> : <p className="m-0 type-body text-ink-muted">No months yet.</p>}
         </div>
       </Panel>
 
@@ -399,7 +412,7 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
           footer={live.length ? `${formatBRL(left)} still to pay in ${live.length} ${live.length === 1 ? "purchase" : "purchases"}. Pluggy has no id for a purchase: installments with the same description, count and amount are put together.` : undefined}
         >
           {live.length === 0 ? (
-            <p className="m-0 px-5 type-body text-ink-muted">{purchases.loading ? "Loading…" : "No installments in progress."}</p>
+            purchases.loading ? <SkeletonRows count={3} className="border-t border-rule" /> : <p className="m-0 px-5 type-body text-ink-muted">No installments in progress.</p>
           ) : (
             <div>
               <div>
@@ -440,7 +453,7 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
         </Panel>
         <Panel title="Bills paid" className="flex-[5_1_340px]" bodyClassName="-mx-5" footer="Each payment is paired with the account it came from, so it never counts twice.">
           {bills.length === 0 ? (
-            <p className="m-0 px-5 type-body text-ink-muted">{months.loading ? "Loading…" : "No bill payments yet."}</p>
+            months.loading ? <SkeletonRows count={3} className="border-t border-rule" /> : <p className="m-0 px-5 type-body text-ink-muted">No bill payments yet.</p>
           ) : (
             <div className="border-t border-rule">
               {bills.map(({ m, f }) => (
@@ -498,7 +511,7 @@ function AccountTransactions({ a }: { a: Account }) {
       }
     >
       {res.error && <p className="m-0 px-5 py-6 type-body text-ink-muted">Could not load transactions: {res.error}.</p>}
-      {!res.data && !res.error && <p className="m-0 px-5 py-6 type-body text-ink-muted">Loading transactions…</p>}
+      {!res.data && !res.error && <SkeletonRows count={6} />}
       {res.data && list.length === 0 && <p className="m-0 px-5 py-6 type-body text-ink-muted">Nothing in {formatMonth(month).split(" ")[0]}.</p>}
       {shown.map((t) => (
         <TransactionRow

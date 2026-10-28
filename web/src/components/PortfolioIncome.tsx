@@ -6,6 +6,7 @@ import { Sparkline } from "@/components/Sparkline";
 import { Button } from "@/components/ui/button";
 import { send, useResource } from "@/lib/api";
 import { formatBRL, formatDay, formatPercent } from "@/lib/format";
+import { toast } from "@/lib/toast";
 
 type PaymentView = { ticker: string; label: string; comDate: string; paymentDate: string | null; rateMicro: number; cents: number };
 type DividendsView = {
@@ -183,12 +184,12 @@ export function PriceAlert({ ticker }: { ticker: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => setText(current ? String(current / 100).replace(".", ",") : "5"), [current]);
-  async function run(f: () => Promise<unknown>, done: string) {
+  async function run(f: () => Promise<unknown>, done?: string) {
     setBusy(true);
     setMsg(null);
     try {
       await f();
-      setMsg(done);
+      setMsg(done ?? null);
     } catch (e) {
       setMsg(`Could not save: ${(e as Error).message}.`);
     } finally {
@@ -225,7 +226,18 @@ export function PriceAlert({ ticker }: { ticker: string }) {
           Save
         </Button>
         {current !== undefined && (
-          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => send("DELETE", `/api/v1/price-alerts/${ticker}`), "No alert.")}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                await send("DELETE", `/api/v1/price-alerts/${ticker}`);
+                toast({ id: "alert", text: `No price alert on ${ticker}.`, undo: () => send("PUT", `/api/v1/price-alerts/${ticker}`, { dropBps: current }) });
+              })
+            }
+          >
             No alert
           </Button>
         )}

@@ -9,6 +9,7 @@ import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { send, useResource, type Account, type BalanceHistory } from "@/lib/api";
 import { formatBRL, formatDate, inputBRL, parseBRL, todayISO } from "@/lib/format";
+import { toast } from "@/lib/toast";
 
 /** An account typed in (canvas: "Accounts outside Open Finance"): a wallet or an asset. */
 export function ManualAccountView({ a }: { a: Account }) {
@@ -117,17 +118,14 @@ function AssetView({ a }: { a: Account }) {
   const points = history?.points ?? [];
   const [day, setDay] = useState(todayISO());
   const [balance, setBalance] = useState(inputBRL(a.balanceCents));
-  const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cents = parseBRL(balance);
-  async function run(f: () => Promise<unknown>, done: string) {
+  async function run(f: () => Promise<unknown>) {
     setBusy(true);
-    setMsg(null);
     try {
       await f();
-      setMsg(done);
     } catch (err) {
-      setMsg(`Could not save: ${(err as Error).message}.`);
+      toast({ id: "balance", tone: "error", text: `Could not save: ${(err as Error).message}.` });
     } finally {
       setBusy(false);
     }
@@ -142,7 +140,11 @@ function AssetView({ a }: { a: Account }) {
             className="flex flex-wrap items-end gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              if (cents !== null) void run(() => send("PUT", `/api/v1/accounts/${a.id}/balance`, { date: day, balanceCents: cents }), "Saved.");
+              if (cents !== null)
+                void run(async () => {
+                  await send("PUT", `/api/v1/accounts/${a.id}/balance`, { date: day, balanceCents: cents });
+                  toast({ id: "balance", text: `Balance of ${formatDate(day)} saved: ${formatBRL(cents)}.` });
+                });
             }}
           >
             <TextField label="Balance on" type="date" value={day} max={todayISO()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
@@ -150,7 +152,6 @@ function AssetView({ a }: { a: Account }) {
             <Button type="submit" variant="primary" disabled={busy || cents === null || points.some((p) => p.date === day && p.balanceCents === cents)}>
               Update
             </Button>
-            {msg && <span className="type-caption text-ink-muted">{msg}</span>}
           </form>
           {points.length > 1 && <BalanceChart points={points.map((p) => ({ date: p.date, cents: p.balanceCents }))} label={`Balance from ${formatBRL(points[0].balanceCents)} to ${formatBRL(points.at(-1)!.balanceCents)}`} />}
           <ul role="list" className="m-0 flex list-none flex-col p-0">
@@ -167,7 +168,16 @@ function AssetView({ a }: { a: Account }) {
                     size="sm"
                     aria-label={`Remove the update of ${formatDate(u.date)}`}
                     disabled={busy || updates.length < 2}
-                    onClick={() => void run(() => send("DELETE", `/api/v1/accounts/${a.id}/balance/${u.date}`), "Removed.")}
+                    onClick={() =>
+                      void run(async () => {
+                        await send("DELETE", `/api/v1/accounts/${a.id}/balance/${u.date}`);
+                        toast({
+                          id: "balance",
+                          text: `The update of ${formatDate(u.date)} is gone.`,
+                          undo: () => send("PUT", `/api/v1/accounts/${a.id}/balance`, { date: u.date, balanceCents: u.balanceCents }),
+                        });
+                      })
+                    }
                   >
                     <X aria-hidden />
                   </Button>
