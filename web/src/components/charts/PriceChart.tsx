@@ -1,3 +1,4 @@
+import { ChartCursor } from "@/components/charts/ChartCursor";
 import { formatBRL, formatDay, formatPercent } from "@/lib/format";
 
 type Close = { date: string; closeCents: number };
@@ -34,16 +35,26 @@ export function PriceChart({ ticker, closes, width = 560 }: { ticker: string; cl
           </span>
         </span>
       </figcaption>
-      <svg
-        viewBox={`0 0 ${width} ${H}`}
-        className="h-auto w-full"
-        role="img"
-        aria-label={`${ticker} went from ${formatBRL(first.closeCents)} to ${formatBRL(last.closeCents)} (${formatPercent(change, { sign: "always" })}), between ${formatBRL(lo)} and ${formatBRL(hi)}.`}
-      >
-        <line x1={pad} x2={width - pad} y1={y(first.closeCents)} y2={y(first.closeCents)} className="stroke-rule-strong" strokeDasharray="3 3" />
-        <path d={d} fill="none" stroke="var(--tinta)" strokeWidth={1.75} strokeLinejoin="round" />
-        <circle cx={x(closes.length - 1)} cy={y(last.closeCents)} r={3} fill="var(--tinta)" />
-      </svg>
+      <div className="relative">
+        <svg viewBox={`0 0 ${width} ${H}`} className="h-auto w-full" aria-hidden>
+          <line x1={pad} x2={width - pad} y1={y(first.closeCents)} y2={y(first.closeCents)} className="stroke-rule-strong" strokeDasharray="3 3" />
+          <path d={d} fill="none" stroke="var(--tinta)" strokeWidth={1.75} strokeLinejoin="round" />
+          <circle cx={x(closes.length - 1)} cy={y(last.closeCents)} r={3} fill="var(--tinta)" />
+        </svg>
+        <ChartCursor
+          W={width}
+          H={H}
+          plot={{ left: pad, right: width - pad, top: pad, bottom: H - pad }}
+          xs={closes.map((_, i) => x(i))}
+          unit="day"
+          label={`${ticker} went from ${formatBRL(first.closeCents)} to ${formatBRL(last.closeCents)} (${formatPercent(change, { sign: "always" })}), between ${formatBRL(lo)} and ${formatBRL(hi)}.`}
+          read={(i) => ({
+            label: `${formatDay(closes[i].date)} ${closes[i].date.slice(0, 4)}`,
+            rows: [{ label: "Close", cents: closes[i].closeCents, color: "var(--tinta)" }],
+            dots: [{ y: y(closes[i].closeCents), color: "var(--tinta)" }],
+          })}
+        />
+      </div>
     </figure>
   );
 }

@@ -8,11 +8,14 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { SyncStatus } from "@/components/SyncStatus";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
 import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { SyncButton, nextSync, useSync } from "@/lib/sync";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
 import { useBanks } from "@/shell/Accounts";
@@ -149,7 +152,7 @@ function Connections() {
     >
       <SyncOutcome />
       {error && <p className="m-0 type-body text-ink-muted">Could not load the connections: {error}.</p>}
-      {loading && banks.length === 0 && <p className="m-0 type-body text-ink-muted">Loading…</p>}
+      {loading && banks.length === 0 && <SkeletonRows count={3} className="-mx-4 sm:-mx-5" />}
       {!loading && banks.length === 0 && !error && <p className="m-0 type-body text-ink-muted">No connections yet. The first sync brings them in.</p>}
       <ul role="list" className="m-0 flex list-none flex-col p-0">
         {banks.filter((b) => !b.manual).map((b) => {
@@ -303,23 +306,22 @@ function BudgetSettings() {
           <RolloverNew on={v.rolloverNew} />
         </>
       ) : (
-        <p className="m-0 type-body text-ink-muted">Loading…</p>
+        <Skeleton className="h-24" />
       )}
     </Section>
   );
 }
 
-/** Whether a category given its first limit rolls over; saved as soon as it is ticked. */
+/** Whether a category given its first limit rolls over; saved the moment it is flipped. */
 function RolloverNew({ on }: { on: boolean }) {
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   async function toggle(next: boolean) {
     setBusy(true);
-    setError(null);
     try {
       await send("PUT", "/api/v1/budget/preferences", { rolloverNew: next });
     } catch (e) {
-      setError((e as Error).message);
+      // The switch shows the saved value, so it is already back where it was.
+      toast({ id: "rollover", tone: "error", text: `Could not save: ${(e as Error).message}.` });
     } finally {
       setBusy(false);
     }
@@ -327,13 +329,10 @@ function RolloverNew({ on }: { on: boolean }) {
   return (
     <div className="mt-4">
       <Row label="Roll over new categories" hint="What is left moves to next month. Each category can change it.">
-        <span className="flex flex-col gap-1">
-          <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[14px] leading-5 lg:min-h-0">
-            <input id="set-rollover" type="checkbox" checked={on} disabled={busy} onChange={(e) => void toggle(e.target.checked)} className="size-[18px] accent-[var(--tinta)]" />
-            {on ? "On for new categories" : "Off for new categories"}
-          </label>
-          {error && <span className="type-caption text-danger">Could not save: {error}.</span>}
-        </span>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[14px] leading-5 text-ink-muted lg:min-h-0">
+          {on ? "On for new categories" : "Off for new categories"}
+          <Switch id="set-rollover" checked={on} disabled={busy} onCheckedChange={(v) => void toggle(v)} />
+        </label>
       </Row>
     </div>
   );
@@ -394,7 +393,7 @@ function Investments() {
   const v = res.data;
   return (
     <Section id="investments" title="Investments" intro="The targets the contribution planner aims for. It never suggests selling.">
-      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} /> : <p className="m-0 type-body text-ink-muted">Loading…</p>}
+      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} /> : <Skeleton className="h-40" />}
     </Section>
   );
 }

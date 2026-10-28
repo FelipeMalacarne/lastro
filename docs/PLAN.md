@@ -129,6 +129,17 @@ lastro leaves Cloudflare Access for a Zitadel on saradomin, and opens up to clie
 - [x] Switch saradomin to Zitadel: the OIDC settings in gielinor's Secret, the Access application out of gielinor's Terraform, the Cloudflare Access verifier removed (lastro does not start without a provider outside dev) and ADR-0004 superseded
 - [ ] The Claude connector in use from the phone, with the pre-registered `lastro-claude` (and whether Zitadel needs it on Basic or POST)
 
+## UI round 2: what the screens do
+
+The look stays; what the screens do gets better. An audit of every screen on a phone and on desktop, with the keyboard, touch and a slow network, found the gaps. The canvas has the answers in the "UI round 2" row, built on Cédula's new components (`Sheet`, `ConfirmDialog`, `Toast`, `Tooltip`, `Skeleton`, `Switch`, `Checkbox` and `ChartCursor`), each a Radix primitive, as shadcn/ui builds them, restyled with Cédula's tokens; no new dependency.
+
+- [x] `Sheet` for the detail on a phone: Tab stays inside, focus goes back to the row, the list keeps its scroll, the scrim stays dark in the dark theme, and it rises and closes by dragging. The budget category and the rule editor open in it too, instead of under the list (canvas: "a transaction in a sheet", "a budget category in a sheet", "a rule in a sheet")
+- [x] `Toast` for what an action did, with Undo where the server answers with one (a category choice, the review queue, copying last month's limits), and the outcome of Sync now wherever you are (canvas: "toasts", "a review choice with Undo")
+- [x] `ConfirmDialog` before archiving a category and deleting a rule; a removed limit, split, balance update, price alert or thesis goes at once, with Undo in a toast (canvas: "archive a category", "delete a rule, phone")
+- [x] `ChartCursor` on every line chart, from what the account's balance chart already does: spending through the month, growth, a position's price and the projection, with the mouse, touch and the arrow keys (canvas: "every line chart reads")
+- [x] `Skeleton` in place of "Loading…", at the size of what comes, so the page does not jump (canvas: "the dashboard while it loads")
+- [x] `Switch` for "Roll over new categories" in Settings, `Checkbox` in the budget and category forms, `Tooltip` on icon-only buttons and on the markers that only had a `title`, tag suggestions that follow what you type, and the accounts list on a phone opening without a jump (canvas: "switch, checkbox, tooltips, tag suggestions, accounts on a phone")
+
 ## Net worth before the first sync
 
 The history starts at the first sync, so returns over 12 months, the comparison with CDI and inflation, the scoreboard and the net worth in the monthly report stay empty for a year. Open Finance holds the movements behind each investment; rebuilding the days before the first sync from them fills those now. A rebuilt day is an estimate and says so.

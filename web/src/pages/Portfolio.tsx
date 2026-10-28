@@ -12,10 +12,12 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { assetClasses, send, useResource, type AssetClass, type PortfolioOverview, type PositionGroup, type Reserve, type Thesis } from "@/lib/api";
 import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, parseBRL } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
 
@@ -33,7 +35,21 @@ export function Portfolio() {
   const res = useResource<PortfolioOverview>("/api/v1/portfolio");
   const v = res.data;
   if (res.error && !v) return <PageHeader title="Portfolio" caption={`Could not load the portfolio: ${res.error}.`} monthless />;
-  if (!v) return <PageHeader title="Portfolio" caption="Loading…" monthless />;
+  if (!v)
+    return (
+      <>
+        <PageHeader title="Portfolio" monthless />
+        <Panel>
+          <div className="flex flex-col gap-4">
+            <SkeletonStat hero />
+            <Skeleton className="h-20" />
+          </div>
+        </Panel>
+        <Panel title="Positions" bodyClassName="-mx-5">
+          <SkeletonRows count={5} className="border-t border-rule" />
+        </Panel>
+      </>
+    );
 
   const caption = [v.asOf ? `Prices as of ${formatDay(v.asOf)}` : null, `${v.positions} ${v.positions === 1 ? "position" : "positions"}${v.where?.length ? ` at ${v.where.join(" and ")}` : ""}`]
     .filter(Boolean)
@@ -829,7 +845,20 @@ function ThesisForm({ ticker, thesis, onDone }: { ticker: string; thesis?: Thesi
           Cancel
         </Button>
         {thesis && (
-          <Button type="button" variant="ghost" size="sm" className="ml-auto" disabled={busy} onClick={() => void run(() => send("DELETE", `/api/v1/theses/${ticker}`))}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const back = { thesis: thesis.thesis, breaks: thesis.breaks, nextReport: thesis.nextReport || null };
+                await send("DELETE", `/api/v1/theses/${ticker}`);
+                toast({ id: "thesis", text: `The ${ticker} thesis is gone.`, undo: () => send("PUT", `/api/v1/theses/${ticker}`, back) });
+              })
+            }
+          >
             Delete
           </Button>
         )}

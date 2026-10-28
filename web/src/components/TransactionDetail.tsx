@@ -10,10 +10,15 @@ import { Kbd } from "@/components/Kbd";
 import { Sparkline } from "@/components/Sparkline";
 import { NoteSection, SplitSection, TagsSection } from "@/components/TransactionNotes";
 import { Button } from "@/components/ui/button";
-import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail, type Undo } from "@/lib/api";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Tooltip } from "@/components/ui/tooltip";
+import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDate, formatDay, formatMonth, formatWeekday } from "@/lib/format";
 import { Link, hrefWith, navigate } from "@/lib/router";
+import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
 type Props = {
   id: string;
@@ -21,50 +26,75 @@ type Props = {
   /** The newer and older transactions in the list, when there are. */
   prev?: string;
   next?: string;
-  /** A phone sheet has no room for the keyboard hint. */
-  compact?: boolean;
+  /** In a phone sheet, whose head already has the arrows and ✕. */
+  inSheet?: boolean;
 };
 
 const accountName = (t: Pick<Transaction, "account">) => `${t.account.institution} ${typeLabel[t.account.type]}`;
 
+/** Newer and older: the arrows that walk the list without closing the detail. */
+export function DetailSteps({ prev, next, size = "sm" }: { prev?: string; next?: string; size?: "sm" | "icon" }) {
+  const step = size === "icon" ? "size-11 text-ink [&_svg:not([class*='size-'])]:size-5" : undefined;
+  return (
+    <>
+      <Tooltip label="Newer transaction">
+        <Button asChild variant="ghost" size={size} aria-label="Newer transaction" className={cn(step, !prev && "pointer-events-none opacity-40")}>
+          <Link to={prev ? hrefWith({ tx: prev }) : hrefWith({})} aria-disabled={!prev}>
+            <ChevronLeft aria-hidden />
+          </Link>
+        </Button>
+      </Tooltip>
+      <Tooltip label="Older transaction">
+        <Button asChild variant="ghost" size={size} aria-label="Older transaction" className={cn(step, !next && "pointer-events-none opacity-40")}>
+          <Link to={next ? hrefWith({ tx: next }) : hrefWith({})} aria-disabled={!next}>
+            <ChevronRight aria-hidden />
+          </Link>
+        </Button>
+      </Tooltip>
+    </>
+  );
+}
+
 /** One transaction in full (canvas: the detail beside the list, and the phone sheet). */
-export function TransactionDetail({ id, onClose, prev, next, compact }: Props) {
+export function TransactionDetail({ id, onClose, prev, next, inSheet }: Props) {
   const res = useResource<Detail>(`/api/v1/transactions/${id}`);
   const d = res.data;
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <Button asChild variant="ghost" size="sm" aria-label="Newer transaction" className={prev ? undefined : "pointer-events-none opacity-40"}>
-            <Link to={prev ? hrefWith({ tx: prev }) : hrefWith({})} aria-disabled={!prev}>
-              <ChevronLeft aria-hidden />
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm" aria-label="Older transaction" className={next ? undefined : "pointer-events-none opacity-40"}>
-            <Link to={next ? hrefWith({ tx: next }) : hrefWith({})} aria-disabled={!next}>
-              <ChevronRight aria-hidden />
-            </Link>
-          </Button>
-          {!compact && (
+      {!inSheet && (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <DetailSteps prev={prev} next={next} />
             <span className="ml-1 inline-flex items-center gap-1 type-caption text-ink-muted max-lg:hidden">
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd> to move, <Kbd>Esc</Kbd> to close
             </span>
-          )}
+          </div>
+          <Tooltip label="Close">
+            <Button variant="ghost" size="sm" aria-label="Close" onClick={onClose}>
+              <X aria-hidden />
+            </Button>
+          </Tooltip>
         </div>
-        <Button variant="ghost" size="sm" aria-label="Close" onClick={onClose}>
-          <X aria-hidden />
-        </Button>
-      </div>
+      )}
 
       {res.error && !d && <p className="m-0 type-body text-ink-muted">Could not load the transaction: {res.error}.</p>}
-      {!d && !res.error && <p className="m-0 type-body text-ink-muted">Loading…</p>}
-      {d && <Body d={d} />}
+      {!d && !res.error && (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="w-2/3" />
+            <Skeleton className="h-8 w-36" />
+          </div>
+          <Skeleton className="h-24" />
+          <Skeleton className="h-16" />
+        </div>
+      )}
+      {d && <Body d={d} onClose={onClose} />}
     </div>
   );
 }
 
-function Body({ d }: { d: Detail }) {
+function Body({ d, onClose }: { d: Detail; onClose: () => void }) {
   const t = d.transaction;
   const neutral = t.kind === "transfer" || t.kind === "bill_payment";
   const facts: [string, string][] = [
@@ -219,7 +249,7 @@ function Body({ d }: { d: Detail }) {
         <Button asChild variant="ghost" size="sm">
           <Link to={`/accounts/${t.account.id}`}>Open {accountName(t)}</Link>
         </Button>
-        {t.manual && <RemoveEntry id={t.id} wallet={t.account.type === "cash"} />}
+        {t.manual && <RemoveEntry t={t} onRemoved={onClose} />}
       </div>
     </>
   );
@@ -319,31 +349,29 @@ function apart(mine: string, other: string): string {
   return `${n} ${n === 1 ? "day" : "days"} ${days > 0 ? "after" : "before"} this one`;
 }
 
-/** A transaction I added can be taken back; a synced transaction never. */
-function RemoveEntry({ id, wallet }: { id: string; wallet: boolean }) {
-  const [sure, setSure] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  if (!sure)
-    return (
-      <Button variant="ghost" size="sm" onClick={() => setSure(true)}>
-        {wallet ? "Remove this entry" : "Remove this transaction"}
-      </Button>
-    );
+/** A transaction I added can be taken back; a synced transaction never. Its note and tags go with it, so it asks first. */
+function RemoveEntry({ t, onRemoved }: { t: Transaction; onRemoved: () => void }) {
+  const wallet = t.account.type === "cash";
   return (
-    <span className="flex flex-wrap items-center gap-2 type-caption text-ink-muted">
-      {wallet ? "Its amount goes back to the wallet." : "The bank's balance does not change."}
-      <Button
-        size="sm"
-        onClick={() =>
-          void send("DELETE", `/api/v1/transactions/${id}`).catch((e: Error) => {
-            setError(e.message);
-          })
-        }
-      >
-        Remove
-      </Button>
-      {error && <span className="text-danger">Could not remove: {error}.</span>}
-    </span>
+    <ConfirmDialog
+      trigger={
+        <Button variant="ghost" size="sm">
+          {wallet ? "Remove this entry" : "Remove this transaction"}
+        </Button>
+      }
+      title={wallet ? "Remove this entry?" : "Remove this transaction?"}
+      confirmLabel={wallet ? "Remove entry" : "Remove transaction"}
+      onConfirm={async () => {
+        await send("DELETE", `/api/v1/transactions/${t.id}`);
+        onRemoved();
+        toast({ text: <><strong>{t.description}</strong> removed.</> });
+      }}
+    >
+      <p>
+        “{t.description}”, {formatBRL(t.amountCents, { sign: "always" })} on {formatDay(t.date)}, goes with its note and tags.
+      </p>
+      <p className="type-caption text-ink-muted">{wallet ? "Its amount goes back to the wallet." : "The bank's balance does not change."}</p>
+    </ConfirmDialog>
   );
 }
 
@@ -364,41 +392,27 @@ function CategorySection({ t }: { t: Transaction }) {
   const suggestion = useResource<{ pattern: Pattern | null }>(`/api/v1/patterns/suggest?description=${encodeURIComponent(t.description)}`);
   const [open, setOpen] = useState(!t.category);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [undo, setUndo] = useState<Undo | null>(null);
   const current = t.category ? byId.get(t.category.id) : undefined;
   useEffect(() => setOpen(!t.category), [t.id, t.category]);
-  // A choice's message and its Undo stay until another transaction opens,
-  // even as the saved category comes back from the server.
-  useEffect(() => {
-    setMsg(null);
-    setUndo(null);
-  }, [t.id]);
-
-  async function takeBack() {
-    if (!undo) return;
-    setBusy(true);
-    try {
-      await send("POST", "/api/v1/undo", undo);
-      setUndo(null);
-      setMsg("Undone.");
-    } catch (e) {
-      setMsg(`Could not undo: ${(e as Error).message}.`);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function choose(category: string, teach: Pattern | null) {
     setBusy(true);
-    setMsg(null);
     try {
       const r = await send<Change>("PUT", `/api/v1/transactions/${t.id}/category`, { category, teach });
       setOpen(false);
-      setUndo(r.undo);
-      setMsg(r.categorized ? `And ${r.categorized} more like it.` : "Saved.");
+      const name = byId.get(category)?.name ?? "the category";
+      toast({
+        id: "category",
+        text: (
+          <>
+            Now in <strong>{name}</strong>
+            {r.categorized ? `, with ${r.categorized} more like it.` : "."}
+          </>
+        ),
+        undo: () => send("POST", "/api/v1/undo", r.undo),
+      });
     } catch (e) {
-      setMsg(`Could not save: ${(e as Error).message}.`);
+      toast({ id: "category", tone: "error", text: `Could not save: ${(e as Error).message}.` });
     } finally {
       setBusy(false);
     }
@@ -417,16 +431,6 @@ function CategorySection({ t }: { t: Transaction }) {
           </Button>
         )}
       </div>
-      {msg && (
-        <p className="m-0 flex flex-wrap items-center gap-x-2 type-caption text-ink-muted">
-          {msg}
-          {undo && (
-            <Button variant="ghost" size="sm" onClick={() => void takeBack()} disabled={busy}>
-              Undo
-            </Button>
-          )}
-        </p>
-      )}
       {open && <CategoryDecision categories={live} current={t.category?.id} suggested={suggestion.data?.pattern ?? null} onChoose={choose} busy={busy} />}
     </>
   );

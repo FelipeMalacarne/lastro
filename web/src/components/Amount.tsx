@@ -1,3 +1,4 @@
+import { Tooltip } from "@/components/ui/tooltip";
 import { signFor, splitBRL, type Sign } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -44,11 +45,8 @@ export function Amount({ cents, size = "md", sign = "negative", tone = "auto", p
   const big = size === "hero" || size === "lg";
   const raised = big ? "align-[0.62em] text-[0.5em] font-semibold tracking-normal [font-stretch:100%]" : "";
   const underline = pending ? "underline decoration-rule-strong decoration-dashed decoration-1 underline-offset-4" : "";
-  return (
-    <span
-      className={cn("whitespace-nowrap tabular-nums", sizeClass[size], toneClass[t], className)}
-      title={pending ? "Pending: may still change" : estimate ? "Estimate" : undefined}
-    >
+  const amount = (
+    <span className={cn("whitespace-nowrap tabular-nums", sizeClass[size], toneClass[t], className)}>
       {estimate && <span>≈&nbsp;</span>}
       {s && <span className={cn(raised, big && "mr-px")}>{s}</span>}
       <span className={cn(raised, big && t !== "inflow" && "text-ink-muted")}>R$&nbsp;</span>
@@ -57,4 +55,8 @@ export function Amount({ cents, size = "md", sign = "negative", tone = "auto", p
       {!(estimate && Math.round(cents) % 100 === 0) && <span className={cn(underline, big && "text-[0.6em] tracking-normal")}>{p.cents}</span>}
     </span>
   );
+  // The markers explain themselves on hover; the Pending badge or the assumptions say it on a phone.
+  if (pending) return <Tooltip label="Pending: may still change.">{amount}</Tooltip>;
+  if (estimate) return <Tooltip label="An estimate, not a figure from a bank.">{amount}</Tooltip>;
+  return amount;
 }

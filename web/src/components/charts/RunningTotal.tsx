@@ -1,3 +1,4 @@
+import { ChartCursor } from "@/components/charts/ChartCursor";
 import type { DayView } from "@/lib/api";
 import { formatAxis, formatBRL, formatDay, formatMonth, niceStep } from "@/lib/format";
 
@@ -64,51 +65,72 @@ export function RunningTotal({ month, days, previous, today, width = 560 }: Prop
     else yNow = yPrev + 16;
   }
 
+  const dayOf = (i: number) => `${month}-${String(i + 1).padStart(2, "0")}`;
+  const prevCount = prev.length;
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="h-auto w-full"
-      role="img"
-      aria-label={`Spending added up by day. ${nowName} reaches ${formatBRL(endNow)} by day ${last}; ${prevName} had reached ${formatBRL(prevSame)} by the same day.`}
-    >
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={L} x2={W - R + 8} y1={yv(t)} y2={yv(t)} className="stroke-rule" strokeWidth={1} />
-          <text x={L - 8} y={yv(t) + 4} textAnchor="end" className="fill-ink-muted font-figure text-[11px]">
-            {formatAxis(t)}
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" aria-hidden>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={L} x2={W - R + 8} y1={yv(t)} y2={yv(t)} className="stroke-rule" strokeWidth={1} />
+            <text x={L - 8} y={yv(t) + 4} textAnchor="end" className="fill-ink-muted font-figure text-[11px]">
+              {formatAxis(t)}
+            </text>
+          </g>
+        ))}
+        {labelDays.map((d) => (
+          <text key={d} x={x(d)} y={H - 8} textAnchor="middle" className="fill-ink-muted font-figure text-[11px]">
+            {d}
           </text>
-        </g>
-      ))}
-      {labelDays.map((d) => (
-        <text key={d} x={x(d)} y={H - 8} textAnchor="middle" className="fill-ink-muted font-figure text-[11px]">
-          {d}
+        ))}
+        <path d={path(prev)} fill="none" className="stroke-rule-strong" strokeWidth={2} strokeDasharray="4 3" />
+        <path d={`${path(now)} L${x(last).toFixed(1)} ${yv(0)} L${x(1)} ${yv(0)} Z`} className="fill-ink/8" />
+        <path d={path(now)} fill="none" className="stroke-ink" strokeWidth={2.25} strokeLinejoin="round" />
+        {last < count && (
+          <>
+            <line x1={x(last)} x2={x(last)} y1={T - 8} y2={yv(0)} className="stroke-tinta" strokeWidth={1.5} />
+            <text x={x(last)} y={T - 12} textAnchor="middle" className="fill-tinta text-[11px] font-semibold">
+              Today
+            </text>
+            <circle cx={x(last)} cy={yv(prevSame)} r={3} className="fill-rule-strong" />
+          </>
+        )}
+        <circle cx={x(last)} cy={yv(endNow)} r={4} className="fill-ink" />
+        <text x={x(last) + 8} y={yNow} className="fill-ink font-figure text-[12px] font-medium">
+          {nowName} {formatAxis(endNow)}
         </text>
-      ))}
-      <path d={path(prev)} fill="none" className="stroke-rule-strong" strokeWidth={2} strokeDasharray="4 3" />
-      <path d={`${path(now)} L${x(last).toFixed(1)} ${yv(0)} L${x(1)} ${yv(0)} Z`} className="fill-ink/8" />
-      <path d={path(now)} fill="none" className="stroke-ink" strokeWidth={2.25} strokeLinejoin="round" />
-      {last < count && (
-        <>
-          <line x1={x(last)} x2={x(last)} y1={T - 8} y2={yv(0)} className="stroke-tinta" strokeWidth={1.5} />
-          <text x={x(last)} y={T - 12} textAnchor="middle" className="fill-tinta text-[11px] font-semibold">
-            Today
+        <text x={(last < count ? x(last) : x(count)) + 8} y={yPrev} className="fill-ink-muted font-figure text-[12px]">
+          {prevName} {formatAxis(last < count ? prevSame : prev[count - 1])}
+        </text>
+        {named && (
+          <text x={Math.min(x(named.day) + 8, W - R - 120)} y={Math.min(yv(now[named.day - 1]) + 16, yv(0) - 6)} className="fill-ink-muted text-[11px]">
+            {formatDay(`${month}-${String(named.day).padStart(2, "0")}`)}: {formatBRL(named.cents)}
           </text>
-          <circle cx={x(last)} cy={yv(prevSame)} r={3} className="fill-rule-strong" />
-        </>
-      )}
-      <circle cx={x(last)} cy={yv(endNow)} r={4} className="fill-ink" />
-      <text x={x(last) + 8} y={yNow} className="fill-ink font-figure text-[12px] font-medium">
-        {nowName} {formatAxis(endNow)}
-      </text>
-      <text x={(last < count ? x(last) : x(count)) + 8} y={yPrev} className="fill-ink-muted font-figure text-[12px]">
-        {prevName} {formatAxis(last < count ? prevSame : prev[count - 1])}
-      </text>
-      {named && (
-        <text x={Math.min(x(named.day) + 8, W - R - 120)} y={Math.min(yv(now[named.day - 1]) + 16, yv(0) - 6)} className="fill-ink-muted text-[11px]">
-          {formatDay(`${month}-${String(named.day).padStart(2, "0")}`)}: {formatBRL(named.cents)}
-        </text>
-      )}
-    </svg>
+        )}
+      </svg>
+      <ChartCursor
+        W={W}
+        H={H}
+        plot={{ left: L, right: W - R, top: T, bottom: H - B }}
+        xs={Array.from({ length: count }, (_, i) => x(i + 1))}
+        start={last - 1}
+        unit="day"
+        label={`Spending added up by day. ${nowName} reaches ${formatBRL(endNow)} by day ${last}; ${prevName} had reached ${formatBRL(prevSame)} by the same day.`}
+        read={(i) => {
+          const rows = [];
+          const dots = [];
+          if (i < now.length) {
+            rows.push({ label: nowName, cents: now[i], color: "var(--ink)" });
+            dots.push({ y: yv(now[i]), color: "var(--ink)" });
+          }
+          if (i < prevCount) {
+            rows.push({ label: prevName, cents: prev[i], color: "var(--rule-strong)", dashed: true });
+            dots.push({ y: yv(prev[i]), color: "var(--rule-strong)" });
+          }
+          return { label: formatDay(dayOf(i)), rows, dots };
+        }}
+      />
+    </div>
   );
 }
 
