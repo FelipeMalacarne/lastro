@@ -16,8 +16,8 @@ I do not want envelopes for everything ("give every real a job"): most categorie
 
 ## Decision
 
-- **A budget line is a limit or a fund.** A fund's monthly amount is what goes into it each month. It is inherited like a limit (ADR-0006) and counts with the limits in Not assigned.
-- **A fund carries its balance, debt included.** Its balance is what went in (its monthly amounts and adjustments) minus its net spending, walked from the first saved budget as rollover is. A refund in its category goes back into it. Spending past the balance leaves it in the red, and the months after pay it back. Rollover keeps its meaning for limits: what is left, never a debt.
+- **A budget line is a limit or a fund.** A fund's monthly amount is what goes into it each month. It is inherited like a limit (ADR-0006), counts with the limits in Not assigned and, like any line, may cover several categories (ADR-0012).
+- **A fund carries its balance, debt included.** Its balance belongs to the line: what went in (its monthly amounts and adjustments) minus its net spending, walked from the first saved budget as rollover is. A refund in its categories goes back into it. Spending past the balance leaves it in the red, and the months after pay it back. Rollover keeps its meaning for limits: what is left, never a debt.
 - **A fund is not paced.** Its spending comes in lumps, so a fund is never ahead of pace and never unusual. Its one alert is going into the red (`overdrawn`).
 - **An adjustment moves money already invested into or out of a fund:** what was already saved for it when it starts, covering a fund in the red from my long-term investments, or moving money from one fund to another. At most one per fund and month. It is old money, so it touches neither the month's Not assigned nor pay yourself first.
 - **Funds are kept invested** (in a caixinha), so pay yourself first is what went to investments for the long term: what went out, minus what came back, minus what the funds kept this month (their monthly amounts minus their spending), never below zero. A month with R$ 4.000 of pay yourself first, a car fund of R$ 300 and a R$ 1.600 repair paid from the caixinha sends R$ 4.300 out and brings R$ 1.600 back; the funds kept 300 − 1.600 = −1.300, so pay yourself first moved 4.300 − 1.600 + 1.300 = 4.000, done. Which transfer went to which caixinha is never asked, since Open Finance cannot tell: the rule is on totals.
@@ -34,7 +34,7 @@ I do not want envelopes for everything ("give every real a job"): most categorie
 
 ## Consequences
 
-- `budget.lines` gets whether a line is a fund, and adjustments get a table of their own. The balance is computed, never stored, so a recategorized transaction moves every later balance, as with rollover.
+- `budget.lines` gets whether a line is a fund, and adjustments, per line and month, get a table of their own. The balance is computed, never stored, so a recategorized transaction moves every later balance, as with rollover.
 - Pay yourself first reads lower in a month that fills the funds without spending them, and higher in one that spends them. Filling a fund without moving the money to the caixinha shows as pay yourself first not reached: the fund promises money the investments do not hold.
 - The savings rate stays on real spending: a month that uses a fund saves less, the months that filled it saved more.
 - `portfolio` depends on `budget` (no cycle: `budget` reads `ledger` and `categorize`). The stored daily valuation gains the funds next to the emergency fund; days before the first fund have none.

@@ -107,6 +107,7 @@ Priorities: **P0** = the area does not work without it. **P1** = clearly wanted,
 **P1**
 - [x] Copy last month's budget as a starting point (each month inherits the one before it, ADR-0006).
 - [x] Monthly summary: income, spending, contribution and savings rate.
+- [ ] One limit shared by several categories ("Free to spend": Leisure, Shopping and Dev), each still showing where its share went (ADR-0012).
 - [ ] Funds for spending that comes in lumps (going out, the car): a category that saves up its monthly amount in a caixinha and carries its balance, debt included, without upsetting pay yourself first or the allocation (ADR-0011).
 
 **P2**
