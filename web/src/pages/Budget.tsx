@@ -8,6 +8,7 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { Sheet, SheetActions } from "@/components/ui/sheet";
 import { send, useResource, type BudgetCategory, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type TransactionList } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
@@ -53,7 +54,21 @@ export function Budget() {
   useEffect(() => setEditing(false), [month]);
 
   if (res.error && !v) return <PageHeader title="Budget" caption={`Could not load the budget: ${res.error}.`} />;
-  if (!v) return <PageHeader title="Budget" caption="Loading…" />;
+  if (!v)
+    return (
+      <>
+        <PageHeader title="Budget" />
+        <Panel className="lg:p-6">
+          <div className="flex flex-col gap-4">
+            <SkeletonStat hero />
+            <Skeleton className="h-3.5" />
+          </div>
+        </Panel>
+        <Panel title="Categories" bodyClassName="-mx-5">
+          <SkeletonRows count={6} className="border-t border-rule" />
+        </Panel>
+      </>
+    );
 
   const attention = v.categories.filter((c) => c.pace !== "on_pace");
   const rolls = v.categories.filter((c) => c.rollover);

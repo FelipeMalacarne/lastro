@@ -10,6 +10,7 @@ import { Kbd } from "@/components/Kbd";
 import { Sparkline } from "@/components/Sparkline";
 import { NoteSection, SplitSection, TagsSection } from "@/components/TransactionNotes";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { send, typeLabel, useResource, type Change, type Pattern, type Transaction, type TransactionDetail as Detail } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
@@ -71,7 +72,16 @@ export function TransactionDetail({ id, onClose, prev, next, inSheet }: Props) {
       )}
 
       {res.error && !d && <p className="m-0 type-body text-ink-muted">Could not load the transaction: {res.error}.</p>}
-      {!d && !res.error && <p className="m-0 type-body text-ink-muted">Loading…</p>}
+      {!d && !res.error && (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="w-2/3" />
+            <Skeleton className="h-8 w-36" />
+          </div>
+          <Skeleton className="h-24" />
+          <Skeleton className="h-16" />
+        </div>
+      )}
       {d && <Body d={d} onClose={onClose} />}
     </div>
   );

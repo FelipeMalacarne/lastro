@@ -13,6 +13,7 @@ import { TextField } from "@/components/TextField";
 import { DetailSteps, TransactionDetail } from "@/components/TransactionDetail";
 import { TransactionRow } from "@/components/TransactionRow";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { Sheet } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -280,7 +281,7 @@ export function Transactions() {
           }
         >
           {res.error && !list && <Empty>Could not load transactions: {res.error}.</Empty>}
-          {!list && !res.error && <Empty>Loading transactions…</Empty>}
+          {!list && !res.error && <SkeletonRows count={8} />}
           {list && list.transactions.length === 0 && (
             <Empty>
               {noAccounts
@@ -337,7 +338,7 @@ function TagSummary({ tag, info, byId }: { tag: string; info?: TagView; byId: Ma
   return (
     <Panel title={title} footer="Every month, a split counted by its parts. Choose “Every month” above to list them all.">
       {rows.length === 0 ? (
-        <p className="m-0 type-body text-ink-muted">{res.data ? "Nothing spent with this tag." : "Loading…"}</p>
+        res.data ? <p className="m-0 type-body text-ink-muted">Nothing spent with this tag.</p> : <Skeleton className="h-16" />
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((c) => {
@@ -373,7 +374,16 @@ function MonthOverview({ month, current, data, error, day }: { month: string; cu
       footer="Spending only: transfers between your accounts and card bills never count. A day far above the rest is cut at the dotted line, with its figure on top. Select a day to list it."
     >
       {error && !data && <p className="m-0 type-body text-ink-muted">Could not load the month: {error}.</p>}
-      {!data && !error && <p className="m-0 type-body text-ink-muted">Loading the month…</p>}
+      {!data && !error && (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-wrap gap-x-10 gap-y-4">
+            <SkeletonStat />
+            <SkeletonStat />
+            <SkeletonStat />
+          </div>
+          <Skeleton className="h-[168px] max-lg:h-24" />
+        </div>
+      )}
       {data && s && (
         <div className="flex flex-col gap-5">
           <div className="flex flex-wrap gap-x-10 gap-y-4">

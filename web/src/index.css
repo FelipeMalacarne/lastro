@@ -243,6 +243,18 @@
     transform: translateY(100%);
   }
 }
+/* Skeletons appear after 150ms, so a page from the cache never flashes, then
+   breathe between full and 55% opacity. */
+@keyframes lt-show {
+  from {
+    visibility: hidden;
+  }
+}
+@keyframes lt-breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
 @keyframes lt-toast-out {
   to {
     opacity: 0;

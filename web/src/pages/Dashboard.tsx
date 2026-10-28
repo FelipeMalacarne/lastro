@@ -11,6 +11,7 @@ import { Stat } from "@/components/Stat";
 import { SyncNotice } from "@/components/SyncNotice";
 import { TransactionRow } from "@/components/TransactionRow";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { SyncButton } from "@/lib/sync";
 import {
   typeLabel,
@@ -79,13 +80,41 @@ export function Dashboard() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
         <NetWorth />
-        {budget && days ? <MonthSoFar v={budget} days={days} isCurrent={isCurrent} byId={byId} /> : <Panel title={`${monthName} so far`}>Loading…</Panel>}
+        {budget && days ? (
+          <MonthSoFar v={budget} days={days} isCurrent={isCurrent} byId={byId} />
+        ) : (
+          <Panel title={`${monthName} so far`}>
+            <div className="flex flex-col gap-6">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <SkeletonStat />
+                <SkeletonStat />
+                <SkeletonStat />
+                <SkeletonStat />
+              </div>
+              <Skeleton className="h-4" />
+            </div>
+          </Panel>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
-        {budget ? <ByCategory v={budget} byId={byId} isCurrent={isCurrent} /> : <Panel title="Spending by category">Loading…</Panel>}
+        {budget ? (
+          <ByCategory v={budget} byId={byId} isCurrent={isCurrent} />
+        ) : (
+          <Panel title="Spending by category">
+            <div className="flex flex-col gap-3">
+              {["92%", "24%", "20%", "12%", "10%", "8%"].map((w) => (
+                <div key={w} className="grid grid-cols-[96px_minmax(0,1fr)_88px] items-center gap-3">
+                  <Skeleton className="h-3" />
+                  <Skeleton className="h-2" style={{ width: w }} />
+                  <Skeleton className="h-3" />
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
         <Panel title="Spending through the month" footer={`Spending added up by day, with ${formatMonth(prevOf(month)).split(" ")[0]} for comparison.`}>
-          {days ? <Through month={month} days={days} today={today} isCurrent={isCurrent} /> : "Loading…"}
+          {days ? <Through month={month} days={days} today={today} isCurrent={isCurrent} /> : <Skeleton className="h-60" />}
         </Panel>
       </div>
 
@@ -175,7 +204,19 @@ function NetWorth() {
   const overview = useResource<PortfolioOverview>("/api/v1/portfolio").data;
   const points = res.data?.points ?? [];
   const now = points.at(-1);
-  if (!now) return <Panel title="Net worth">{res.error ? `Could not load: ${res.error}.` : "Loading…"}</Panel>;
+  if (!now)
+    return (
+      <Panel title="Net worth">
+        {res.error ? (
+          `Could not load: ${res.error}.`
+        ) : (
+          <div className="flex flex-col gap-4">
+            <SkeletonStat hero />
+            <Skeleton className="h-24" />
+          </div>
+        )}
+      </Panel>
+    );
   const first = points[0];
   // Accounts typed in later than the first point would read as growth:
   // compare like with like and say what is left out.
@@ -508,7 +549,7 @@ function Recent({ list, byId, month }: { list?: TransactionList; byId: Map<strin
       bodyClassName="-mx-5"
       footer={pending ? `${pending} pending ${pending === 1 ? "transaction" : "transactions"} may still change on the next sync.` : undefined}
     >
-      {!list && <p className="m-0 px-5 type-body text-ink-muted">Loading…</p>}
+      {!list && <SkeletonRows count={6} className="border-t border-rule" />}
       {list && rows.length === 0 && <p className="m-0 px-5 type-body text-ink-muted">Nothing this month yet.</p>}
       <div className="border-t border-rule">
         {rows.map((t) => (
@@ -556,7 +597,10 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
   return (
     <Panel title="To review" footer={list ? `${monthName}: ${by.rule} by your rules, ${by.llm} by the local model, ${by.manual} by hand.` : undefined}>
       {!review ? (
-        <p className="m-0 type-body text-ink-muted">Loading…</p>
+        <div className="flex flex-col gap-3">
+          <Skeleton className="w-3/4" />
+          <SkeletonRows count={3} className="-mx-5" />
+        </div>
       ) : review.waiting === 0 ? (
         <p className="m-0 flex items-center gap-2 type-body">
           <Check className="size-4 text-inflow" aria-hidden /> Every transaction has a category.
@@ -612,7 +656,12 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
 /** The charges that come back every month (F5), with what changed. */
 function FixedCosts({ byId }: { byId: Map<string, Category> }) {
   const r = useResource<Recurring>("/api/v1/recurring").data;
-  if (!r) return <Panel title="Fixed costs">Loading…</Panel>;
+  if (!r)
+    return (
+      <Panel title="Fixed costs">
+        <SkeletonRows count={4} className="-mx-5" />
+      </Panel>
+    );
   const changed = r.charges.filter((c) => c.change);
   const fresh = r.charges.filter((c) => c.new);
   const news = [

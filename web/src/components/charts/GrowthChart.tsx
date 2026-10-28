@@ -1,3 +1,4 @@
+import { ChartCursor } from "@/components/charts/ChartCursor";
 import { formatAxis, formatCompact, formatBRL, formatMonth, niceStep } from "@/lib/format";
 
 type Point = { date: string; valueCents: number; basisCents: number };
@@ -47,39 +48,59 @@ export function GrowthChart({ points, width = W }: { points: Point[]; width?: nu
     .filter(({ i }) => i === 0 || i === points.length - 1 || (i % every === 0 && points.length - 1 - i >= 2));
 
   return (
-    <svg
-      viewBox={`0 0 ${Wd} ${H}`}
-      className="h-auto w-full"
-      role="img"
-      aria-label={`Invested money went from ${formatBRL(first.valueCents)} to ${formatBRL(last.valueCents)}: ${formatBRL(putIn)} put in and ${formatBRL(growth - putIn)} in returns.`}
-    >
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={L} x2={Wd - R + 8} y1={y(t)} y2={y(t)} className="stroke-rule" />
-          <text x={L - 8} y={y(t) + 4} textAnchor="end" className="fill-ink-muted font-figure text-[11px]">
-            {axis(t)}
+    <div className="relative">
+      <svg viewBox={`0 0 ${Wd} ${H}`} className="h-auto w-full" aria-hidden>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={L} x2={Wd - R + 8} y1={y(t)} y2={y(t)} className="stroke-rule" />
+            <text x={L - 8} y={y(t) + 4} textAnchor="end" className="fill-ink-muted font-figure text-[11px]">
+              {axis(t)}
+            </text>
+          </g>
+        ))}
+        {labels.map(({ i, m }) => (
+          <text key={i} x={x(i)} y={H - 10} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} className="fill-ink-muted font-figure text-[11px]">
+            {i === 0 || i === points.length - 1 ? formatMonth(m, true) : formatMonth(m, true).slice(0, 3)}
           </text>
-        </g>
-      ))}
-      {labels.map(({ i, m }) => (
-        <text key={i} x={x(i)} y={H - 10} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} className="fill-ink-muted font-figure text-[11px]">
-          {i === 0 || i === points.length - 1 ? formatMonth(m, true) : formatMonth(m, true).slice(0, 3)}
+        ))}
+        <path d={basisArea} className="fill-rule-strong/45" />
+        <path d={returnsArea} className="fill-inflow/25" />
+        <path d={line("basisCents")} fill="none" className="stroke-ink-muted" strokeWidth={1.5} strokeDasharray="4 3" />
+        <path d={line("valueCents")} fill="none" className="stroke-ink" strokeWidth={2.25} strokeLinejoin="round" />
+        <circle cx={x(points.length - 1)} cy={y(last.valueCents)} r={4} className="fill-ink" />
+        <text x={x(points.length - 1) + 10} y={y(last.valueCents) + 4} className="fill-ink font-figure text-[12px] font-medium">
+          {axis(last.valueCents)}
         </text>
-      ))}
-      <path d={basisArea} className="fill-rule-strong/45" />
-      <path d={returnsArea} className="fill-inflow/25" />
-      <path d={line("basisCents")} fill="none" className="stroke-ink-muted" strokeWidth={1.5} strokeDasharray="4 3" />
-      <path d={line("valueCents")} fill="none" className="stroke-ink" strokeWidth={2.25} strokeLinejoin="round" />
-      <circle cx={x(points.length - 1)} cy={y(last.valueCents)} r={4} className="fill-ink" />
-      <text x={x(points.length - 1) + 10} y={y(last.valueCents) + 4} className="fill-ink font-figure text-[12px] font-medium">
-        {axis(last.valueCents)}
-      </text>
-      <text x={x(points.length - 1) + 10} y={Math.max(y(last.basisCents) + 18, y(last.valueCents) + 22)} className="fill-ink-muted font-figure text-[11px]">
-        {axis(last.basisCents)}
-      </text>
-      <text x={x(points.length - 1) + 10} y={Math.max(y(last.basisCents) + 32, y(last.valueCents) + 36)} className="fill-ink-muted text-[11px]">
-        net put in
-      </text>
-    </svg>
+        <text x={x(points.length - 1) + 10} y={Math.max(y(last.basisCents) + 18, y(last.valueCents) + 22)} className="fill-ink-muted font-figure text-[11px]">
+          {axis(last.basisCents)}
+        </text>
+        <text x={x(points.length - 1) + 10} y={Math.max(y(last.basisCents) + 32, y(last.valueCents) + 36)} className="fill-ink-muted text-[11px]">
+          net put in
+        </text>
+      </svg>
+      <ChartCursor
+        W={Wd}
+        H={H}
+        plot={{ left: L, right: Wd - R, top: T, bottom: H - B }}
+        xs={points.map((_, i) => x(i))}
+        unit="month"
+        label={`Invested money went from ${formatBRL(first.valueCents)} to ${formatBRL(last.valueCents)}: ${formatBRL(putIn)} put in and ${formatBRL(growth - putIn)} in returns.`}
+        read={(i) => {
+          const p = points[i];
+          return {
+            label: formatMonth(p.date.slice(0, 7), true),
+            rows: [
+              { label: "Invested", cents: p.valueCents, color: "var(--ink)" },
+              { label: "Put in", cents: p.basisCents, color: "var(--ink-muted)", dashed: true },
+              { label: "Returns", cents: p.valueCents - p.basisCents, color: "var(--inflow)", sign: "always" },
+            ],
+            dots: [
+              { y: y(p.valueCents), color: "var(--ink)" },
+              { y: y(p.basisCents), color: "var(--ink-muted)" },
+            ],
+          };
+        }}
+      />
+    </div>
   );
 }

@@ -8,6 +8,7 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { SyncStatus } from "@/components/SyncStatus";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
 import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
 import { Link } from "@/lib/router";
@@ -149,7 +150,7 @@ function Connections() {
     >
       <SyncOutcome />
       {error && <p className="m-0 type-body text-ink-muted">Could not load the connections: {error}.</p>}
-      {loading && banks.length === 0 && <p className="m-0 type-body text-ink-muted">Loading…</p>}
+      {loading && banks.length === 0 && <SkeletonRows count={3} className="-mx-4 sm:-mx-5" />}
       {!loading && banks.length === 0 && !error && <p className="m-0 type-body text-ink-muted">No connections yet. The first sync brings them in.</p>}
       <ul role="list" className="m-0 flex list-none flex-col p-0">
         {banks.filter((b) => !b.manual).map((b) => {
@@ -303,7 +304,7 @@ function BudgetSettings() {
           <RolloverNew on={v.rolloverNew} />
         </>
       ) : (
-        <p className="m-0 type-body text-ink-muted">Loading…</p>
+        <Skeleton className="h-24" />
       )}
     </Section>
   );
@@ -394,7 +395,7 @@ function Investments() {
   const v = res.data;
   return (
     <Section id="investments" title="Investments" intro="The targets the contribution planner aims for. It never suggests selling.">
-      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} /> : <p className="m-0 type-body text-ink-muted">Loading…</p>}
+      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} /> : <Skeleton className="h-40" />}
     </Section>
   );
 }

@@ -7,6 +7,7 @@ import { CategoryDecision } from "@/components/CategoryDecision";
 import { Kbd } from "@/components/Kbd";
 import { Panel } from "@/components/Panel";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { joinUndo, send, useResource, type Change, type Pattern, type Review as ReviewData, type ReviewGroup, type Undo } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDay } from "@/lib/format";
@@ -139,7 +140,19 @@ export function Review() {
       <PageHeader title="To review" caption={caption} monthless />
 
       {res.error && !res.data && <p className="m-0 type-body text-ink-muted">Could not load the queue: {res.error}.</p>}
-      {!res.data && !res.error && <p className="m-0 type-body text-ink-muted">Loading the queue…</p>}
+      {!res.data && !res.error && (
+        <div className="flex flex-wrap items-start gap-4 lg:gap-6">
+          <Panel className="min-w-0 flex-[1_1_420px]" bodyClassName="-mx-5">
+            <SkeletonRows count={5} />
+          </Panel>
+          <Panel className="min-w-0 flex-[1_1_380px] lg:max-w-[460px]">
+            <div className="flex flex-col gap-4">
+              <SkeletonStat />
+              <Skeleton className="h-40" />
+            </div>
+          </Panel>
+        </div>
+      )}
 
       {res.data && groups.length === 0 && (
         <Panel>

@@ -9,6 +9,7 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Sheet, SheetActions } from "@/components/ui/sheet";
 import {
@@ -285,7 +286,7 @@ function RulesPanel({
             </div>
           </div>
           {error && <p className="m-0 px-5 pb-4 type-body text-ink-muted">Could not load the rules: {error}.</p>}
-          {loading && !error && <p className="m-0 px-5 pb-4 type-body text-ink-muted">Loading the rules…</p>}
+          {loading && !error && <SkeletonRows count={6} className="border-t border-rule" />}
           {!loading && rules.length > 0 && shown.length === 0 && <p className="m-0 px-5 pb-4 type-body text-ink-muted">No rule matches.</p>}
           {!loading && rules.length === 0 && (
             <p className="m-0 px-5 pb-5 type-body text-ink-muted">
