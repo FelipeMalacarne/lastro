@@ -114,7 +114,7 @@ What living with the app asked for. Each screen change starts on the canvas.
 - [x] ADR-0011 and ADR-0012 accepted: funds that save up month by month, kept invested, and a line that covers several categories (both amend ADR-0006)
 - [x] `budget`: a line has an id of its own and covers one or more categories, a category in at most one line a month; today's lines migrate as one-category lines; tracking, alerts, copy, the API, the monthly report and MCP follow
 - [x] `budget`: a line is a limit or a fund; a fund carries its balance, debt included, and takes adjustments; the month's totals leave the funds out; pay yourself first nets what the funds kept; the `overdrawn` alert; the API and the monthly report follow
-- [ ] Budget: lines with several categories, broken down by category; funds with their balance and the month's totals without them; a line's editor with its categories, limit or fund, and the starting balance (canvas: "Budget: shared lines and funds")
+- [ ] Budget: lines with several categories, broken down by category; funds with their balance and the month's totals without them; a line's editor with its categories, limit or fund, and the starting balance; a line or fund in a sheet on a phone, and covering a fund, moving a category or removing a line at once with Undo in a toast (canvas: "Budget: shared lines and funds", "Budget, phone: a fund in a sheet")
 - [ ] `portfolio`: one group holds the funds, set apart after the emergency fund, out of the allocation and the planner, and a line of their own in net worth; Positions and Dashboard follow (canvas: "Positions: the funds set apart")
 
 ## M7: my own identity (ADR-0008, ADR-0009, ADR-0010)
