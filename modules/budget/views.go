@@ -20,26 +20,32 @@ type MonthView struct {
 	Payday           int     `json:"payday"`
 	PayYourselfFirst PYFView `json:"payYourselfFirst"`
 
-	IncomeCents      int64 `json:"incomeCents"`
-	IncomeCount      int   `json:"incomeCount"`
-	LimitsCents      int64 `json:"limitsCents"`  // every limit, before rollover
+	IncomeCents int64 `json:"incomeCents"`
+	IncomeCount int   `json:"incomeCount"`
+	LimitsCents int64 `json:"limitsCents"` // every line's limit and fund's monthly amount, before rollover
+	// CarriedCents, AvailableCents, SpentCents and LeftCents are the
+	// limits', leaving the funds out (ADR-0011): they have Funds.
 	CarriedCents     int64 `json:"carriedCents"` // rolled over into this month
 	AvailableCents   int64 `json:"availableCents"`
-	SpentCents       int64 `json:"spentCents"` // in limited categories
+	SpentCents       int64 `json:"spentCents"`
 	LeftCents        int64 `json:"leftCents"`
 	NotAssignedCents int64 `json:"notAssignedCents"` // income minus pay yourself first and limits
-	// UpcomingCents is what recurring charges in limited categories should
-	// still take this month: left to spend once they come is LeftCents
-	// minus it.
-	UpcomingCents int64 `json:"upcomingCents"`
+	// UpcomingCents is what recurring charges in the limits' categories
+	// should still take this month: left to spend once they come is
+	// LeftCents minus it.
+	UpcomingCents int64     `json:"upcomingCents"`
+	Funds         FundsView `json:"funds"`
 
-	Categories []CategoryView `json:"categories"` // limited, what needs attention first
-	Unlimited  []SpendView    `json:"unlimited"`  // spending without a limit, by amount
-	Summary    SummaryView    `json:"summary"`
+	// Categories are the budget's lines (ADR-0012), what needs attention
+	// first.
+	Categories []LineView  `json:"categories"`
+	Unlimited  []SpendView `json:"unlimited"` // categories no line covers, by amount
+	Summary    SummaryView `json:"summary"`
 }
 
 // PYFView is pay yourself first: what was planned and what left for
-// accounts outside lastro, net of what came back from them (SetAside).
+// accounts outside lastro for the long term, net of what came back from
+// them and of what the funds kept (SetAside).
 type PYFView struct {
 	PlannedCents int64   `json:"plannedCents"`
 	MovedCents   int64   `json:"movedCents"`
@@ -47,21 +53,50 @@ type PYFView struct {
 	DoneOn       *string `json:"doneOn"` // the last transfer's day, once moved reaches planned
 }
 
-// CategoryView is one limited category in a month.
-type CategoryView struct {
-	Category       string `json:"category"`
-	LimitCents     int64  `json:"limitCents"`
-	CarriedCents   int64  `json:"carriedCents"`
-	AvailableCents int64  `json:"availableCents"`
-	SpentCents     int64  `json:"spentCents"`
-	LeftCents      int64  `json:"leftCents"`
-	Rollover       bool   `json:"rollover"`
-	UsedBp         int64  `json:"usedBp"`
-	Pace           Pace   `json:"pace"`
-	Count          int    `json:"count"`
-	FixedCents     int64  `json:"fixedCents"`    // recurring charges already paid this month
-	UpcomingCents  int64  `json:"upcomingCents"` // recurring charges still to come this month
+// LineView is one budget line in a month. Category is the category it
+// covers or, for a line shared by several, the first of them by id, so a
+// screen that shows one category per line keeps working; ByCategory says
+// where its spending went.
+type LineView struct {
+	ID             string             `json:"id"`
+	Name           *string            `json:"name"` // a shared line's; null for one that goes by its category's
+	Category       string             `json:"category"`
+	ByCategory     []LineCategoryView `json:"byCategory"` // every category it covers, the most spent first
+	LimitCents     int64              `json:"limitCents"`
+	CarriedCents   int64              `json:"carriedCents"`
+	AvailableCents int64              `json:"availableCents"`
+	SpentCents     int64              `json:"spentCents"`
+	LeftCents      int64              `json:"leftCents"`
+	Rollover       bool               `json:"rollover"`
+	Fund           bool               `json:"fund"`          // carries its balance, debt included: available and left are its balance before and after spending
+	AdjustedCents  int64              `json:"adjustedCents"` // a fund's adjustment this month
+	UsedBp         int64              `json:"usedBp"`
+	Pace           Pace               `json:"pace"`
+	Count          int                `json:"count"`
+	FixedCents     int64              `json:"fixedCents"`    // recurring charges already paid this month
+	UpcomingCents  int64              `json:"upcomingCents"` // recurring charges still to come this month
 	History
+}
+
+// FundsView is the month's funds together (ADR-0011). KeptCents is their
+// monthly amounts minus their spending, which pay yourself first leaves out.
+type FundsView struct {
+	Count         int   `json:"count"`
+	AmountCents   int64 `json:"amountCents"`
+	CarriedCents  int64 `json:"carriedCents"`
+	AdjustedCents int64 `json:"adjustedCents"`
+	SpentCents    int64 `json:"spentCents"`
+	BalanceCents  int64 `json:"balanceCents"`
+	KeptCents     int64 `json:"keptCents"`
+}
+
+// LineCategoryView is one of a line's categories: what it spent this month
+// and, alone, in the six months before on average.
+type LineCategoryView struct {
+	Category     string `json:"category"`
+	SpentCents   int64  `json:"spentCents"`
+	Count        int    `json:"count"`
+	AverageCents int64  `json:"averageCents"`
 }
 
 // SpendView is spending in a category without a limit; Category is null
@@ -73,7 +108,7 @@ type SpendView struct {
 	History
 }
 
-// History is a category's spending in the six months before this one.
+// History is the spending in the six months before this one.
 type History struct {
 	History      []MonthSpend `json:"history"` // oldest first
 	AverageCents int64        `json:"averageCents"`

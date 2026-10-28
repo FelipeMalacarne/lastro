@@ -34,14 +34,41 @@ func (r *PostgresRepository) Saved(ctx context.Context, until Month) ([]*Monthly
 	if err != nil {
 		return nil, err
 	}
-	lines := map[Month][]Line{}
-	for _, row := range rows {
+	cats, err := r.q.ListLineCategories(ctx, until.First())
+	if err != nil {
+		return nil, err
+	}
+	type key struct {
+		m  Month
+		id string
+	}
+	covers := map[key][]ledger.CategoryID{}
+	for _, row := range cats {
 		c, err := ledger.NewCategoryID(row.CategoryID)
 		if err != nil {
 			return nil, err
 		}
+		k := key{MonthOf(row.Month), row.LineID}
+		covers[k] = append(covers[k], c)
+	}
+	lines := map[Month][]Line{}
+	for _, row := range rows {
+		id, err := ParseLineID(row.LineID)
+		if err != nil {
+			return nil, err
+		}
 		m := MonthOf(row.Month)
-		lines[m] = append(lines[m], Line{Category: c, Limit: money.BRLCents(row.LimitCents), Rollover: row.Rollover})
+		l := Line{ID: id, Categories: covers[key{m, row.LineID}], Limit: money.BRLCents(row.LimitCents), Rollover: row.Rollover, Kind: KindLimit}
+		if row.Fund {
+			l.Kind = KindFund
+		}
+		if len(l.Categories) == 0 {
+			continue // Save writes a line with its categories; one without any covers nothing
+		}
+		if row.Name != nil {
+			l.Name = *row.Name
+		}
+		lines[m] = append(lines[m], l)
 	}
 	out := make([]*MonthlyBudget, len(months))
 	for i, row := range months {
@@ -55,7 +82,8 @@ func (r *PostgresRepository) Saved(ctx context.Context, until Month) ([]*Monthly
 	return out, nil
 }
 
-// Save writes a month's budget whole, replacing its lines.
+// Save writes a month's budget whole, replacing its lines and the
+// categories they cover.
 func (r *PostgresRepository) Save(ctx context.Context, b *MonthlyBudget) error {
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
@@ -69,14 +97,59 @@ func (r *PostgresRepository) Save(ctx context.Context, b *MonthlyBudget) error {
 			return fmt.Errorf("delete lines: %w", err)
 		}
 		for _, l := range b.Lines() {
+			var name *string
+			if l.Name != "" {
+				name = &l.Name
+			}
 			if err := q.InsertLine(ctx, db.InsertLineParams{
-				Month: m, CategoryID: l.Category.String(), LimitCents: l.Limit.Cents(), Rollover: l.Rollover,
+				Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover, Fund: l.IsFund(),
 			}); err != nil {
 				return fmt.Errorf("insert line: %w", err)
+			}
+			for _, c := range l.Categories {
+				if err := q.InsertLineCategory(ctx, db.InsertLineCategoryParams{
+					Month: m, LineID: l.ID.String(), CategoryID: c.String(),
+				}); err != nil {
+					return fmt.Errorf("insert line category: %w", err)
+				}
 			}
 		}
 		return nil
 	})
+}
+
+// Adjustments are the funds' adjustments up to a month.
+func (r *PostgresRepository) Adjustments(ctx context.Context, until Month) (Adjustments, error) {
+	rows, err := r.q.ListAdjustments(ctx, until.First())
+	if err != nil {
+		return nil, err
+	}
+	out := Adjustments{}
+	for _, row := range rows {
+		id, err := ParseLineID(row.LineID)
+		if err != nil {
+			return nil, err
+		}
+		m := MonthOf(row.Month)
+		if out[m] == nil {
+			out[m] = map[LineID]money.Money{}
+		}
+		out[m][id] = money.BRLCents(row.Cents)
+	}
+	return out, nil
+}
+
+// SaveAdjustment writes a fund's adjustment for its month, replacing the
+// one it had.
+func (r *PostgresRepository) SaveAdjustment(ctx context.Context, a Adjustment) error {
+	return r.q.SaveAdjustment(ctx, db.SaveAdjustmentParams{Month: a.Month.First(), LineID: a.Line.String(), Cents: a.Amount.Cents()})
+}
+
+// RemoveAdjustment deletes a fund's adjustment for a month and reports
+// whether it had one.
+func (r *PostgresRepository) RemoveAdjustment(ctx context.Context, m Month, id LineID) (bool, error) {
+	n, err := r.q.DeleteAdjustment(ctx, db.DeleteAdjustmentParams{Month: m.First(), LineID: id.String()})
+	return n > 0, err
 }
 
 // sent is which of the keys were already pushed.

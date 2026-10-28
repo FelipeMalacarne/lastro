@@ -17,7 +17,7 @@ func TestBuildReport(t *testing.T) {
 		today: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
 		view: budget.MonthView{
 			Summary: budget.SummaryView{IncomeCents: 1840000, SpentCents: 828410, ContributionCents: 400000, SavingsRateBp: 3100},
-			Categories: []budget.CategoryView{
+			Categories: []budget.LineView{
 				{Category: "r", SpentCents: 110430, AvailableCents: 90000},
 				{Category: "g", SpentCents: 124110, AvailableCents: 140000},
 			},

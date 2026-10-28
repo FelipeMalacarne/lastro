@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+type BudgetAdjustment struct {
+	Month    time.Time
+	LineID   string
+	Cents    int64
+	Currency string
+}
+
 type BudgetAlertsSent struct {
 	Key    string
 	SentAt time.Time
@@ -15,9 +22,17 @@ type BudgetAlertsSent struct {
 
 type BudgetLine struct {
 	Month      time.Time
-	CategoryID string
 	LimitCents int64
 	Rollover   bool
+	LineID     string
+	Name       *string
+	Fund       bool
+}
+
+type BudgetLineCategory struct {
+	Month      time.Time
+	LineID     string
+	CategoryID string
 }
 
 type BudgetMonth struct {

@@ -282,14 +282,24 @@ export type Pace = "on_pace" | "ahead" | "over";
 
 export type MonthSpend = { month: string; spentCents: number };
 
+/** One of a line's categories: its spending this month and, alone, its six-month average. */
+export type BudgetLinePart = { category: string; spentCents: number; count: number; averageCents: number };
+
+/** A budget line (ADR-0012): one or more categories under one limit. `category` is its only one, or a shared line's first. */
 export type BudgetCategory = {
+  id: string;
+  name: string | null;
   category: string;
+  byCategory: BudgetLinePart[];
   limitCents: number;
   carriedCents: number;
   availableCents: number;
   spentCents: number;
   leftCents: number;
   rollover: boolean;
+  /** A fund (ADR-0011) carries its balance, debt included: available and left are its balance before and after spending. */
+  fund: boolean;
+  adjustedCents: number;
   usedBp: number;
   pace: Pace;
   count: number;
@@ -322,6 +332,8 @@ export type BudgetMonth = {
   leftCents: number;
   notAssignedCents: number;
   upcomingCents: number;
+  /** The funds together; carried, available, spent, left and upcoming above are the limits'. */
+  funds: { count: number; amountCents: number; carriedCents: number; adjustedCents: number; spentCents: number; balanceCents: number; keptCents: number };
   categories: BudgetCategory[];
   unlimited: BudgetSpend[];
   summary: { incomeCents: number; spentCents: number; contributionCents: number; savingsRateBp: number };
