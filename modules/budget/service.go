@@ -70,7 +70,8 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		return MonthView{}, fmt.Errorf("budget: month: %w", err)
 	}
 
-	spending, counts := spendingByMonth(rows, budgetedSet(cats))
+	budgeted := budgetedSet(cats)
+	spending, counts := spendingByMonth(rows, budgeted)
 	// This month, recurring charges already paid stay out of the pace, and
 	// the ones still to come are counted against what is left.
 	var fixed, upcoming Spending
@@ -137,6 +138,11 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			}
 		}
 	}
+	// What came in under a spending category is a refund, already taken
+	// off that category's spending.
+	refunded, n := refunds(rows, budgeted, m)
+	v.IncomeCents -= refunded
+	v.IncomeCount = max(v.IncomeCount-n, 0)
 	v.PayYourselfFirst.MovedCents = SetAside(money.BRLCents(out), money.BRLCents(back)).Cents()
 	if pyf := v.PayYourselfFirst; pyf.PlannedCents > 0 && pyf.MovedCents >= pyf.PlannedCents {
 		d := last.Format(time.DateOnly)
@@ -307,6 +313,24 @@ func spendingByMonth(rows []ledger.CategoryMonth, budgeted map[ledger.CategoryID
 		}
 	}
 	return out, counts
+}
+
+// refunds is the income of month m under budgeted categories, and how
+// many transactions brought it: refunds, not income, since spendingByMonth
+// already takes them off the category's spending.
+func refunds(rows []ledger.CategoryMonth, budgeted map[ledger.CategoryID]bool, m Month) (int64, int) {
+	var cents int64
+	var count int
+	for _, r := range rows {
+		if r.Kind != "income" || r.Category == "" || MonthOf(r.Month) != m {
+			continue
+		}
+		if id, err := ledger.NewCategoryID(r.Category); err == nil && budgeted[id] {
+			cents += r.InCents
+			count += r.Count
+		}
+	}
+	return cents, count
 }
 
 // history is a category's spending in the six months before m and their
