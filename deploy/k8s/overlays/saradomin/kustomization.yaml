@@ -12,4 +12,4 @@ images:
   - name: lastro
     newName: ghcr.io/felipemalacarne/lastro
     # CI sets this to the image it just pushed, on every merge to main.
-    newTag: "98c40e1c0316328eb2f3d72f1ac540bef643df48"
+    newTag: "a340e5d23d4766e58696fae54745d3ed9375caf8"
