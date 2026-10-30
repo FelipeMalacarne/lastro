@@ -1,0 +1,6 @@
+# Orca's hooks for this repo (AGENTS.md, "Working in a worktree"). They run in
+# bash from the worktree's directory; Orca asks to trust them again whenever
+# they change.
+scripts:
+  setup: scripts/worktree.sh setup
+  archive: scripts/worktree.sh archive
