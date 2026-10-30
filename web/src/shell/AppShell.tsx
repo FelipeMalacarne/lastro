@@ -47,6 +47,8 @@ function NavItem({ to, label, icon: Icon, here, count, countLabel }: { to: strin
     <Link
       to={to}
       aria-current={here ? "page" : undefined}
+      // Read once, as "Transactions, 78 to review", not "Transactions 78 78 to review".
+      aria-label={count && countLabel ? `${label}, ${countLabel}` : undefined}
       className={cn(
         "flex h-9 items-center gap-3 rounded-sm px-2 text-[14px] leading-5 font-semibold no-underline transition-colors",
         here ? "bg-tinta-soft text-tinta shadow-[inset_2px_0_0_var(--tinta)] hover:text-tinta" : "text-ink hover:bg-paper-sunken hover:text-ink",
@@ -58,7 +60,6 @@ function NavItem({ to, label, icon: Icon, here, count, countLabel }: { to: strin
         <Tooltip label={countLabel} side="right">
           <span className="inline-flex h-5 min-w-[22px] items-center justify-center rounded-sm bg-warning-soft px-1.5 font-figure text-[12px] leading-4 font-medium text-warning">
             {count}
-            <span className="sr-only"> {countLabel}</span>
           </span>
         </Tooltip>
       ) : null}
@@ -196,6 +197,7 @@ export function AppShell({ accounts, children }: Props) {
                     key={d.to}
                     to={d.to}
                     aria-current={here ? "page" : undefined}
+                    aria-label={d.to === "/transactions" && waiting ? `${d.label}, ${waiting} to review` : undefined}
                     className={cn(
                       "relative flex flex-col items-center justify-center gap-1 text-[12px] leading-4 font-semibold no-underline",
                       here ? "text-tinta hover:text-tinta" : "text-ink-muted hover:text-ink",
@@ -206,7 +208,6 @@ export function AppShell({ accounts, children }: Props) {
                     {d.to === "/transactions" && waiting ? (
                       <span className="absolute top-2 left-[calc(50%+6px)] inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-warning-soft px-1 font-figure text-[11px] leading-4 font-medium text-warning">
                         {waiting > 99 ? "99+" : waiting}
-                        <span className="sr-only"> to review</span>
                       </span>
                     ) : null}
                   </Link>
