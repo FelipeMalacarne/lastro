@@ -13,6 +13,14 @@ import (
 // answer "bad input" with errors.Is(err, categorize.ErrInvalid).
 var ErrInvalid = errors.New("categorize: invalid value")
 
+// reason is an invalid value I can fix by typing something else, said as a
+// clause the screens show as it is ("up to 40 characters"). The API answers
+// with the clause alone.
+type reason string
+
+func (r reason) Error() string { return ErrInvalid.Error() + ": " + string(r) }
+func (r reason) Unwrap() error { return ErrInvalid }
+
 // Color is the banknote a category is drawn with: one of the eight notes of
 // the real, from the 1-real coin to the 200-real note.
 type Color string
@@ -127,8 +135,13 @@ const maxName = 40
 // have 1 to 40 characters and no control characters.
 func cleanName(s string) (string, error) {
 	n := strings.Join(strings.Fields(s), " ")
-	if n == "" || len([]rune(n)) > maxName || strings.ContainsFunc(n, unicode.IsControl) {
-		return "", fmt.Errorf("%w: category name %q needs 1 to %d characters", ErrInvalid, s, maxName)
+	switch {
+	case n == "":
+		return "", reason("type a name")
+	case len([]rune(n)) > maxName:
+		return "", reason(fmt.Sprintf("up to %d characters", maxName))
+	case strings.ContainsFunc(n, unicode.IsControl):
+		return "", reason("a name is letters, digits, spaces and symbols")
 	}
 	return n, nil
 }

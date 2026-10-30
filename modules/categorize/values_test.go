@@ -92,10 +92,20 @@ func TestCleanName(t *testing.T) {
 	if n, err := cleanName("  Pets   and  vet "); err != nil || n != "Pets and vet" {
 		t.Errorf("got %q, %v", n, err)
 	}
-	for _, bad := range []string{"", "   ", strings.Repeat("x", 41), "Pets\x00"} {
-		if _, err := cleanName(bad); !errors.Is(err, ErrInvalid) {
-			t.Errorf("%q: want ErrInvalid, got %v", bad, err)
+	for _, c := range []struct{ in, reason string }{
+		{"", "type a name"},
+		{"   ", "type a name"},
+		{strings.Repeat("x", 41), "up to 40 characters"},
+		{"Pets\x00", "a name is letters, digits, spaces and symbols"},
+	} {
+		_, err := cleanName(c.in)
+		var r reason
+		if !errors.Is(err, ErrInvalid) || !errors.As(err, &r) || string(r) != c.reason {
+			t.Errorf("%q: want %q, got %v", c.in, c.reason, err)
 		}
+	}
+	if n, err := cleanName(strings.Repeat("ç", 40)); err != nil || n != strings.Repeat("ç", 40) {
+		t.Errorf("40 characters, not bytes: %q %v", n, err)
 	}
 }
 
