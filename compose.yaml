@@ -2,6 +2,10 @@
 #
 #   docker compose up -d --wait postgres     only the database (what `task db` does)
 #   docker compose --profile app up --build  the whole app, as the cluster runs it (`task app`)
+#
+# One project for every worktree: they share this Postgres, each with its own
+# database (scripts/worktree.sh), and `task app` runs one at a time.
+name: lastro
 
 x-lastro-env: &lastro-env
   LASTRO_ENV: dev
@@ -21,8 +25,9 @@ services:
       POSTGRES_USER: lastro
       POSTGRES_PASSWORD: lastro
       POSTGRES_DB: lastro
+    # Not 5432, which other projects' Postgres take.
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

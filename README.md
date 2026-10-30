@@ -17,6 +17,8 @@ task dev          # API on http://localhost:8080
 task web:dev      # in another terminal: frontend on http://localhost:5173
 ```
 
+Each Orca worktree runs on its own ports and database: `scripts/worktree.sh setup` prepares it (see `AGENTS.md`), `task up` starts the API and the frontend, and `task urls` says where they are.
+
 To run it the way the cluster does (one container with the embedded frontend, migrations first), use `task app` and open `http://localhost:8080`.
 
 Opening `http://localhost:5173` should show "Signed in as dev@localhost".

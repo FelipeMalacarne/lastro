@@ -16,16 +16,35 @@ M0 (skeleton and first deploy), M1 (see my money), M2 (categorization) and M3 (t
 |---|---|
 | `nix develop` | dev shell from `flake.nix` with every tool except Docker |
 | `task setup` | `go mod tidy` and `npm install` for the frontend |
-| `task db` | starts the local Postgres (compose) |
+| `task db` | starts the local Postgres (compose, on :55432; every worktree shares it, each with its own database) |
 | `task migrate` | applies migrations to the database in `.env` |
-| `task dev` | API on :8080 |
-| `task app` | the whole app in Docker on :8080 (Postgres, migrations, API with the embedded frontend) |
-| `task web:dev` | frontend on :5173 with a proxy to the API |
+| `task seed` | fills the dev database with made-up money; running it again changes nothing |
+| `task dev` | API on `LASTRO_HTTP_ADDR` (:8080 unless `.env` says otherwise) |
+| `task web:dev` | frontend on `LASTRO_WEB_PORT` (:5173 unless `.env` says otherwise) with a proxy to the API |
+| `task up` | `task dev` and `task web:dev` together |
+| `task urls` | where this checkout serves the API and the frontend |
+| `task app` | the whole app in Docker on :8080 (Postgres, migrations, API with the embedded frontend); one worktree at a time |
 | `task test` | Go tests |
 | `task test:integration` | Go tests plus the integration tests (repositories against a real Postgres; needs Docker) |
 | `task lint` | golangci-lint, including the boundary rules |
-| `task check` | tests and lint; **must pass before a task is considered done** (CI also runs the integration tests) |
+| `task check` | tests, lint and the frontend type check; **must pass before a task is considered done** (CI also runs the integration tests) |
 | `task sqlc` | regenerates query code |
+
+## Working in a worktree
+
+I run several agents at once, each in its own Orca worktree. `orca.yaml` has Orca run `scripts/worktree.sh setup` on every new worktree, which gives it:
+
+- `direnv allow` and the dev shell. If `task` is not on your PATH, run commands as `nix develop -c task ...`.
+- A `.env` with its own ports for the API and the frontend, its own database (`lastro_<worktree>`) in the shared Postgres, and no Pluggy credentials, so a worktree never syncs real data.
+- The frontend dependencies, and the database migrated and seeded.
+
+When Orca archives the worktree, `scripts/worktree.sh archive` drops the database and frees the ports. The main checkout keeps its own `.env`.
+
+With several agents running:
+
+- Work on the task you were given. Without one, `/next-task` skips the tasks other worktrees are on.
+- Run the app with `task up` in its own Orca terminal (`orca terminal create --worktree active --title app --command "nix develop -c task up" --json`), not in your shell. `task urls` and `orca ports --json` say where it is.
+- Never point a worktree at another one's ports or database, and do not use `task app` to check a change.
 
 ## Repo map
 
@@ -40,6 +59,7 @@ migrations/      goose SQL, embedded in the binary
 web/             React + Vite, embedded in the binary
 deploy/k8s/      Kustomize: base + overlays/saradomin
 docs/            PLAN.md (milestones), pluggy.md (what Pluggy sends) and adr/ (decisions)
+scripts/         worktree.sh: Orca's setup and archive hooks (orca.yaml)
 ```
 
 ## Architecture rules
@@ -101,6 +121,11 @@ Rules:
 - Logging with `log/slog`.
 - Configuration only through `platform/config`, with `LASTRO_*` variables. No `os.Getenv` anywhere else.
 - New dependencies only with a clear reason. Prefer the standard library.
+- Every screen is designed and approved before it is built, and the approved design is the spec (`CLAUDE.md` links the canvas). An agent that cannot open the canvas asks me for the design before writing frontend code.
+
+## Commits and PRs
+
+Commits and PRs are mine: the author is `FelipeMalacarne <105752743+FelipeMalacarne@users.noreply.github.com>` (set it with `git config user.name` and `user.email` in a fresh checkout), and nothing in them references the agent that wrote them. No `Co-Authored-By` trailers, session links or "Generated with" lines in commit messages, PR titles, PR bodies or PR comments.
 
 ## Security and privacy
 
@@ -113,5 +138,6 @@ Rules:
 ## When finishing a task
 
 1. `task check` passes.
-2. The module README is updated if a responsibility, invariant or event changed.
-3. The box is checked in `docs/PLAN.md`.
+2. If the task changed a screen or what a screen shows, it was seen working in the running app: `task up`, the frontend URL from `task urls` open in Orca's browser (`orca tab create --url <url> --json`, then `orca snapshot --json`), compared with the approved artboard. Auth is off in dev, so `curl` against the API URL checks an endpoint.
+3. The module README is updated if a responsibility, invariant or event changed.
+4. The box is checked in `docs/PLAN.md`.

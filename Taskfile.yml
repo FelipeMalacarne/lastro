@@ -11,7 +11,7 @@ tasks:
       - npm --prefix web install
 
   db:
-    desc: Start the local Postgres
+    desc: Start the local Postgres on :55432 (every worktree shares it, each with its own database)
     cmds:
       - docker compose up -d --wait postgres
 
@@ -21,21 +21,43 @@ tasks:
       - go run ./cmd/lastrod migrate
 
   dev:
-    desc: Start the API on :8080 (run `task web:dev` in another terminal)
+    desc: Start the API on LASTRO_HTTP_ADDR (run `task web:dev` in another terminal, or `task up` for both)
     deps: [db]
     cmds:
       - go run ./cmd/lastrod serve
 
+  up:
+    desc: Start the API and the frontend together
+    deps: [dev, web:dev]
+
+  seed:
+    desc: Fill the dev database with made-up money (LASTRO_ENV=dev only; running it again changes nothing)
+    cmds:
+      - go run ./cmd/lastrod seed
+
+  urls:
+    desc: Print where this checkout serves the API and the frontend
+    silent: true
+    cmds:
+      - echo "API       http://localhost${LASTRO_HTTP_ADDR:-:8080}"
+      - echo "Frontend  http://localhost:${LASTRO_WEB_PORT:-5173}"
+
   app:
-    desc: Run the whole app in Docker (Postgres, migrations, API with the embedded frontend) on :8080
+    desc: Run the whole app in Docker (Postgres, migrations, API with the embedded frontend) on :8080, one worktree at a time
     cmds:
       - docker compose --profile app up --build
 
   web:dev:
-    desc: Start the frontend on :5173 with a proxy to the API
+    desc: Start the frontend on LASTRO_WEB_PORT with a proxy to the API
     dir: web
     cmds:
       - npm run dev
+
+  web:check:
+    desc: Type-check the frontend
+    dir: web
+    cmds:
+      - npm run typecheck
 
   web:build:
     desc: Build web/dist, which the Go binary embeds
@@ -59,10 +81,11 @@ tasks:
       - golangci-lint run
 
   check:
-    desc: What CI runs
+    desc: Tests, lint and the frontend type check (CI also runs the integration tests)
     cmds:
       - task: test
       - task: lint
+      - task: web:check
 
   sqlc:
     desc: Generate query code from migrations and each module's queries.sql

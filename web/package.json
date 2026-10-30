@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build && node -e \"require('fs').writeFileSync('dist/.gitkeep', '')\"",
     "preview": "vite preview"
   },
