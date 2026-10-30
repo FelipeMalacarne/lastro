@@ -29,7 +29,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 ## Invariants
 
 - Two live categories never share a name (case does not matter). Archiving one frees its name.
-- A category is never deleted, only archived: it leaves the pickers and the LLM's list, and transactions already in it keep showing it. An archived category does not change, and archiving it deletes its rules, which could no longer lead anywhere.
+- A category is never deleted, only archived: it leaves the pickers and the LLM's list, and transactions already in it keep showing it. An archived category does not change, and archiving it deletes its rules, which could no longer lead anywhere. The budget lets it go from the month it was archived on (`CategoryArchived`).
 - A rule never leads to an archived category.
 - At most one rule per pattern (kind and text) and account. A correction that meets a taught pattern retargets that rule instead of adding another.
 - A pattern has at least 3 letters or digits and at most 100 characters.
@@ -48,7 +48,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 - `GET /api/v1/categories`: every category, live ones first, each by name, with `archived`.
 - `POST /api/v1/categories` `{"name", "color", "budgeted"}`: `budgeted` defaults to true. 409 when the name is taken.
 - `PATCH /api/v1/categories/{id}`: any of `name`, `color` and `budgeted`. 409 for an archived category or a taken name.
-- `DELETE /api/v1/categories/{id}`: archives it and answers `{"rulesRemoved": n}`.
+- `DELETE /api/v1/categories/{id}`: archives it, publishes `CategoryArchived` and answers `{"rulesRemoved": n}`.
 - `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest`, its newest five transactions and the model's `suggestion` (`category`, `confidence` in percent) when it named one.
 - `POST /api/v1/review` `{"pattern": {"kind", "text"}, "category"}`: teaches the rule and answers `{"categorized", "undo"}`.
 - `PUT /api/v1/transactions/{id}/category` `{"category", "teach"}`: my choice for one transaction (manual, never overwritten); with `teach`, it also becomes a rule. Answers `{"categorized", "undo"}`.
@@ -64,7 +64,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 ## Events
 
 - Consumes: `ledger.TransactionsImported`. After every sync, `app` also runs `CategorizeUncategorized` on `ingest.SyncCompleted`.
-- Publishes: none. `ledger` publishes `TransactionCategorized`.
+- Publishes: `CategoryArchived` (`events.go`), after an archive commits, with the category and when it was archived; `budget` takes it out of the budget from that month on. `ledger` publishes `TransactionCategorized`.
 
 ## Milestone
 

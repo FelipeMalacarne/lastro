@@ -19,7 +19,7 @@ func newService(t *testing.T) *Service {
 	t.Helper()
 	pool := dbtest.New(t)
 	bus := events.NewBus(nil)
-	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), bus), nil, nil)
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), bus), nil, bus, nil)
 	events.Subscribe(bus, s.OnTransactionsImported)
 	s.now = func() time.Time { return t0 }
 	return s
@@ -108,9 +108,14 @@ func TestArchiveCategory(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var archived []CategoryArchived
+	events.Subscribe(s.bus, func(_ context.Context, e CategoryArchived) error { archived = append(archived, e); return nil })
 	n, err := s.ArchiveCategory(ctx, shopping.ID)
 	if err != nil || n != 1 {
 		t.Fatalf("archiving takes its rule with it: %d, %v", n, err)
+	}
+	if len(archived) != 1 || archived[0].Category != shopping.ID || !archived[0].At.Equal(t0) {
+		t.Fatalf("archiving tells the budget: %+v", archived)
 	}
 	rules, err := s.repo.rules(ctx)
 	if err != nil || len(rules) != 1 || rules[0].pattern.Text() != "IFOOD" {
@@ -124,8 +129,8 @@ func TestArchiveCategory(t *testing.T) {
 	if _, ok := byName(t, s)["Shopping"]; ok {
 		t.Fatal("and is no longer live")
 	}
-	if _, err := s.ArchiveCategory(ctx, shopping.ID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("archiving twice: %v", err)
+	if _, err := s.ArchiveCategory(ctx, shopping.ID); !errors.Is(err, ErrNotFound) || len(archived) != 1 {
+		t.Errorf("archiving twice: %v, %d events", err, len(archived))
 	}
 	if _, err := s.UpdateCategory(ctx, shopping.ID, CategoryChange{Name: ptr("Stuff")}); !errors.Is(err, ErrArchived) {
 		t.Errorf("an archived category does not change: %v", err)

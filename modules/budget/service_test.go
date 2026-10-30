@@ -38,7 +38,7 @@ func newWorld(t *testing.T) world {
 	pool := dbtest.New(t)
 	bus := events.NewBus(nil)
 	l := ledger.New(ledger.NewRepository(pool), bus)
-	c := categorize.New(categorize.NewRepository(pool), l, nil, nil)
+	c := categorize.New(categorize.NewRepository(pool), l, nil, bus, nil)
 	events.Subscribe(bus, c.OnTransactionsImported)
 	b := New(NewRepository(pool), l, c)
 	b.now = func() time.Time { return today }
@@ -673,5 +673,82 @@ func addsUp(t *testing.T, v MonthView) {
 	}
 	if sum != v.Summary.SpentCents {
 		t.Errorf("%s: lines and unlimited add up to %d, spending is %d", v.Month, sum, v.Summary.SpentCents)
+	}
+}
+
+// Archiving a category takes it out of the budget from the month it was
+// archived on; the months before keep their figures.
+func TestArchivedCategoryLeavesTheBudget(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	pets, err := w.categorize.CreateCategory(ctx, "Pets", categorize.Note5, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.cats["Pets"] = pets.ID
+	w.load(t, map[string]string{"SALARIO": "Income", "PETZ": "Pets", "LOJA": "Shopping", "CINEMA": "Leisure", "MERCADO": "Groceries"}, []tx{
+		{"2026-08-10", "PETZ RACAO", -12000, ""},
+		{"2026-09-12", "LOJA PECAS PC", -5000, ""},
+		{"2026-10-01", "SALARIO ACME", 1000000, ledger.KindIncome},
+		{"2026-10-03", "LOJA PECAS PC", -9000, ""},
+		{"2026-10-05", "CINEMA CENTRO", -2000, ""},
+		{"2026-10-09", "MERCADO BOM", -3000, ""},
+	})
+	aug, sep, oct, dec := month(t, "2026-08"), month(t, "2026-09"), month(t, "2026-10"), month(t, "2026-12")
+	shop, fun := w.cats["Shopping"], w.cats["Leisure"]
+	if err := w.budget.SetLimit(ctx, aug, w.cats["Groceries"], money.BRLCents(50000), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, aug, pets.ID, money.BRLCents(30000), false); err != nil {
+		t.Fatal(err)
+	}
+	free, err := w.budget.AddLine(ctx, aug, Line{Name: "Free to spend", Categories: cats(fun, shop), Limit: money.BRLCents(100000), Rollover: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.budget.SetLimit(ctx, dec, w.cats["Transport"], money.BRLCents(10000), false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := w.budget.Month(ctx, oct)
+	if before.LimitsCents != 180000 {
+		t.Fatalf("October's limits before: %d", before.LimitsCents)
+	}
+
+	for _, c := range []ledger.CategoryID{pets.ID, shop} {
+		if _, err := w.categorize.ArchiveCategory(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+		// Archived on 27 Oct; twice changes nothing more.
+		for range 2 {
+			if err := w.budget.OnCategoryArchived(ctx, categorize.CategoryArchived{Category: c, At: today}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	v, err := w.budget.Month(ctx, oct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.Saved || len(v.Lines) != 2 || v.LimitsCents != 150000 || v.NotAssignedCents != before.NotAssignedCents+30000 {
+		t.Errorf("October without Pets: saved %v, limits %d, not assigned %d (was %d), %+v", v.Saved, v.LimitsCents, v.NotAssignedCents, before.NotAssignedCents, v.Lines)
+	}
+	if l := category(t, v, fun); l.ID != free.String() || len(l.ByCategory) != 1 || l.SpentCents != 2000 {
+		t.Errorf("the shared line keeps Leisure and its id: %+v", l)
+	}
+	// Shopping spent in October, so it shows without a limit; Pets spent
+	// nothing since August, and leaves the budget altogether.
+	if len(v.Unlimited) != 1 || *v.Unlimited[0].Category != shop.String() || v.Unlimited[0].SpentCents != 9000 {
+		t.Errorf("unlimited: %+v", v.Unlimited)
+	}
+	addsUp(t, v)
+
+	sv, _ := w.budget.Month(ctx, sep)
+	if sv.Saved || sv.LimitsCents != 180000 || len(category(t, sv, fun).ByCategory) != 2 || category(t, sv, pets.ID).LimitCents != 30000 {
+		t.Errorf("September keeps its figures: %+v", sv.Lines)
+	}
+	dv, _ := w.budget.Month(ctx, dec)
+	if dv.LimitsCents != 160000 || len(dv.Lines) != 3 || len(category(t, dv, fun).ByCategory) != 1 || category(t, dv, w.cats["Transport"]).LimitCents != 10000 {
+		t.Errorf("December, saved before, lets them go too: %+v", dv.Lines)
 	}
 }

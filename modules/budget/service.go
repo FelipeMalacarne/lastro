@@ -21,7 +21,7 @@ var ErrNotBudgeted = errors.New("budget: category does not count toward the budg
 // Repository keeps the saved budgets.
 type Repository interface {
 	Saved(ctx context.Context, until Month) ([]*MonthlyBudget, error)
-	Save(ctx context.Context, b *MonthlyBudget) error
+	Save(ctx context.Context, bs ...*MonthlyBudget) error
 	Adjustments(ctx context.Context, until Month) (Adjustments, error)
 	SaveAdjustment(ctx context.Context, a Adjustment) error
 	RemoveAdjustment(ctx context.Context, m Month, id LineID) (bool, error)
@@ -205,13 +205,21 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 	}
 
 	// Every budgeted category without a limit shows, even with nothing
-	// spent this month, when it had spending in the months before.
+	// spent this month, when it had spending in the months before; an
+	// archived one only when it spent this month.
+	archived := map[ledger.CategoryID]bool{}
+	for _, c := range cats {
+		archived[c.ID] = c.Archived
+	}
 	unlimited := map[ledger.CategoryID]bool{}
 	for c := range t.Unlimited {
 		unlimited[c] = true
 	}
 	for k := m.Add(-historyMonths); k.Before(m); k = k.Add(1) {
 		for c := range spending[k] {
+			if archived[c] {
+				continue
+			}
 			if t.Budget == nil {
 				unlimited[c] = true
 			} else if _, limited := t.Budget.LineOf(c); !limited {
@@ -613,6 +621,27 @@ func (s *Service) CopyLimits(ctx context.Context, to, from Month) (int, error) {
 		return 0, fmt.Errorf("budget: copy limits: %w", err)
 	}
 	return len(lines), nil
+}
+
+// afterAny is a month after every budget saved, for reading them all.
+var afterAny = MonthOf(time.Date(9999, time.December, 1, 0, 0, 0, 0, time.UTC))
+
+// OnCategoryArchived takes an archived category out of the budget from the
+// month it was archived on, that month's and every later saved one together
+// (DropFrom). The months before keep it.
+func (s *Service) OnCategoryArchived(ctx context.Context, e categorize.CategoryArchived) error {
+	saved, err := s.repo.Saved(ctx, afterAny)
+	if err != nil {
+		return fmt.Errorf("budget: category archived: %w", err)
+	}
+	changed := DropFrom(saved, MonthOf(e.At.In(saoPaulo)), e.Category, s.now())
+	if len(changed) == 0 {
+		return nil
+	}
+	if err := s.repo.Save(ctx, changed...); err != nil {
+		return fmt.Errorf("budget: category archived: %w", err)
+	}
+	return nil
 }
 
 // SetRolloverNew is whether a category given a limit for the first time
