@@ -86,7 +86,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market)
 	a.Planning = planning.New(a.Portfolio)
 	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Portfolio, a.Bus, logger)
-	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
+	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, a.Bus, logger)
 	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
 
 	// The rules categorize each import as it commits. After every sync they
@@ -94,6 +94,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// before a rule existed, or while the rules could not run.
 	events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
 	events.Subscribe(a.Bus, a.categorizeAfterSync)
+	// An archived category leaves the budget from the month it was archived on.
+	events.Subscribe(a.Bus, a.Budget.OnCategoryArchived)
 
 	return a, nil
 }

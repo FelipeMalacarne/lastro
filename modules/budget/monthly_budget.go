@@ -249,6 +249,45 @@ func (b *MonthlyBudget) RemoveLine(id LineID, now time.Time) bool {
 	return true
 }
 
+// Drop takes a category out of the budget, once it is archived: out of its
+// line, which keeps its other categories and what it carried, and a line
+// left without any goes. It reports whether the budget had it.
+func (b *MonthlyBudget) Drop(c ledger.CategoryID, now time.Time) bool {
+	l, ok := b.LineOf(c)
+	if !ok {
+		return false
+	}
+	l.Categories = slices.DeleteFunc(l.Categories, func(x ledger.CategoryID) bool { return x == c })
+	if len(l.Categories) == 0 {
+		delete(b.lines, l.ID)
+	} else {
+		b.lines[l.ID] = l
+	}
+	b.updatedAt = now
+	return true
+}
+
+// DropFrom is what archiving a category in month m changes: the budget
+// that applies to m, as m's own, and every budget saved after it, each
+// without the category (Drop). The months before m keep it, so their
+// figures stand. saved must be in month order; the budgets that changed
+// come back, in month order, to be saved.
+func DropFrom(saved []*MonthlyBudget, m Month, c ledger.CategoryID, now time.Time) []*MonthlyBudget {
+	var out []*MonthlyBudget
+	if b, ok := Effective(saved, m); ok && b.Drop(c, now) {
+		out = append(out, b)
+	}
+	for _, s := range saved {
+		if !s.month.After(m) {
+			continue
+		}
+		if b := s.For(s.month); b.Drop(c, now) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
 // Limits is the sum of every line's limit, before rollover.
 func (b *MonthlyBudget) Limits() money.Money {
 	var cents int64

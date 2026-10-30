@@ -21,7 +21,7 @@ function Hero({ a, caption }: { a: Account; caption: string }) {
     <Panel>
       <div className="flex flex-col gap-1">
         <span className="type-label text-ink-muted">Balance</span>
-        <Amount cents={a.balanceCents} size="hero" sign="none" />
+        <Amount cents={a.balanceCents} size="hero" />
         <span className="type-caption text-ink-muted">{caption}</span>
       </div>
     </Panel>

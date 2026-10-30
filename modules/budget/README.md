@@ -15,6 +15,7 @@ Decisions: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), 
 - `Adjustment` (`fund.go`): money already invested moved into a fund or out of it in a month, at most one per fund and month: what was saved for it before it started, covering it while in the red, or moving money between two funds (one out, one in). It is old money: neither Not assigned nor pay yourself first sees it.
 - Lines change by id: `AddLine` and `ChangeLine` take their categories from the lines they were in (a line left without any goes); `SetLimit` and `RemoveLimit` act on a category's own line, and refuse a category that shares one (`ErrShared`). `SetLimits` replaces every line, and a line given without an id keeps the id of the one that covered the same categories; `CopyLines` (copying another month) gives a line the id it had in the month before, where rollover comes from.
 - **Inheritance:** a month without a saved budget follows the latest saved before it (`Effective`). Changing a month saves it whole, so earlier months keep what they had.
+- **An archived category** leaves the budget from the month it was archived on (`Drop`, `DropFrom`): its line keeps its other categories and what it carried, a line left without any goes, and that month's budget is saved as its own, together with every budget saved after it, each without the category. The months before keep it, so their figures stand. Its spending still counts: in a month it spent, it shows without a limit.
 - `Track` (domain service): a month's lines against their categories' spending together. Rollover walks every month from the first saved budget, each month as it was saved: a limit that rolls over passes on what it has left, never a debt; a fund passes on its balance, whatever its sign. A fund is never ahead of pace (its spending comes in lumps); over means in the red. The month's available, spent and left are the limits'; the funds have totals of their own (`Funds`), so a fund filled over a year is not this month's money to spend. Pace compares the share of the limit used with the share of the month gone, leaving out what recurring charges already took (rent on the 5th is not spending ahead of the month). Over: spent more than available. Ahead: more than 10 points past the month's share.
 - `FindRecurring` (domain service): charges grouped by merchant (the pattern a correction would teach) that come back once a month, on about the same day (within six days, counted around the month's turn, so the 30th and the 1st are close), for three months or more (two for a new one with a steady amount; four when the amount varies). Fixed when every charge is within 10% of the usual amount, or after a single change of price; varies up to 60%. The next charge is a month after the last, on the same day or the month's last. A charge not seen for 45 days stopped.
 - Spending is `ledger`'s, in reais only: expenses minus refunds by category, installments in the month of each installment. Categories that do not count toward the budget (Income) are left out; transactions without a category count only when they are expenses. Income is the month's income, less what came in under a budgeted category: that is a refund (an insurer paying back, a friend paying their share), already taken off the category's spending, and counting it as income too would count it twice.
@@ -27,7 +28,7 @@ Decisions: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), 
 
 - At most one saved budget per month; limits and pay yourself first are never negative and always in reais.
 - A category is in at most one line a month, also when every line is set at once; the database refuses it twice (`budget.line_categories` is keyed by month and category). A line has at least one category, each once, and a line shared by several has a name, at most 40 characters, that no other line of the month has.
-- Only a live category that counts toward the budget takes a limit, alone or in a line.
+- Only a live category that counts toward the budget takes a limit, alone or in a line. From the month a category is archived on, no line covers it.
 - Pay yourself first is never counted as spending.
 - A fund's balance is computed, never stored; only a fund takes an adjustment, never of nothing, in reais.
 - An installment purchase counts by the month's installment, not by its total.
@@ -48,7 +49,8 @@ Decisions: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), 
 
 ## Events
 
-None yet. Every read is computed from `ledger`, so a recategorized transaction updates every month by itself. After each sync, `app` pushes the alerts no channel has seen (`Unsent`, `MarkSent`) when Telegram is configured.
+- Consumes: `categorize.CategoryArchived` (`OnCategoryArchived`, wired in `app`): the category leaves the budget from the month it was archived on.
+- Publishes: none. Every read is computed from `ledger`, so a recategorized transaction updates every month by itself. After each sync, `app` pushes the alerts no channel has seen (`Unsent`, `MarkSent`) when Telegram is configured.
 
 ## Milestone
 

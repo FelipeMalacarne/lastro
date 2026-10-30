@@ -82,40 +82,49 @@ func (r *PostgresRepository) Saved(ctx context.Context, until Month) ([]*Monthly
 	return out, nil
 }
 
-// Save writes a month's budget whole, replacing its lines and the
-// categories they cover.
-func (r *PostgresRepository) Save(ctx context.Context, b *MonthlyBudget) error {
+// Save writes months' budgets whole, together, replacing their lines and
+// the categories they cover.
+func (r *PostgresRepository) Save(ctx context.Context, bs ...*MonthlyBudget) error {
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
-		m := b.Month().First()
-		if err := q.SaveMonth(ctx, db.SaveMonthParams{
-			Month: m, Payday: int16(b.Payday().Day()), PyfCents: b.PayYourselfFirst().Cents(), UpdatedAt: b.UpdatedAt(),
-		}); err != nil {
-			return fmt.Errorf("save month: %w", err)
-		}
-		if err := q.DeleteLines(ctx, m); err != nil {
-			return fmt.Errorf("delete lines: %w", err)
-		}
-		for _, l := range b.Lines() {
-			var name *string
-			if l.Name != "" {
-				name = &l.Name
-			}
-			if err := q.InsertLine(ctx, db.InsertLineParams{
-				Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover, Fund: l.IsFund(),
-			}); err != nil {
-				return fmt.Errorf("insert line: %w", err)
-			}
-			for _, c := range l.Categories {
-				if err := q.InsertLineCategory(ctx, db.InsertLineCategoryParams{
-					Month: m, LineID: l.ID.String(), CategoryID: c.String(),
-				}); err != nil {
-					return fmt.Errorf("insert line category: %w", err)
-				}
+		for _, b := range bs {
+			if err := saveMonth(ctx, q, b); err != nil {
+				return err
 			}
 		}
 		return nil
 	})
+}
+
+func saveMonth(ctx context.Context, q *db.Queries, b *MonthlyBudget) error {
+	m := b.Month().First()
+	if err := q.SaveMonth(ctx, db.SaveMonthParams{
+		Month: m, Payday: int16(b.Payday().Day()), PyfCents: b.PayYourselfFirst().Cents(), UpdatedAt: b.UpdatedAt(),
+	}); err != nil {
+		return fmt.Errorf("save month: %w", err)
+	}
+	if err := q.DeleteLines(ctx, m); err != nil {
+		return fmt.Errorf("delete lines: %w", err)
+	}
+	for _, l := range b.Lines() {
+		var name *string
+		if l.Name != "" {
+			name = &l.Name
+		}
+		if err := q.InsertLine(ctx, db.InsertLineParams{
+			Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover, Fund: l.IsFund(),
+		}); err != nil {
+			return fmt.Errorf("insert line: %w", err)
+		}
+		for _, c := range l.Categories {
+			if err := q.InsertLineCategory(ctx, db.InsertLineCategoryParams{
+				Month: m, LineID: l.ID.String(), CategoryID: c.String(),
+			}); err != nil {
+				return fmt.Errorf("insert line category: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // Adjustments are the funds' adjustments up to a month.

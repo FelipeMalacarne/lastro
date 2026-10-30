@@ -101,3 +101,52 @@ func TestRuleOrigin(t *testing.T) {
 		t.Errorf("an unknown origin: %v", err)
 	}
 }
+
+// A correction that meets a taught pattern retargets that rule; a rule
+// written by hand never takes another over: "zz-test-rule!" is the rule
+// ZZ TEST RULE, so writing it again is refused.
+func TestTeach(t *testing.T) {
+	other, groceries := category(t, "Other"), category(t, "Groceries")
+	p := pattern(t, PatternContains, "zz-test-rule!")
+	taught := func() *Rule {
+		r, _ := NewRule(pattern(t, PatternContains, "ZZ TEST RULE"), "", other, OriginHand, t0)
+		return r
+	}
+	later := t0.Add(time.Hour)
+	tests := []struct {
+		name    string
+		had     *Rule
+		c       Category
+		origin  Origin
+		err     error
+		changed bool
+		want    ledger.CategoryID
+	}{
+		{"a new rule by hand", nil, groceries, OriginHand, nil, true, groceries.ID},
+		{"a new rule from a correction", nil, groceries, OriginCorrection, nil, true, groceries.ID},
+		{"a correction retargets it", taught(), groceries, OriginCorrection, nil, true, groceries.ID},
+		{"a correction to where it leads", taught(), other, OriginCorrection, nil, false, other.ID},
+		{"by hand, its pattern is taken", taught(), groceries, OriginHand, ErrRuleTaken, false, ledger.CategoryID{}},
+		{"by hand, even to where it leads", taught(), other, OriginHand, ErrRuleTaken, false, ledger.CategoryID{}},
+	}
+	for _, tt := range tests {
+		var was ledger.CategoryID
+		if tt.had != nil {
+			was = tt.had.Category()
+		}
+		r, changed, err := Teach(tt.had, p, "", tt.c, tt.origin, later)
+		if !errors.Is(err, tt.err) || changed != tt.changed {
+			t.Errorf("%s: changed %v, %v; want %v, %v", tt.name, changed, err, tt.changed, tt.err)
+			continue
+		}
+		if tt.err != nil {
+			if r != nil || tt.had.Category() != was {
+				t.Errorf("%s: a refused rule changed: %+v %+v", tt.name, r, tt.had)
+			}
+			continue
+		}
+		if r.Category() != tt.want || (tt.had != nil && r != tt.had) {
+			t.Errorf("%s: %+v", tt.name, r)
+		}
+	}
+}
