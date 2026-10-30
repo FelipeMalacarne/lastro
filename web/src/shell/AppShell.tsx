@@ -8,10 +8,12 @@ import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { useResource } from "@/lib/api";
 import { useWaiting } from "@/lib/categories";
 import { formatMonth } from "@/lib/format";
+import { isShortcut } from "@/lib/keys";
 import { useMonth } from "@/lib/month";
 import { Link, navigate, useLocation } from "@/lib/router";
 import { setTheme, useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/shell/ErrorBoundary";
 
 type Destination = { to: string; label: string; icon: LucideIcon; phone: boolean };
 
@@ -101,11 +103,11 @@ export function AppShell({ accounts, children }: Props) {
   const waiting = useWaiting();
   const me = useResource<{ version: string; env: string }>("/api/v1/me");
 
-  // "/" opens search from anywhere; R opens the review queue.
+  // "/" opens search from anywhere; R opens the review queue. Neither reaches
+  // under an open dialog or sheet.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      if (!isShortcut(e)) return;
       if (e.key.toLowerCase() === "r" && location.pathname !== "/review") {
         e.preventDefault();
         navigate("/review");
@@ -184,7 +186,10 @@ export function AppShell({ accounts, children }: Props) {
             </div>
           </header>
           <main className="px-4 pt-4 pb-24 lg:px-8 lg:pt-8 lg:pb-14">
-            <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">{children}</div>
+            <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">
+              {/* Keyed by the path, so going to another screen leaves a failed one behind. */}
+              <ErrorBoundary key={path}>{children}</ErrorBoundary>
+            </div>
           </main>
           <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 grid h-16 grid-cols-5 border-t border-rule bg-paper-raised pb-[env(safe-area-inset-bottom)] lg:hidden">
             {destinations

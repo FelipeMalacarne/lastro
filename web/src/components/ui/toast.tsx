@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Check, CircleAlert, RefreshCw, X } from "lucide-react";
 import { Toast as ToastPrimitive } from "radix-ui";
 
@@ -24,6 +25,9 @@ function duration(t: ToastItem): number {
 export function Toaster() {
   const items = useToasts();
   const wide = useWide();
+  // The toast focus is in, by id. Pressing Undo replaces that toast with one
+  // that says how it went, and the focus moves on to it instead of the body.
+  const focused = useRef<string | null>(null);
   return (
     <ToastPrimitive.Provider swipeDirection="right" label="Notification">
       {items.map((t) => {
@@ -31,12 +35,19 @@ export function Toaster() {
         return (
           <ToastPrimitive.Root
             key={t.key}
+            ref={(el) => {
+              if (el && focused.current === t.id && document.activeElement === document.body) el.focus();
+            }}
+            onFocus={() => (focused.current = t.id)}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) focused.current = null;
+            }}
             open={t.open}
             onOpenChange={(o) => !o && closeToast(t.key)}
             duration={duration(t)}
             type={t.tone === "error" ? "foreground" : "background"}
             className={cn(
-              "pointer-events-auto flex min-h-11 items-center gap-3 rounded-md border border-rule bg-paper-raised py-2 pr-2 pl-4 text-[14px] leading-5 text-ink shadow-pop",
+              "pointer-events-auto flex min-h-11 items-center gap-3 rounded-md border border-rule bg-paper-raised py-2 pr-2 pl-4 text-[14px] leading-5 text-ink shadow-pop outline-none focus-visible:focus-ring",
               "data-[state=closed]:animate-[lt-fade-out_120ms_ease-in] data-[state=open]:animate-[lt-pop_160ms_ease-out]",
               "data-[swipe=move]:translate-x-(--radix-toast-swipe-move-x) data-[swipe=cancel]:translate-x-0 data-[swipe=cancel]:transition-transform data-[swipe=end]:animate-[lt-toast-out_120ms_ease-out]",
             )}

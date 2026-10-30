@@ -7,6 +7,7 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import type { Category, Pattern, PatternKind } from "@/lib/api";
+import { isShortcut } from "@/lib/keys";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -53,8 +54,8 @@ export function CategoryDecision({ categories, current, suggested, onChoose, key
   useEffect(() => {
     if (!keyboard) return;
     function onKey(e: KeyboardEvent) {
+      if (!isShortcut(e)) return;
       const t = e.target as HTMLElement;
-      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
       // Enter on a focused button presses that button, not the suggestion.
       if (e.key === "Enter" && offered && !busy && !t.closest("button, a")) {
         e.preventDefault();

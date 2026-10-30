@@ -195,7 +195,14 @@ async function load(url: string) {
   notify();
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
-    const body = await r.json().catch(() => ({}));
+    // An error's body may not be JSON, and its status says enough; a success's must be.
+    const body = await r.json().catch(() => {
+      if (r.ok) throw new Error("the answer could not be read");
+      return {};
+    });
+    // A newer load of the same URL aborted this one, maybe while the body was
+    // read: what this one has is not the data, and the newer load writes it.
+    if (ctrl.signal.aborted) return;
     if (signInIfAsked(r, body)) return;
     if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
     cache.set(url, { data: body, loading: false, at: Date.now() });

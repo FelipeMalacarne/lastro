@@ -39,9 +39,15 @@ import { useBanks } from "@/shell/Accounts";
 /** The month at a glance (canvas: "Dashboard", "Dashboard, phone"). */
 export function Dashboard() {
   const { month, isCurrent } = useMonth();
-  const budget = useResource<BudgetMonth>(`/api/v1/budget?month=${month}`).data;
-  const days = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`).data;
-  const list = useResource<TransactionList>(`/api/v1/transactions?month=${month}`).data;
+  const budgetRes = useResource<BudgetMonth>(`/api/v1/budget?month=${month}`);
+  const daysRes = useResource<DaysView>(`/api/v1/transactions/days?month=${month}`);
+  const listRes = useResource<TransactionList>(`/api/v1/transactions?month=${month}`);
+  const budget = budgetRes.data;
+  const days = daysRes.data;
+  const list = listRes.data;
+  // A panel whose load failed says so, as the other screens do, instead of waiting forever.
+  const budgetError = !budget ? budgetRes.error : undefined;
+  const daysError = !days ? daysRes.error : undefined;
   const { banks } = useBanks();
   const { byId } = useCategories();
   const today = todayISO();
@@ -85,15 +91,19 @@ export function Dashboard() {
           <MonthSoFar v={budget} days={days} isCurrent={isCurrent} byId={byId} />
         ) : (
           <Panel title={`${monthName} so far`}>
-            <div className="flex flex-col gap-6">
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <SkeletonStat />
-                <SkeletonStat />
-                <SkeletonStat />
-                <SkeletonStat />
+            {budgetError || daysError ? (
+              <p className="m-0 type-body text-ink-muted">Could not load the month: {budgetError ?? daysError}.</p>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <SkeletonStat />
+                  <SkeletonStat />
+                  <SkeletonStat />
+                  <SkeletonStat />
+                </div>
+                <Skeleton className="h-4" />
               </div>
-              <Skeleton className="h-4" />
-            </div>
+            )}
           </Panel>
         )}
       </div>
@@ -103,24 +113,34 @@ export function Dashboard() {
           <ByCategory v={budget} byId={byId} isCurrent={isCurrent} />
         ) : (
           <Panel title="Spending by category">
-            <div className="flex flex-col gap-3">
-              {["92%", "24%", "20%", "12%", "10%", "8%"].map((w) => (
-                <div key={w} className="grid grid-cols-[96px_minmax(0,1fr)_88px] items-center gap-3">
-                  <Skeleton className="h-3" />
-                  <Skeleton className="h-2" style={{ width: w }} />
-                  <Skeleton className="h-3" />
-                </div>
-              ))}
-            </div>
+            {budgetError ? (
+              <p className="m-0 type-body text-ink-muted">Could not load the spending: {budgetError}.</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {["92%", "24%", "20%", "12%", "10%", "8%"].map((w) => (
+                  <div key={w} className="grid grid-cols-[96px_minmax(0,1fr)_88px] items-center gap-3">
+                    <Skeleton className="h-3" />
+                    <Skeleton className="h-2" style={{ width: w }} />
+                    <Skeleton className="h-3" />
+                  </div>
+                ))}
+              </div>
+            )}
           </Panel>
         )}
         <Panel title="Spending through the month" footer={`Spending added up by day, with ${formatMonth(prevOf(month)).split(" ")[0]} for comparison.`}>
-          {days ? <Through month={month} days={days} today={today} isCurrent={isCurrent} /> : <Skeleton className="h-60" />}
+          {days ? (
+            <Through month={month} days={days} today={today} isCurrent={isCurrent} />
+          ) : daysError ? (
+            <p className="m-0 type-body text-ink-muted">Could not load the month: {daysError}.</p>
+          ) : (
+            <Skeleton className="h-60" />
+          )}
         </Panel>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-6">
-        <Recent list={list} byId={byId} month={month} />
+        <Recent list={list} error={listRes.error} byId={byId} month={month} />
         <ToReview list={list} byId={byId} monthName={monthName} />
       </div>
 
@@ -209,7 +229,7 @@ function NetWorth() {
     return (
       <Panel title="Net worth">
         {res.error ? (
-          `Could not load: ${res.error}.`
+          <p className="m-0 type-body text-ink-muted">Could not load the net worth: {res.error}.</p>
         ) : (
           <div className="flex flex-col gap-4">
             <SkeletonStat hero />
@@ -545,7 +565,7 @@ function Through({ month, days, today, isCurrent }: { month: string; days: DaysV
   );
 }
 
-function Recent({ list, byId, month }: { list?: TransactionList; byId: Map<string, Category>; month: string }) {
+function Recent({ list, error, byId, month }: { list?: TransactionList; error?: string; byId: Map<string, Category>; month: string }) {
   const rows = (list?.transactions ?? []).slice(0, 7);
   const pending = list?.summary.pending ?? 0;
   return (
@@ -554,9 +574,10 @@ function Recent({ list, byId, month }: { list?: TransactionList; byId: Map<strin
       bodyClassName="-mx-5"
       footer={pending ? `${pending} pending ${pending === 1 ? "transaction" : "transactions"} may still change on the next sync.` : undefined}
     >
-      {!list && <SkeletonRows count={6} className="border-t border-rule" />}
+      {!list && error && <p className="m-0 px-5 type-body text-ink-muted">Could not load transactions: {error}.</p>}
+      {!list && !error && <SkeletonRows count={6} className="border-t border-rule" />}
       {list && rows.length === 0 && <p className="m-0 px-5 type-body text-ink-muted">Nothing this month yet.</p>}
-      <div className="border-t border-rule">
+      <div className={cn(list && "border-t border-rule")}>
         {rows.map((t) => (
           <TransactionRow
             key={t.id}
@@ -588,7 +609,8 @@ function meta(t: Transaction): string {
 }
 
 function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map<string, Category>; monthName: string }) {
-  const review = useResource<Review>("/api/v1/review").data;
+  const res = useResource<Review>("/api/v1/review");
+  const review = res.data;
   const wide = useWide();
   const groups = review?.groups.slice(0, 4) ?? [];
   const suggested = review?.groups.filter((g) => g.suggestion).length ?? 0;
@@ -601,7 +623,9 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
 
   return (
     <Panel title="To review" footer={list ? `${monthName}: ${by.rule} by your rules, ${by.llm} by the local model, ${by.manual} by hand.` : undefined}>
-      {!review ? (
+      {!review && res.error ? (
+        <p className="m-0 type-body text-ink-muted">Could not load the queue: {res.error}.</p>
+      ) : !review ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="w-3/4" />
           <SkeletonRows count={3} className="-mx-5" />
@@ -660,11 +684,12 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
 
 /** The charges that come back every month (F5), with what changed. */
 function FixedCosts({ byId }: { byId: Map<string, Category> }) {
-  const r = useResource<Recurring>("/api/v1/recurring").data;
+  const res = useResource<Recurring>("/api/v1/recurring");
+  const r = res.data;
   if (!r)
     return (
       <Panel title="Fixed costs">
-        <SkeletonRows count={4} className="-mx-5" />
+        {res.error ? <p className="m-0 type-body text-ink-muted">Could not load the fixed costs: {res.error}.</p> : <SkeletonRows count={4} className="-mx-5" />}
       </Panel>
     );
   const changed = r.charges.filter((c) => c.change);

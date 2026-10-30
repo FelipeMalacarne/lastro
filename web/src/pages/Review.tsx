@@ -11,6 +11,7 @@ import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { joinUndo, send, useResource, type Change, type Pattern, type Review as ReviewData, type ReviewGroup, type Undo } from "@/lib/api";
 import { useCategories } from "@/lib/categories";
 import { formatBRL, formatDay } from "@/lib/format";
+import { isShortcut } from "@/lib/keys";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
 import { toast } from "@/lib/toast";
@@ -54,8 +55,7 @@ export function Review() {
   // J and K move through the groups, S skips one, U undoes the last choice.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      if (!isShortcut(e)) return;
       if (e.key === "u") {
         e.preventDefault();
         void takeBack();
