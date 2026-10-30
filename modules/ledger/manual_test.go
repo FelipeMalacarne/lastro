@@ -52,3 +52,36 @@ func TestManualAccounts(t *testing.T) {
 		t.Errorf("a synced account's balance comes from the bank: %v", err)
 	}
 }
+
+func TestNewManualDay(t *testing.T) {
+	// Late on 30 Oct in São Paulo, already 31 Oct in UTC: today is the 30th.
+	today := civilDate(time.Date(2026, 10, 31, 1, 30, 0, 0, time.UTC).In(saoPaulo))
+	day := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
+	for _, c := range []struct {
+		name string
+		day  time.Time
+		ok   bool
+	}{
+		{"today", day(2026, 10, 30), true},
+		{"yesterday", day(2026, 10, 29), true},
+		{"the first day", day(2000, 1, 1), true},
+		{"the day before", day(1999, 12, 31), false},
+		{"a typo for 2026", day(1900, 1, 1), false},
+		{"tomorrow in São Paulo, today in UTC", day(2026, 10, 31), false},
+		{"next year", day(2027, 10, 30), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := NewManualDay(c.day, today)
+			if (err == nil) != c.ok {
+				t.Fatalf("NewManualDay(%s) = %v, %v", c.day.Format(time.DateOnly), got, err)
+			}
+			if err == nil && !got.Time().Equal(c.day) {
+				t.Errorf("the day kept: %v", got.Time())
+			}
+			var r reason
+			if err != nil && (!errors.Is(err, ErrInvalid) || !errors.As(err, &r)) {
+				t.Errorf("an invalid value with its reason: %v", err)
+			}
+		})
+	}
+}

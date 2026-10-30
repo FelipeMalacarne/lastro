@@ -420,10 +420,11 @@ function ByCategory({ v, byId, isCurrent }: { v: BudgetMonth; byId: Map<string, 
   } else if (isCurrent) {
     // Past it by 10% and R$ 50 at least, so a rent paid to the cent is not news.
     const past = named.filter((r) => r.spent > r.avg * 1.1 && r.spent - r.avg >= 5000).sort((a, b) => b.spent / b.avg - a.spent / a.avg);
+    // Others may be past theirs by less: the sentence names the one furthest past, and says so.
+    const others = named.some((r) => r !== past[0] && r.spent > r.avg);
     insight = past.length ? (
       <>
-        <strong>{past.map((r) => nameOf(r.id)).join(", ")}</strong> {past.length === 1 ? "has" : "have"} already passed {past.length === 1 ? "its" : "their"} 6-month average,
-        with {v.daysLeft} {v.daysLeft === 1 ? "day" : "days"} to go.
+        <strong>{nameOf(past[0].id)}</strong> {others ? "is furthest past" : "has already passed"} its 6-month average, with {v.daysLeft} {v.daysLeft === 1 ? "day" : "days"} to go.
       </>
     ) : (
       "No category is more than 10% past its 6-month average."
@@ -613,8 +614,8 @@ function ToReview({ list, byId, monthName }: { list?: TransactionList; byId: Map
       ) : (
         <div className="flex flex-col gap-4">
           <p className="m-0 type-body">
-            {review.waiting} {review.waiting === 1 ? "transaction needs" : "transactions need"} a category, from {review.groups.length}{" "}
-            {review.groups.length === 1 ? "group" : "groups"}, every month.{suggested > 0 && ` The local model has a suggestion for ${suggested} of them.`}
+            {review.waiting} {review.waiting === 1 ? "transaction" : "transactions"}, from every month, {review.waiting === 1 ? "needs" : "need"} a category, in {review.groups.length}{" "}
+            {review.groups.length === 1 ? "group" : "groups"}.{suggested > 0 && ` The local model has a suggestion for ${suggested} of them.`}
           </p>
           <div className="flex flex-col">
             {groups.map((g) => {

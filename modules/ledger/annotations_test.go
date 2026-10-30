@@ -21,8 +21,16 @@ func TestNewTag(t *testing.T) {
 		{"#", "", false},
 		{"-rio", "", false},
 		{"rio-", "", false},
-		{"são-paulo", "", false},
+		{"são-paulo", "são-paulo", true},
+		{"#Educação", "educação", true},
+		{"educac\u0327a\u0303o", "educação", true}, // typed decomposed, kept composed
+		{"Ελλάδα-2026", "ελλάδα-2026", true},
+		{"東京", "東京", true},
+		{"viagem ✈️", "", false},
+		{"🎉", "", false},
 		{"a_b", "", false},
+		{"a.b", "", false},
+		{strings.Repeat("ç", 32), strings.Repeat("ç", 32), true},
 		{strings.Repeat("a", 33), "", false},
 	} {
 		got, err := NewTag(c.in)
@@ -31,6 +39,10 @@ func TestNewTag(t *testing.T) {
 		}
 		if err != nil && !errors.Is(err, ErrInvalid) {
 			t.Errorf("NewTag(%q): want ErrInvalid, got %v", c.in, err)
+		}
+		var r reason
+		if err != nil && (!errors.As(err, &r) || strings.Contains(string(r), "ledger")) {
+			t.Errorf("NewTag(%q): the reason reads as a clause: %v", c.in, err)
 		}
 	}
 }

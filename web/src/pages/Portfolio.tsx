@@ -14,7 +14,7 @@ import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { assetClasses, send, useResource, type AssetClass, type PortfolioOverview, type PositionGroup, type Reserve, type Thesis } from "@/lib/api";
-import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, parseBRL } from "@/lib/format";
+import { amountError, formatBRL, formatDay, formatMonth, formatPercent, inputBRL, parseBRL } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
 import { toast } from "@/lib/toast";
@@ -664,7 +664,7 @@ function GroupEditor({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
               prefix="R$"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              error={amount && !cents ? "An amount, like 12.000,00" : undefined}
+              error={amountError(amount, "12.000,00", true)}
               className="w-[200px]"
             />
             <Button type="submit" variant="primary" size="sm" disabled={busy || !cents}>

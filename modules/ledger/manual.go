@@ -73,6 +73,26 @@ func (a *Account) Move(by money.Money, at time.Time) error {
 	return nil
 }
 
+// firstManualDay is the earliest day a transaction I add may carry.
+var firstManualDay = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// ManualDay is the day of a transaction I add by hand: from 1 Jan 2000 up to
+// today in São Paulo. An earlier one is a typo that stretches the history
+// back a century; a later one lands in a month the screens never reach.
+type ManualDay struct{ t time.Time }
+
+// NewManualDay checks day against today, the calendar day in São Paulo.
+func NewManualDay(day, today time.Time) (ManualDay, error) {
+	d := civilDate(day)
+	if d.Before(firstManualDay) || d.After(civilDate(today)) {
+		return ManualDay{}, reason("the day is from 1 Jan 2000 up to today")
+	}
+	return ManualDay{t: d}, nil
+}
+
+// Time is the day at midnight UTC, as transactions keep their dates.
+func (d ManualDay) Time() time.Time { return d.t }
+
 // Manual entries: the Service's commands for the accounts I type in.
 
 // CreateManualAccount opens a wallet ("cash") or an asset ("asset") with its
@@ -155,10 +175,15 @@ func (s *Service) takeLatest(ctx context.Context, r Repository, a *Account) erro
 // card) it is one the source failed to send: the bank's balance already
 // counts it, so it moves nothing, and a sync never removes it. It goes through
 // the rules and the model like a synced one, and a withdrawal from checking
-// pairs with it as a transfer.
-func (s *Service) AddManualTransaction(ctx context.Context, id AccountID, day time.Time, description string, amount money.Money) (TransactionID, error) {
+// pairs with it as a transfer. The day is a ManualDay.
+func (s *Service) AddManualTransaction(ctx context.Context, id AccountID, on time.Time, description string, amount money.Money) (TransactionID, error) {
+	md, err := NewManualDay(on, s.today())
+	if err != nil {
+		return "", fmt.Errorf("ledger: add transaction: %w", err)
+	}
+	day := md.Time()
 	var tx *Transaction
-	err := s.repo.Tx(ctx, func(r Repository) error {
+	err = s.repo.Tx(ctx, func(r Repository) error {
 		a, err := accountByID(ctx, r, id)
 		if err != nil {
 			return err

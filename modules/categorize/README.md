@@ -46,7 +46,7 @@ The model runs only in that pass after the sync, never during an import, so a sl
 ## API
 
 - `GET /api/v1/categories`: every category, live ones first, each by name, with `archived`.
-- `POST /api/v1/categories` `{"name", "color", "budgeted"}`: `budgeted` defaults to true. 409 when the name is taken.
+- `POST /api/v1/categories` `{"name", "color", "budgeted"}`: `budgeted` defaults to true. 409 when the name is taken ("there is already a category called Pets"); a name that is empty or over 40 characters answers its reason alone ("up to 40 characters").
 - `PATCH /api/v1/categories/{id}`: any of `name`, `color` and `budgeted`. 409 for an archived category or a taken name.
 - `DELETE /api/v1/categories/{id}`: archives it, publishes `CategoryArchived` and answers `{"rulesRemoved": n}`.
 - `GET /api/v1/review`: `{"waiting", "groups"}`, each group with its suggested `pattern` (or null), `count`, `totalCents`, `latest`, its newest five transactions and the model's `suggestion` (`category`, `confidence` in percent) when it named one.

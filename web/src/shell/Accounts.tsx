@@ -35,6 +35,11 @@ export function useBanks(): { banks: Bank[]; loading: boolean; error?: string } 
   return { banks, loading: accounts.loading || connections.loading, error: accounts.error || connections.error };
 }
 
+/** What a screen reader says for an account link: "Nubank checking, R$ 3.210,55". */
+function accountLabel(a: Account, b: Bank): string {
+  return `${a.manual ? a.name : `${b.institution} ${a.type === "credit_card" ? "card" : typeName[a.type].toLowerCase()}`}, ${formatBRL(a.balanceCents)}`;
+}
+
 /** The sidebar's list: each connection's freshness, then its accounts and balances. */
 export function SidebarAccounts() {
   const { banks } = useBanks();
@@ -62,7 +67,7 @@ export function SidebarAccounts() {
                 key={a.id}
                 to={`/accounts/${a.id}`}
                 aria-current={here ? "page" : undefined}
-                aria-label={`${a.manual ? a.name : `${b.institution} ${a.type === "credit_card" ? "card" : typeName[a.type].toLowerCase()}`}, ${formatBRL(a.balanceCents)}`}
+                aria-label={accountLabel(a, b)}
                 className={cn(
                   "-mx-2 flex min-h-8 items-baseline justify-between gap-2 rounded-sm py-1.5 pr-2 pl-[30px] type-caption no-underline transition-colors",
                   here ? "bg-tinta-soft font-semibold text-tinta hover:text-tinta" : "text-ink-muted hover:bg-paper-sunken hover:text-ink",
@@ -130,6 +135,7 @@ export function AccountsPanel({ banks }: { banks: Bank[] }) {
                 <Link
                   key={a.id}
                   to={`/accounts/${a.id}`}
+                  aria-label={accountLabel(a, b)}
                   className="flex min-h-11 items-center justify-between gap-2 pl-10 text-[14px] leading-5 text-ink no-underline hover:text-ink"
                 >
                   <span className="text-ink-muted">{a.manual ? a.name : typeName[a.type]}</span>

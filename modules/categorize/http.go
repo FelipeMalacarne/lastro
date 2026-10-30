@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"lastro/modules/ledger"
@@ -68,7 +69,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		budgeted := in.Budgeted == nil || *in.Budgeted
 		c, err := s.CreateCategory(r.Context(), *in.Name, *in.Color, budgeted)
 		if err != nil {
-			httpx.WriteError(w, r, logger, apiError(err))
+			httpx.WriteError(w, r, logger, apiError(nameTakenBy(err, in.Name)))
 			return
 		}
 		httpx.JSON(w, http.StatusCreated, map[string]any{"category": toJSON(c)})
@@ -88,7 +89,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		}
 		c, err := s.UpdateCategory(r.Context(), id, CategoryChange(in))
 		if err != nil {
-			httpx.WriteError(w, r, logger, apiError(err))
+			httpx.WriteError(w, r, logger, apiError(nameTakenBy(err, in.Name)))
 			return
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"category": toJSON(c)})
@@ -135,9 +136,22 @@ func decodeUpTo(w http.ResponseWriter, r *http.Request, v any, shape string, lim
 	return nil
 }
 
-// apiError gives the domain's errors their HTTP status.
+// nameTakenBy names the category that already has the name, so the screen
+// can say "there is already a category called Pets".
+func nameTakenBy(err error, name *string) error {
+	if !errors.Is(err, ErrNameTaken) || name == nil {
+		return err
+	}
+	return httpx.Conflict("there is already a category called " + strings.Join(strings.Fields(*name), " "))
+}
+
+// apiError gives the domain's errors their HTTP status; an invalid value I
+// typed answers its reason alone.
 func apiError(err error) error {
+	var r reason
 	switch {
+	case errors.As(err, &r):
+		return httpx.BadRequest(string(r))
 	case errors.Is(err, ErrInvalid):
 		return httpx.BadRequest(err.Error())
 	case errors.Is(err, ErrNotFound):

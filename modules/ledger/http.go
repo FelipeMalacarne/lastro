@@ -168,7 +168,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		}
 		id, err := s.CreateManualAccount(r.Context(), in.Name, AccountType(in.Type), money.BRLCents(in.BalanceCents))
 		if errors.Is(err, ErrInvalid) {
-			err = httpx.BadRequest(err.Error())
+			err = badRequest(err)
 		}
 		if err != nil {
 			httpx.WriteError(w, r, logger, err)
@@ -238,7 +238,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		tx, err := s.AddManualTransaction(r.Context(), id, day, in.Description, money.BRLCents(in.AmountCents))
 		switch {
 		case errors.Is(err, ErrInvalid):
-			err = httpx.BadRequest(err.Error())
+			err = badRequest(err)
 		case errors.Is(err, ErrNotFound):
 			err = httpx.NotFound("no such account")
 		}
@@ -316,7 +316,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		n, err := s.MarkTransfers(r.Context(), ids, in.Transfer)
 		switch {
 		case errors.Is(err, ErrInvalid), errors.Is(err, ErrPaired):
-			err = httpx.BadRequest(err.Error())
+			err = badRequest(err)
 		case errors.Is(err, ErrNotFound):
 			err = httpx.NotFound("no such transaction")
 		case errors.Is(err, ErrRemoved):
@@ -351,7 +351,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	mux.HandleFunc("GET /api/v1/tags/{tag}", func(w http.ResponseWriter, r *http.Request) {
 		cs, err := s.TagCategories(r.Context(), r.PathValue("tag"))
 		if errors.Is(err, ErrInvalid) {
-			err = httpx.BadRequest(err.Error())
+			err = badRequest(err)
 		}
 		if err != nil {
 			httpx.WriteError(w, r, logger, err)
@@ -369,7 +369,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		}
 		list, err := s.Transactions(r.Context(), f)
 		if errors.Is(err, ErrInvalid) {
-			err = httpx.BadRequest(err.Error())
+			err = badRequest(err)
 		}
 		if err != nil {
 			httpx.WriteError(w, r, logger, err)
@@ -401,7 +401,7 @@ func parseFilter(r *http.Request) (TransactionFilter, error) {
 	if t := q.Get("tag"); t != "" {
 		tag, err := NewTag(t)
 		if err != nil {
-			return TransactionFilter{}, httpx.BadRequest(err.Error())
+			return TransactionFilter{}, badRequest(err)
 		}
 		f.Tag = string(tag)
 	}
@@ -457,12 +457,22 @@ func transactionID(w http.ResponseWriter, r *http.Request, logger *slog.Logger) 
 	return TransactionID(id), true
 }
 
+// badRequest answers an invalid value, with its reason alone when it has
+// one: the screens show it as it is.
+func badRequest(err error) *httpx.Error {
+	var r reason
+	if errors.As(err, &r) {
+		return httpx.BadRequest(string(r))
+	}
+	return httpx.BadRequest(err.Error())
+}
+
 // writeNoContent answers 204, or the error: 400 for an invalid value, 404
 // for an unknown id, 409 for two transactions that cannot be one movement.
 func writeNoContent(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
 	switch {
 	case errors.Is(err, ErrInvalid):
-		err = httpx.BadRequest(err.Error())
+		err = badRequest(err)
 	case errors.Is(err, ErrNotDuplicate), errors.Is(err, ErrRemoved):
 		err = httpx.Conflict(err.Error())
 	case errors.Is(err, ErrNotFound):

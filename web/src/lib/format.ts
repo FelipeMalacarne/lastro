@@ -62,15 +62,24 @@ export function formatDay(day: string): string {
   return `${d} ${(MONTHS[mo - 1] ?? "").slice(0, 3)}`;
 }
 
-/** "Today, 26 Oct" for today, "26 Oct" otherwise. */
+/** "Today, 26 Oct" for today, "26 Oct" this year, "24 Oct 2025" in another. */
 export function dayLabel(day: string, today: string): string {
-  return day === today ? `Today, ${formatDay(day)}` : formatDay(day);
+  if (day === today) return `Today, ${formatDay(day)}`;
+  return day.slice(0, 4) === today.slice(0, 4) ? formatDay(day) : `${formatDay(day)} ${day.slice(0, 4)}`;
 }
 
 /** Today in the browser's time zone, as "2026-10-26". */
 export function todayISO(now = new Date()): string {
   return `${monthOf(now)}-${String(now.getDate()).padStart(2, "0")}`;
 }
+
+/** Today in São Paulo, where the server turns the days of what I type in: "2026-10-26". */
+export function todaySaoPaulo(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(now);
+}
+
+/** The first day a transaction added by hand may carry, as the server checks it. */
+export const FIRST_MANUAL_DAY = "2000-01-01";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -99,14 +108,46 @@ export function niceStep(max: number, n = 4): number {
   return 10 * pow;
 }
 
+/**
+ * A number typed the Brazilian way, in hundredths: "1.234,56" → 123456,
+ * "1.000" is a thousand, "12,5" → 1250; "1234.56" too. null for anything
+ * else: a sign, letters, "0x10", "1e1", a third decimal.
+ */
+function parseHundredths(s: string): number | null {
+  const t = s.replace(/\s/g, "");
+  const m =
+    /^(\d+|\d{1,3}(?:\.\d{3})+)(?:,(\d{1,2}))?$/.exec(t) ?? // 1.234,56 · 1.000 · 12,5
+    /^(\d+)\.(\d{1,2})$/.exec(t); // 1234.56
+  if (!m) return null;
+  const n = Number(m[1].replace(/\./g, "")) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 /** parseBRL("1.234,56") → 123456; also "1234.56", "R$ 50". null when it is not an amount. */
 export function parseBRL(s: string): number | null {
-  let t = s.replace(/R\$|\s/g, "");
-  if (!t) return null;
-  if (/,\d{1,2}$/.test(t)) t = t.replace(/\./g, "").replace(",", ".");
-  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
-  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
-  return Math.round(Number(t) * 100);
+  return parseHundredths(s.replace(/R\$/g, ""));
+}
+
+/** parsePercent("12,5") → 1250 basis points; "12,5%" too. null when it is not a percentage. */
+export function parsePercent(s: string): number | null {
+  return parseHundredths(s.replace(/%\s*$/, ""));
+}
+
+/** parseWhole("15") → 15. null for anything but digits. */
+export function parseWhole(s: string): number | null {
+  const t = s.trim();
+  return /^\d{1,9}$/.test(t) ? Number(t) : null;
+}
+
+/** The one way a field says its amount is wrong: nothing while it is empty or readable (and, with aboveZero, more than zero). */
+export function amountError(text: string, example = "3.000,00", aboveZero = false): string | undefined {
+  const cents = parseBRL(text);
+  return text.trim() && (cents === null || (aboveZero && cents === 0)) ? `Type an amount, like ${example}` : undefined;
+}
+
+/** amountError for a percentage. */
+export function percentError(text: string, example = "12,5"): string | undefined {
+  return text.trim() && parsePercent(text) === null ? `Type a percentage, like ${example}` : undefined;
 }
 
 /** 123456 → "1.234,56", for an amount field. */
@@ -122,6 +163,12 @@ export function titleCase(s: string): string {
     .split(" ")
     .map((w, i) => (i > 0 && ["de", "da", "do", "e"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(" ");
+}
+
+/** "up to 40 characters" → "Up to 40 characters.": a clause the server wrote, shown on its own. */
+export function asSentence(s: string): string {
+  const t = s.trim();
+  return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".");
 }
 
 /** Keeps "R$" with its number in prose the server wrote ("R$ 2.953,78" never breaks after R$). */
