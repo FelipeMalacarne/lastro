@@ -130,7 +130,7 @@ export function Transactions() {
     ? everyMonth
       ? `${list.summary.count} ${list.summary.count === 1 ? "match" : "matches"} for ${q ? `“${q}”` : `#${tag}`} in every month · ${formatBRL(-list.summary.outCents)} out` +
         (list.summary.inCents ? ` · ${formatBRL(list.summary.inCents)} in` : "")
-      : `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
+      : `${list.summary.count} ${filtered ? "found" : ""} ${day ? `on ${formatDay(day)}` : `in ${monthName}`}`.replace("  ", " ") +
         (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
     : undefined;
 
@@ -162,7 +162,7 @@ export function Transactions() {
           waiting ? (
             <Button asChild variant="primary">
               <Link to="/review">
-                Review {waiting} <Kbd>R</Kbd>
+                Review {waiting} {wide && <Kbd>R</Kbd>}
               </Link>
             </Button>
           ) : undefined
@@ -318,12 +318,12 @@ export function Transactions() {
                 : q
                   ? everyMonth
                     ? `Nothing matches “${q}” in any month.`
-                    : `Nothing matches “${q}” in ${day ? formatDay(day) : monthName}.`
+                    : `Nothing matches “${q}” ${day ? `on ${formatDay(day)}` : `in ${monthName}`}.`
                   : day
                     ? `Nothing on ${formatDay(day)}.`
                     : filtered
                       ? `Nothing like this in ${monthName}.`
-                      : `Nothing in ${monthName} yet.`}
+                      : `Nothing in ${monthName}${month === current ? " yet" : ""}.`}
             </Empty>
           )}
           {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} filter={category} />}

@@ -7,7 +7,7 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { useResource, type AssetClass, type BudgetMonth, type PortfolioOverview } from "@/lib/api";
-import { formatBRL, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
+import { amountError, formatBRL, formatPercent, inputBRL, monthOf, parseBRL, parseWhole } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/shell/AppShell";
@@ -46,17 +46,30 @@ function span(n: number): string {
 /** Rounds a projection to a thousand reais: these are estimates. */
 const round = (cents: number) => Math.round(cents / 100000) * 100000;
 
-/** Debounces a typed amount into cents. */
+/** Debounces a typed amount into cents; while the text is not an amount, the last one that was stays. */
 function useAmount(initial: string | null, fallback: number): [string, (s: string) => void, number | null] {
   const [text, setText] = useState<string | null>(initial);
   const shown = text ?? (fallback ? inputBRL(fallback) : "");
   const parsed = parseBRL(shown);
   const [cents, setCents] = useState<number | null>(parsed);
   useEffect(() => {
+    if (parsed === null) return;
     const t = setTimeout(() => setCents(parsed), 300);
     return () => clearTimeout(t);
   }, [parsed]);
   return [shown, setText, cents];
+}
+
+/** Whole years from 1 to 60; anything else is an error on the field, and the projection keeps the last good one. */
+function useYears(initial: number): [string, (s: string) => void, number, string | undefined] {
+  const [text, setText] = useState(String(initial));
+  const [years, setYears] = useState(initial);
+  const n = parseWhole(text);
+  const ok = n !== null && n >= 1 && n <= 60;
+  useEffect(() => {
+    if (ok) setYears(n);
+  }, [ok, n]);
+  return [text, setText, years, ok ? undefined : "Type whole years, from 1 to 60"];
 }
 
 /** Planning (canvas: "Planning"). F9: projections in today's money. */
@@ -65,13 +78,16 @@ export function Planning() {
   const overview = useResource<PortfolioOverview>("/api/v1/portfolio").data;
   const wide = useWide();
   const [monthly, setMonthly, monthlyCents] = useAmount(null, budget?.payYourselfFirst.plannedCents ?? 0);
-  const [yearsText, setYears] = useState("15");
-  const [target, setTarget, targetCents] = useAmount("1.000.000,00", 0);
+  const [yearsText, setYearsText, years, yearsError] = useYears(15);
+  const [target, setTarget, lastTargetCents] = useAmount("1.000.000,00", 0);
+  // A target of nothing, or one that is not an amount, asks no question: the field says so.
+  const targetError = parseBRL(target) ? undefined : "Type an amount, like 1.000.000,00";
+  const targetCents = targetError ? null : lastTargetCents;
   const [view, setView] = useState<"scenarios" | "simulation">("scenarios");
-  const years = Math.max(1, Math.min(60, Number(yearsText) || 15));
   const url = monthlyCents !== null ? `/api/v1/planning?monthly=${monthlyCents}&years=${years}&target=${targetCents ?? 0}` : null;
   const res = useResource<Projection>(url);
   const p = res.data;
+  const reached = p && p.targetCents > 0 && p.startCents >= p.targetCents;
 
   const by = (n: string) => p?.scenarios.find((s) => s.name === n);
   const base = by("base");
@@ -105,9 +121,9 @@ export function Planning() {
                 value={monthly}
                 onChange={(e) => setMonthly(e.target.value)}
                 className="w-[180px]"
-                error={monthly && parseBRL(monthly) === null ? "An amount" : undefined}
+                error={amountError(monthly)}
               />
-              <TextField label="For" suffix="years" numeric inputMode="numeric" value={yearsText} onChange={(e) => setYears(e.target.value)} className="w-[120px]" />
+              <TextField label="For" suffix="years" numeric inputMode="numeric" value={yearsText} onChange={(e) => setYearsText(e.target.value)} className="w-[120px]" error={yearsError} />
             </div>
           </div>
 
@@ -191,17 +207,19 @@ export function Planning() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-6">
         <Panel
           title={
-            baseWhen?.months != null && targetCents
-              ? `${formatBRL(targetCents).replace(",00", "")} by ${monthsFromNow(baseWhen.months)} in the base scenario`
-              : "How long until"
+            reached
+              ? `You already have ${formatBRL(p.targetCents).replace(",00", "")}`
+              : baseWhen?.months != null && targetCents
+                ? `${formatBRL(targetCents).replace(",00", "")} by ${monthsFromNow(baseWhen.months)} in the base scenario`
+                : "How long until"
           }
           footer="Months are estimates in today's money."
         >
           <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="flex flex-col gap-3">
-              <TextField label="How long until I have" prefix="R$" numeric inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} />
+              <TextField label="How long until I have" prefix="R$" numeric inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} error={targetError} />
               <div role="table" aria-label="When the target is reached" className="flex flex-col">
-                {p?.when.map((w) => (
+                {p && p.targetCents > 0 && !reached && p.when.map((w) => (
                   <div key={w.name} role="row" className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-t border-rule py-2">
                     <span role="cell" className={cn("text-[14px] leading-5", w.name === "base" && "font-semibold text-tinta")}>
                       {w.name.charAt(0).toUpperCase() + w.name.slice(1)}, {formatPercent(w.rateBp, { decimals: 0 })} a year
@@ -217,7 +235,8 @@ export function Planning() {
               </div>
             </div>
             <div className="flex flex-col gap-3">
-              {p && baseWhen?.months != null && p.levers.length > 0 && (
+              {reached && <p className="m-0 type-body">{formatBRL(p.startCents)} is invested today. Raise the target to see how long the next step takes.</p>}
+              {p && !reached && p.targetCents > 0 && baseWhen?.months != null && p.levers.length > 0 && (
                 <>
                   <p className="m-0 type-body">{leverInsight(p, baseWhen.months)}</p>
                   <div className="flex flex-col">

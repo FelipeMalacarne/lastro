@@ -936,17 +936,23 @@ function LineDetail({
               <span role="cell" className="text-ink-muted">
                 Monthly limit
               </span>
-              <Amount cents={l.limitCents} sign="none" size="sm" />
+              <span role="cell">
+                <Amount cents={l.limitCents} sign="none" size="sm" />
+              </span>
             </div>
             <div role="row" className="flex justify-between border-t border-rule py-1.5">
               <span role="cell" className="text-ink-muted">
                 Rolled over from {monthName(addMonths(v.month, -1))}
               </span>
-              <Amount cents={l.carriedCents} sign="always" tone="ink" size="sm" />
+              <span role="cell">
+                <Amount cents={l.carriedCents} sign="always" tone="ink" size="sm" />
+              </span>
             </div>
             <div role="row" className="flex justify-between border-t border-ink py-1.5 font-semibold">
               <span role="cell">Available in {monthName(v.month)}</span>
-              <Amount cents={l.availableCents} sign="none" size="sm" />
+              <span role="cell">
+                <Amount cents={l.availableCents} sign="none" size="sm" />
+              </span>
             </div>
           </div>
         </>
@@ -1279,7 +1285,8 @@ function PhoneHero({ v, limits, isCurrent, byId }: { v: BudgetMonth; limits: Bud
     .filter((p) => p.spentCents > 0)
     .sort((a, b) => b.spentCents - a.spentCents);
   const total = pyf + funds + v.spentCents + inLimits + spare;
-  const gone = v.days - v.daysLeft;
+  // Today counts as gone, as in the header's "Day 30 of 31" and in elapsedBp.
+  const gone = v.days - v.daysLeft + 1;
   const legend: { label: string; cents: number; swatch: ReactNode }[] = [
     { label: "Pay yourself first", cents: pyf, swatch: <span className="size-2.5 rounded-xs bg-ink" /> },
     ...(funds > 0 ? [{ label: "Into the funds", cents: funds, swatch: <span className="size-2.5 rounded-xs bg-rule-strong" /> }] : []),
@@ -1584,6 +1591,12 @@ function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categor
                   </span>
                   {r.hint && <span className="truncate pl-5 type-caption text-ink-muted">{r.hint}</span>}
                   <span className="type-caption text-ink-muted sm:hidden">avg {formatBRL(r.average)}</span>
+                  {wrong && (
+                    <span id={`limit-${r.key}-error`} className="flex items-center gap-1 type-caption text-danger">
+                      <CircleAlert className="size-3.5 flex-none" aria-hidden />
+                      Type an amount, like 500,00
+                    </span>
+                  )}
                 </span>
                 <span role="cell" className="hidden text-right sm:block">
                   <Amount cents={r.average} sign="none" tone="muted" />
@@ -1594,6 +1607,7 @@ function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categor
                     <input
                       aria-label={`${fund ? "Each month for" : "Limit for"} ${name(r)}`}
                       aria-invalid={wrong}
+                      aria-describedby={wrong ? `limit-${r.key}-error` : undefined}
                       inputMode="decimal"
                       placeholder="No limit"
                       value={val.text}
@@ -1624,7 +1638,7 @@ function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categor
           </div>
         </div>
         <div className="flex flex-col gap-2 px-5 pt-3">
-          {bad.length > 0 && <p className="m-0 type-caption text-danger">Type an amount like 500,00 for {bad.map(name).join(", ")}.</p>}
+          {bad.length > 0 && <p className="m-0 type-caption text-danger">Type an amount, like 500,00, for {bad.map(name).join(", ")}.</p>}
           {error && (
             <p role="alert" className="m-0 type-caption text-danger">
               Could not save: {error}.

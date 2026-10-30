@@ -8,7 +8,7 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
 import { send, useResource, type Account, type BalanceHistory } from "@/lib/api";
-import { formatBRL, formatDate, inputBRL, parseBRL, todayISO } from "@/lib/format";
+import { FIRST_MANUAL_DAY, amountError, formatBRL, formatDate, inputBRL, parseBRL, todaySaoPaulo } from "@/lib/format";
 import { toast } from "@/lib/toast";
 
 /** An account typed in (canvas: "Accounts outside Open Finance"): a wallet or an asset. */
@@ -42,14 +42,17 @@ function WalletView({ a }: { a: Account }) {
  * account's bank never sent (canvas: "A transaction the bank never sent").
  */
 export function AddTransaction({ a, missing }: { a: Account; missing?: boolean }) {
-  const [day, setDay] = useState(todayISO());
+  const today = todaySaoPaulo();
+  const [day, setDay] = useState(today);
   const [description, setDescription] = useState("");
   const [dir, setDir] = useState<"out" | "in">("out");
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cents = parseBRL(amount);
-  const valid = Boolean(description.trim()) && Boolean(cents) && /^\d{4}-\d{2}-\d{2}$/.test(day);
+  // The server takes a day from 1 Jan 2000 up to today in São Paulo.
+  const dayOK = /^\d{4}-\d{2}-\d{2}$/.test(day) && day >= FIRST_MANUAL_DAY && day <= today;
+  const valid = Boolean(description.trim()) && Boolean(cents) && dayOK;
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!valid) return;
@@ -74,8 +77,17 @@ export function AddTransaction({ a, missing }: { a: Account; missing?: boolean }
   return (
     <Panel title={missing ? "Add a missing transaction" : "Add a transaction"}>
       <form onSubmit={add} className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <TextField label="Date" type="date" value={day} max={todayISO()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
+        <div className="flex flex-wrap items-start gap-3">
+          <TextField
+            label="Date"
+            type="date"
+            value={day}
+            min={FIRST_MANUAL_DAY}
+            max={today}
+            onChange={(e) => setDay(e.target.value)}
+            className="min-w-0 flex-[0_1_170px]"
+            error={day && !dayOK ? "Pick a day from 1 Jan 2000 to today" : undefined}
+          />
           <TextField
             label="Description"
             placeholder={missing ? "e.g. Pix sent" : "e.g. Feira de domingo"}
@@ -84,7 +96,7 @@ export function AddTransaction({ a, missing }: { a: Account; missing?: boolean }
             className="min-w-0 flex-[1_1_200px]"
           />
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <div className="flex flex-col gap-1.5">
             <span className="text-[13px] leading-[18px] font-semibold">Direction</span>
             <SegmentedControl
@@ -97,8 +109,17 @@ export function AddTransaction({ a, missing }: { a: Account; missing?: boolean }
               ]}
             />
           </div>
-          <TextField label="Amount" placeholder="R$ 0,00" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="min-w-0 flex-[0_1_150px]" />
-          <Button type="submit" variant={missing ? "secondary" : "primary"} disabled={!valid || busy}>
+          <TextField
+            label="Amount"
+            placeholder="R$ 0,00"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="min-w-0 flex-[0_1_150px]"
+            error={amountError(amount, "50,00", true)}
+          />
+          {/* The fields grow downwards with an error; the button keeps to their line, below a label's height. */}
+          <Button type="submit" variant={missing ? "secondary" : "primary"} disabled={!valid || busy} className="mt-6">
             Add
           </Button>
         </div>
@@ -116,7 +137,7 @@ export function AddTransaction({ a, missing }: { a: Account; missing?: boolean }
 function AssetView({ a }: { a: Account }) {
   const history = useResource<BalanceHistory>(`/api/v1/accounts/${a.id}/balance`).data;
   const points = history?.points ?? [];
-  const [day, setDay] = useState(todayISO());
+  const [day, setDay] = useState(todaySaoPaulo());
   const [balance, setBalance] = useState(inputBRL(a.balanceCents));
   const [busy, setBusy] = useState(false);
   const cents = parseBRL(balance);
@@ -137,7 +158,7 @@ function AssetView({ a }: { a: Account }) {
       <Panel title="Balance updates" footer="Each update is one point. Net worth uses the latest; the chart joins them with straight lines and never guesses between them.">
         <div className="flex flex-col gap-4">
           <form
-            className="flex flex-wrap items-end gap-3"
+            className="flex flex-wrap items-start gap-3"
             onSubmit={(e) => {
               e.preventDefault();
               if (cents !== null)
@@ -147,9 +168,16 @@ function AssetView({ a }: { a: Account }) {
                 });
             }}
           >
-            <TextField label="Balance on" type="date" value={day} max={todayISO()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
-            <TextField label="Balance" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className="min-w-0 flex-[0_1_180px]" />
-            <Button type="submit" variant="primary" disabled={busy || cents === null || points.some((p) => p.date === day && p.balanceCents === cents)}>
+            <TextField label="Balance on" type="date" value={day} max={todaySaoPaulo()} onChange={(e) => setDay(e.target.value)} className="min-w-0 flex-[0_1_170px]" />
+            <TextField
+              label="Balance"
+              inputMode="decimal"
+              value={balance}
+              onChange={(e) => setBalance(e.target.value)}
+              className="min-w-0 flex-[0_1_180px]"
+              error={amountError(balance, "48.312,77")}
+            />
+            <Button type="submit" variant="primary" disabled={busy || cents === null || points.some((p) => p.date === day && p.balanceCents === cents)} className="mt-6">
               Update
             </Button>
           </form>
