@@ -50,11 +50,17 @@ export function DayBars({ month, days, previous, today, selected, onSelect, meas
   const max = values[values.length - 1] ?? 1;
   const p90 = values[Math.floor(values.length * 0.9)] ?? max;
   const capped = max > p90 * 2.5;
-  const step = niceStep(capped ? p90 * 1.4 : max, 3);
+  // The axis reads whole reais: never a step under R$ 1, and an empty month is one zero line.
+  const step = Math.max(100, niceStep(capped ? p90 * 1.4 : max, 3));
   const top = Math.ceil((capped ? p90 * 1.4 : max) / step) * step || step;
-  const grid: number[] = [];
-  for (let v = 0; v <= top; v += step) grid.push(v);
+  const grid: number[] = values.length ? [] : [0];
+  for (let v = 0; values.length && v <= top; v += step) grid.push(v);
   const h = (v: number) => `${(Math.min(v, top) / top) * 100}%`;
+  // A capped day next to another capped day prints its figure a line higher, so "3.892" and "666" never run together.
+  const raised = new Set<number>();
+  all.forEach((d, i) => {
+    if (d.v > top && i > 0 && all[i - 1].v > top && !raised.has(i - 1)) raised.add(i);
+  });
   const col = (i: number) => `calc((100% + 3px) * ${(i / count).toFixed(4)} - 1.5px)`;
   const hd = all.find((d) => d.date === hover);
   const hi = hd ? hd.n - 1 : 0;
@@ -65,7 +71,7 @@ export function DayBars({ month, days, previous, today, selected, onSelect, meas
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative mt-6 ml-14 h-[168px] max-lg:ml-0 max-lg:h-24" onMouseLeave={() => setHover(null)}>
+      <div className={cn("relative ml-14 h-[168px] max-lg:ml-0 max-lg:h-24", raised.size ? "mt-10" : "mt-6")} onMouseLeave={() => setHover(null)}>
         {grid.map((v) => (
           <div key={v} className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(24px + (100% - 24px) * ${(v / top).toFixed(3)})` }}>
             <div className={v === 0 ? "border-t border-rule-strong" : v === top && capped ? "border-t border-dotted border-rule-strong" : "border-t border-rule"} />
@@ -73,7 +79,7 @@ export function DayBars({ month, days, previous, today, selected, onSelect, meas
           </div>
         ))}
         <div className="absolute inset-x-0 top-0 bottom-6 grid items-end gap-[3px] max-lg:gap-0.5" style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
-          {all.map((d) => {
+          {all.map((d, i) => {
             const on = selected === d.date;
             return (
               <button
@@ -94,7 +100,12 @@ export function DayBars({ month, days, previous, today, selected, onSelect, meas
                   style={{ height: h(d.v), background: on || hover === d.date ? undefined : color }}
                 />
                 {d.v > top && (
-                  <span className="pointer-events-none absolute bottom-[calc(100%+2px)] left-1/2 -translate-x-1/2 type-figure-sm whitespace-nowrap text-ink max-lg:left-0 max-lg:translate-x-0">
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute left-1/2 -translate-x-1/2 type-figure-sm whitespace-nowrap text-ink max-lg:left-0 max-lg:translate-x-0",
+                      raised.has(i) ? "bottom-[calc(100%+18px)]" : "bottom-[calc(100%+2px)]",
+                    )}
+                  >
                     {formatAxis(d.v)}
                   </span>
                 )}
@@ -112,7 +123,14 @@ export function DayBars({ month, days, previous, today, selected, onSelect, meas
         {todayIndex >= 0 && todayIndex < count - 1 && (
           <>
             <div className="pointer-events-none absolute -top-[18px] bottom-6 border-l border-ink" style={{ left: col(todayIndex + 1) }} />
-            <span className="pointer-events-none absolute -top-[22px] translate-x-1.5 text-[12px] leading-4 font-semibold" style={{ left: col(todayIndex + 1) }}>
+            {/* Near the right edge the label sits left of the line, so a phone never cuts it to "Toda". */}
+            <span
+              className={cn(
+                "pointer-events-none absolute -top-[22px] text-[12px] leading-4 font-semibold",
+                (todayIndex + 1) / count > 0.85 ? "-translate-x-[calc(100%+6px)]" : "translate-x-1.5",
+              )}
+              style={{ left: col(todayIndex + 1) }}
+            >
               Today
             </span>
           </>
