@@ -88,6 +88,7 @@ export function BillsList({ bills, selected, onSelect, today }: { bills: CardBil
             key={b.id}
             type="button"
             aria-pressed={on}
+            data-bill={b.id}
             onClick={() => onSelect(b.id)}
             className={cn(
               "grid min-h-14 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-0 border-b border-rule bg-transparent px-5 py-2 text-left text-ink hover:bg-paper-sunken sm:grid-cols-[minmax(0,1fr)_72px_128px_128px]",

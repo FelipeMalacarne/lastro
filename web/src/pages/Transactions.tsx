@@ -25,6 +25,7 @@ import {
 import { typeLabel, useResource, type Category, type DaysView, type TagView, type Transaction, type TransactionList } from "@/lib/api";
 import { useCategories, useWaiting } from "@/lib/categories";
 import { addMonths, dayLabel, formatBRL, formatDay, formatMonth, formatWeekday, todayISO } from "@/lib/format";
+import { isShortcut } from "@/lib/keys";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link, hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
@@ -101,9 +102,10 @@ export function Transactions() {
   useEffect(() => {
     if (!tx) return;
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      // Esc in the phone sheet is the sheet's: it has already closed it.
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      // Esc in the phone sheet is the sheet's: it has already closed it. The
+      // sheet is the detail these keys move through, but a dialog over it,
+      // like "Remove this entry?", keeps them.
+      if (e.defaultPrevented || !isShortcut(e, "[role=alertdialog]")) return;
       const to = e.key === "ArrowUp" || e.key === "k" ? prev : e.key === "ArrowDown" || e.key === "j" ? next : undefined;
       if (e.key === "Escape") {
         e.preventDefault();

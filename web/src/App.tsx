@@ -18,13 +18,14 @@ import { Transactions } from "@/pages/Transactions";
 
 export function App() {
   const { path } = useLocation();
+  const shown = page(path);
 
-  // The app opens on the dashboard.
+  // The app opens on the dashboard, and so does a path it does not know.
   useEffect(() => {
-    if (path === "/") navigate("/dashboard" + location.search, { replace: true });
+    if (!shown) navigate("/dashboard" + location.search, { replace: true });
   }, [path]);
 
-  return <AppShell accounts={<SidebarAccounts />}>{page(path)}</AppShell>;
+  return <AppShell accounts={<SidebarAccounts />}>{shown}</AppShell>;
 }
 
 function page(path: string) {
@@ -45,14 +46,15 @@ function page(path: string) {
       return <Portfolio />;
     case "/contribute":
       return <Contribute />;
-    case "/_components":
-      if (import.meta.env.DEV) return <Gallery />;
+    case "/transactions":
       return <Transactions />;
+    case "/_components":
+      return import.meta.env.DEV ? <Gallery /> : null;
     case "/planning":
       return <Planning />;
     case "/report":
       return <Report />;
     default:
-      return <Transactions />;
+      return null;
   }
 }
