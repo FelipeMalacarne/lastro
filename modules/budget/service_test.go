@@ -222,6 +222,29 @@ func TestAlertsAreSentOnce(t *testing.T) {
 	}
 }
 
+func TestRecurringChargeAlertsLinkToTheMerchant(t *testing.T) {
+	w := newWorld(t)
+	w.load(t, nil, []tx{
+		{"2026-07-15", "SPOTIFY", -2190, ""},
+		{"2026-08-15", "SPOTIFY", -2190, ""},
+		{"2026-09-15", "SPOTIFY", -2190, ""},
+		{"2026-10-15", "SPOTIFY", -2390, ""},
+	})
+	all, err := w.budget.Alerts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range all {
+		if a.Kind == AlertPriceChange {
+			if a.Title != "Spotify went up to R$ 23,90" || a.Link != "/transactions?q=Spotify&scope=all" {
+				t.Errorf("the alert names the merchant and lists its charges: %+v", a)
+			}
+			return
+		}
+	}
+	t.Fatalf("no price change in %+v", all)
+}
+
 // category is the line that covers a category.
 func category(t *testing.T, v MonthView, c ledger.CategoryID) LineView {
 	t.Helper()

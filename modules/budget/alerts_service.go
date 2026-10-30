@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"lastro/modules/ledger"
@@ -88,14 +89,14 @@ func (s *Service) Alerts(ctx context.Context) ([]AlertView, error) {
 			if a.Amount.Cents() < a.Compare.Cents() {
 				dir = "down"
 			}
-			av.Title = fmt.Sprintf("%s went %s to %s", title(a.Name), dir, a.Amount)
+			av.Title = fmt.Sprintf("%s went %s to %s", TitleCase(a.Name), dir, a.Amount)
 			av.Detail = fmt.Sprintf("It was %s a month.", a.Compare)
-			av.Link = "/dashboard"
+			av.Link = merchantLink(a.Name)
 		case AlertNewCharge:
 			av.Severity = "info"
-			av.Title = fmt.Sprintf("%s is a new recurring charge", title(a.Name))
+			av.Title = fmt.Sprintf("%s is a new recurring charge", TitleCase(a.Name))
 			av.Detail = fmt.Sprintf("%s a month, adding to the fixed costs.", a.Amount)
-			av.Link = "/dashboard"
+			av.Link = merchantLink(a.Name)
 		}
 		out = append(out, av)
 	}
@@ -140,8 +141,15 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// title turns a merchant's pattern into a name: "SMART FIT" is "Smart Fit".
-func title(s string) string {
+// merchantLink lists a recurring charge's transactions in every month, so a
+// new price shows next to the old one.
+func merchantLink(name string) string {
+	return "/transactions?" + url.Values{"q": {TitleCase(name)}, "scope": {"all"}}.Encode()
+}
+
+// TitleCase turns a merchant's pattern into a name: "SMART FIT" is "Smart
+// Fit", "PAO DE ACUCAR" is "Pao de Acucar".
+func TitleCase(s string) string {
 	words := strings.Fields(strings.ToLower(s))
 	for i, w := range words {
 		if i > 0 && (w == "de" || w == "da" || w == "do" || w == "e") {

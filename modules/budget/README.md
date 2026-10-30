@@ -44,7 +44,7 @@ Decisions: [ADR-0006](../../docs/adr/0006-category-limits-before-envelopes.md), 
 - `PUT /api/v1/budget/preferences` `{"rolloverNew"}`: whether a category given its first limit rolls over by default; the month's view carries it as `rolloverNew`.
 - `DELETE /api/v1/budget/{month}/limits/{category}`: the category's own line, from that month on; 409 for one that shares a line.
 - `PUT /api/v1/budget/{month}/pay-yourself-first` `{"amountCents", "payday"}`: from that month on.
-- `Alerts` is this month's alerts, each with a severity, a title, a detail and where to look. `app` serves them at `GET /api/v1/alerts`, together with the portfolio's price alerts.
+- `Alerts` is this month's alerts, each with a severity, a title, a detail and where to look (a recurring charge's: its transactions in every month, searched by the merchant). `app` serves them at `GET /api/v1/alerts`, together with the portfolio's price alerts.
 - `GET /api/v1/recurring`: the recurring charges, most expensive first, with what they cost a month, what was already charged this month and what is still to come, the new ones and the price changes.
 
 ## Events
