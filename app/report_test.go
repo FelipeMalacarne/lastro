@@ -61,3 +61,43 @@ func TestBuildReport(t *testing.T) {
 		t.Error("never a transaction")
 	}
 }
+
+// The report's rows add up to the month's spending: the limits, the funds
+// and what had no limit (#6: September left the Health fund out).
+func TestReportRowsAddUpToSpending(t *testing.T) {
+	sep, _ := budget.ParseMonth("2026-09")
+	health, groceries, free := "h", "g", "Free to spend"
+	r := buildReport(reportInput{
+		month: sep,
+		today: time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC),
+		view: budget.MonthView{
+			Summary: budget.SummaryView{IncomeCents: 1288000, SpentCents: 704938},
+			Lines: []budget.LineView{
+				{ByCategory: []budget.LineCategoryView{{Category: "r"}}, SpentCents: 92040, AvailableCents: 90000},
+				{Name: &free, ByCategory: []budget.LineCategoryView{{Category: "l"}, {Category: "s"}}, SpentCents: 51020, AvailableCents: 100000},
+				{ByCategory: []budget.LineCategoryView{{Category: health}}, Fund: true, SpentCents: 11990, AvailableCents: 15000, LeftCents: 3010},
+			},
+			Unlimited: []budget.SpendView{{SpentCents: 549888}, {Category: &groceries, SpentCents: 0}},
+		},
+		names: map[string]string{"r": "Restaurants", "l": "Leisure", "s": "Shopping", "h": "Health", "g": "Groceries"},
+	})
+	if len(r.Funds) != 1 || r.Funds[0] != (ReportFund{Category: health, Name: "Health", SpentCents: 11990, BalanceCents: 3010}) {
+		t.Fatalf("funds %+v", r.Funds)
+	}
+	var sum int64
+	for _, c := range r.Categories {
+		sum += c.SpentCents
+	}
+	for _, f := range r.Funds {
+		sum += f.SpentCents
+	}
+	for _, u := range r.Unlimited {
+		sum += u.SpentCents
+	}
+	if sum != r.SpentCents {
+		t.Errorf("the rows add up to %d, spending is %d", sum, r.SpentCents)
+	}
+	if len(r.Categories) != 2 || len(r.Unlimited) != 1 || len(r.Notes) != 1 {
+		t.Errorf("a fund is not a limit, and only a fund in the red is a note: %+v", r)
+	}
+}

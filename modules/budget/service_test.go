@@ -583,6 +583,7 @@ func TestFund(t *testing.T) {
 	if v.AvailableCents != 80000 || v.SpentCents != 50000 || v.LimitsCents != 110000 || v.NotAssignedCents != 1000000-400000-110000 {
 		t.Errorf("the month's own totals leave the fund out, Not assigned does not: %+v", v)
 	}
+	addsUp(t, v)
 	alerts, err := w.budget.Alerts(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -655,5 +656,22 @@ func TestFundRoutes(t *testing.T) {
 	}
 	if rec := do(http.MethodDelete, adj, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("DELETE it again: %d, want 404", rec.Code)
+	}
+}
+
+// addsUp checks that a month's lines, funds included, and the spending
+// without a limit add up to its spending, so nothing spent goes missing:
+// the monthly report lists them all.
+func addsUp(t *testing.T, v MonthView) {
+	t.Helper()
+	var sum int64
+	for _, l := range v.Lines {
+		sum += l.SpentCents
+	}
+	for _, u := range v.Unlimited {
+		sum += u.SpentCents
+	}
+	if sum != v.Summary.SpentCents {
+		t.Errorf("%s: lines and unlimited add up to %d, spending is %d", v.Month, sum, v.Summary.SpentCents)
 	}
 }

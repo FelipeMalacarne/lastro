@@ -30,6 +30,10 @@ type ReportView struct {
 	SpendingChangeBp  *int64 `json:"spendingChangeBp"` // against the month before
 
 	Categories []ReportCategory `json:"categories"`
+	// Funds are the month's funds (ADR-0011), the largest spending first.
+	// With the limits and the spending without one, they add up to the
+	// month's spending.
+	Funds []ReportFund `json:"funds"`
 	// Unlimited is the spending in categories without a limit, the largest
 	// first; Category is empty for what still waits for one.
 	Unlimited []ReportCategory `json:"unlimited"`
@@ -52,6 +56,15 @@ type ReportCategory struct {
 	Name           string `json:"name"`
 	SpentCents     int64  `json:"spentCents"`
 	AvailableCents int64  `json:"availableCents"`
+}
+
+// ReportFund is a fund's month: what it paid and its balance after it,
+// debt included.
+type ReportFund struct {
+	Category     string `json:"category"` // empty for a fund shared by several categories, which goes by its name
+	Name         string `json:"name"`
+	SpentCents   int64  `json:"spentCents"`
+	BalanceCents int64  `json:"balanceCents"`
 }
 
 // reportInput is what the modules said about the month.
@@ -80,7 +93,7 @@ func buildReport(in reportInput) ReportView {
 		Month: in.month.String(), Over: !in.month.Add(1).First().After(in.today),
 		IncomeCents: v.Summary.IncomeCents, SpentCents: v.Summary.SpentCents,
 		ContributionCents: v.Summary.ContributionCents, SavingsRateBp: v.Summary.SavingsRateBp,
-		Categories: []ReportCategory{}, Unlimited: []ReportCategory{}, Notes: []string{}, DividendsCents: in.dividends,
+		Categories: []ReportCategory{}, Funds: []ReportFund{}, Unlimited: []ReportCategory{}, Notes: []string{}, DividendsCents: in.dividends,
 	}
 	if in.prev != nil && in.prev.Summary.SpentCents > 0 {
 		p := in.prev.Summary.SpentCents
@@ -98,7 +111,8 @@ func buildReport(in reportInput) ReportView {
 		if c.Name != nil && len(c.ByCategory) > 1 {
 			name = *c.Name // a line shared by several categories goes by its name
 		}
-		if c.Fund { // not a limit: only a fund in the red is worth a word
+		if c.Fund { // not a limit: listed apart, and only a fund in the red is worth a word
+			r.Funds = append(r.Funds, ReportFund{Category: cat, Name: name, SpentCents: c.SpentCents, BalanceCents: c.LeftCents})
 			if c.LeftCents < 0 {
 				r.Notes = append(r.Notes, fmt.Sprintf("%s ended %s in the red; the months after pay it back.", name, money.BRLCents(-c.LeftCents)))
 			}
@@ -113,6 +127,7 @@ func buildReport(in reportInput) ReportView {
 	sort.SliceStable(r.Categories, func(i, j int) bool {
 		return r.Categories[i].SpentCents*r.Categories[j].AvailableCents > r.Categories[j].SpentCents*r.Categories[i].AvailableCents
 	})
+	sort.SliceStable(r.Funds, func(i, j int) bool { return r.Funds[i].SpentCents > r.Funds[j].SpentCents })
 	for _, u := range v.Unlimited {
 		if u.SpentCents == 0 {
 			continue
