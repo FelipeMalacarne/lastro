@@ -53,6 +53,8 @@ export type Transaction = {
   tags: string[];
   /** A split's categories, largest part first; empty when not split. */
   splitCategories: string[];
+  /** What counts in the list: under a category filter, a split's part in it; otherwise the amount. */
+  countedCents: number;
   /** A transfer I marked: to an account lastro does not have. */
   markedTransfer: boolean;
   /** Added by me: a wallet entry, or one the bank never sent. */

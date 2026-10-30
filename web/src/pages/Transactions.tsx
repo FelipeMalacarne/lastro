@@ -326,7 +326,7 @@ export function Transactions() {
                       : `Nothing in ${monthName} yet.`}
             </Empty>
           )}
-          {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} />}
+          {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} filter={category} />}
         </Panel>
 
         {tx && wide && (
@@ -532,8 +532,23 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="m-0 px-5 py-6 type-body text-ink-muted">{children}</p>;
 }
 
-/** The list, grouped by day, each day with what it added up to. */
-function Days({ transactions, selected, categories }: { transactions: Transaction[]; selected: string | null; categories: Map<string, Category> }) {
+/**
+ * The list, grouped by day, each day with what it added up to. Under a
+ * category filter a split shows its part in that category, as the figures
+ * count it, and names that category.
+ */
+function Days({
+  transactions,
+  selected,
+  categories,
+  filter,
+}: {
+  transactions: Transaction[];
+  selected: string | null;
+  categories: Map<string, Category>;
+  /** The category filter: an id, "none" or "". */
+  filter: string;
+}) {
   const today = todayISO();
   const days: { date: string; rows: Transaction[] }[] = [];
   for (const t of transactions) {
@@ -558,10 +573,10 @@ function Days({ transactions, selected, categories }: { transactions: Transactio
                 description={t.description}
                 meta={meta(t)}
                 kind={t.kind}
-                amountCents={t.amountCents}
+                amountCents={t.countedCents}
                 pending={t.status === "pending"}
                 installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
-                category={categoryOf(t, categories)}
+                category={categoryOf(t, categories, filter)}
                 moreCategories={Math.max(0, t.splitCategories.length - 1)}
                 tags={t.tags}
                 noted={Boolean(t.note)}
@@ -574,14 +589,14 @@ function Days({ transactions, selected, categories }: { transactions: Transactio
   );
 }
 
-/** "R$ 72,00 out · R$ 480,00 in": only what counts. */
+/** "R$ 72,00 out · R$ 480,00 in": only what counts, a split's filtered part included. */
 function dayTotal(rows: Transaction[]): string {
   let out = 0;
   let inn = 0;
   for (const t of rows) {
     if (t.kind === "transfer" || t.kind === "bill_payment") continue;
-    if (t.amountCents < 0) out -= t.amountCents;
-    else inn += t.amountCents;
+    if (t.countedCents < 0) out -= t.countedCents;
+    else inn += t.countedCents;
   }
   const parts = [];
   if (out) parts.push(`${formatBRL(out)} out`);
@@ -601,8 +616,9 @@ function meta(t: Transaction): string {
   return `${t.account.institution} · ${typeLabel[t.account.type]}${by}`;
 }
 
-/** The row's category: its name and colour, or null while it waits for one. */
-function categoryOf(t: Transaction, categories: Map<string, Category>) {
-  const c = t.category ? categories.get(t.category.id) : undefined;
+/** The row's category: its name and colour, or null while it waits for one. A split under a category filter names the filtered one. */
+function categoryOf(t: Transaction, categories: Map<string, Category>, filter: string) {
+  const id = t.splitCategories.includes(filter) ? filter : t.category?.id;
+  const c = id ? categories.get(id) : undefined;
   return c ? { name: c.name, color: c.color } : null;
 }
