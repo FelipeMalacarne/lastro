@@ -87,12 +87,14 @@ export function GrowthChart({ points, width = W }: { points: Point[]; width?: nu
         label={`Invested money went from ${formatBRL(first.valueCents)} to ${formatBRL(last.valueCents)}: ${formatBRL(putIn)} put in and ${formatBRL(growth - putIn)} in returns.`}
         read={(i) => {
           const p = points[i];
+          // Since the chart's first month, as the legend counts: the first month put in nothing and made no returns.
+          const putInSince = p.basisCents - first.basisCents;
           return {
             label: formatMonth(p.date.slice(0, 7), true),
             rows: [
               { label: "Invested", cents: p.valueCents, color: "var(--ink)" },
-              { label: "Put in", cents: p.basisCents, color: "var(--ink-muted)", dashed: true },
-              { label: "Returns", cents: p.valueCents - p.basisCents, color: "var(--inflow)", sign: "always" },
+              { label: "Put in", cents: putInSince, color: "var(--ink-muted)", dashed: true },
+              { label: "Returns", cents: p.valueCents - first.valueCents - putInSince, color: "var(--inflow)", sign: "always" },
             ],
             dots: [
               { y: y(p.valueCents), color: "var(--ink)" },
