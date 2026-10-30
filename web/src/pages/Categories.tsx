@@ -64,6 +64,16 @@ const kinds: { value: PatternKind; label: string }[] = [
   { value: "exact", label: "Is exactly" },
 ];
 
+/** A rule's words as the server keeps them: accents dropped, upper case, anything but a letter or a digit a space ("zz-test-rule!" is ZZ TEST RULE). */
+function words(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{Mn}/gu, "")
+    .replace(/[^\p{L}\p{Nd}]+/gu, " ")
+    .trim()
+    .toUpperCase();
+}
+
 /** Categories and rules (canvas: "Categories and rules (M2)" and "Edit a rule, phone"). */
 export function Categories() {
   const { month } = useMonth();
@@ -263,6 +273,11 @@ function RulesPanel({
     setSelected(null);
     onNewRule(false);
   };
+  // From a form whose words another rule has: that rule, ready to edit.
+  const editInstead = (id: string) => {
+    select(id);
+    setTimeout(() => document.querySelector<HTMLInputElement>("#rule-editor input")?.focus());
+  };
   const accountName = (id: string | null) => {
     const a = accounts.find((x) => x.id === id);
     return a ? `${a.institution} ${typeLabel[a.type]}` : null;
@@ -366,7 +381,7 @@ function RulesPanel({
         </div>
 
         {wide && (rule || newRule) && (
-          <RuleEditor key={rule?.id ?? "new"} rule={rule} rules={rules} categories={categories} accounts={accounts} onClose={closeEditor} />
+          <RuleEditor key={rule?.id ?? "new"} rule={rule} rules={rules} categories={categories} accounts={accounts} onClose={closeEditor} onEdit={editInstead} />
         )}
         {!wide && inSheet.current && (
           <Sheet
@@ -381,6 +396,7 @@ function RulesPanel({
               categories={categories}
               accounts={accounts}
               onClose={closeEditor}
+              onEdit={editInstead}
               inSheet
             />
           </Sheet>
@@ -396,6 +412,7 @@ function RuleEditor({
   categories,
   accounts,
   onClose,
+  onEdit,
   inSheet,
 }: {
   rule: Rule | null;
@@ -403,6 +420,8 @@ function RuleEditor({
   categories: Category[];
   accounts: Account[];
   onClose: () => void;
+  /** Opens another rule: the one whose words and account these are. */
+  onEdit: (id: string) => void;
   /** In a phone sheet: its head has the name and ✕, its footer the save button. */
   inSheet?: boolean;
 }) {
@@ -412,7 +431,8 @@ function RuleEditor({
   const [category, setCategory] = useState(rule?.category ?? "");
   const [busy, setBusy] = useState(false);
   const before = rule && rules.find((r) => r.order > rule.order && rule.pattern.text.includes(r.pattern.text) && r.id !== rule.id);
-  const same = !rule && rules.find((r) => r.pattern.kind === kind && r.pattern.text.toLowerCase() === text.trim().toLowerCase() && (r.account ?? "") === account);
+  // One rule per words and account, as the server keeps them: a rule that has them is edited, never taken over.
+  const same = rules.find((r) => r.id !== rule?.id && r.pattern.kind === kind && r.pattern.text === words(text) && (r.account ?? "") === account);
   const valid = Boolean(text.trim()) && Boolean(category) && !same;
   const current = accounts.find((a) => a.id === account);
 
@@ -476,8 +496,18 @@ function RuleEditor({
         autoFocus={!rule}
         placeholder={rule ? undefined : "e.g. UBER EATS"}
         onChange={(e) => setText(e.target.value)}
-        hint={same ? "A rule with this text already exists." : "Case, accents and symbols are ignored."}
+        hint="Case, accents and symbols are ignored."
+        error={
+          same
+            ? `Rule ${same.order} already ${same.pattern.kind === "exact" ? "is exactly" : "contains"} ${same.pattern.text}${same.account ? " in this account" : ""}, for ${categories.find((c) => c.id === same.category)?.name ?? "its category"}.`
+            : undefined
+        }
       />
+      {same && (
+        <Button variant="ghost" size="sm" className="-mt-3 self-start" onClick={() => onEdit(same.id)}>
+          Edit rule {same.order}
+        </Button>
+      )}
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] leading-[18px] font-semibold">Account</span>
         <DropdownMenu>

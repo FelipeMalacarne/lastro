@@ -255,25 +255,20 @@ func (s *Service) learn(ctx context.Context, p Pattern, account ledger.AccountID
 	if err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
-	now := s.now()
-	rule, err := s.repo.ruleByPattern(ctx, p, account)
+	had, err := s.repo.ruleByPattern(ctx, p, account)
 	if err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
 	var was ledger.CategoryID
-	if rule == nil {
-		if rule, err = NewRule(p, account, c, origin, now); err != nil {
-			return learned{}, err
-		}
-	} else {
-		was = rule.Category()
-		changed, err := rule.Retarget(c, now)
-		if err != nil {
-			return learned{}, err
-		}
-		if !changed {
-			return learned{rule: rule.ID(), was: was}, nil
-		}
+	if had != nil {
+		was = had.Category()
+	}
+	rule, changed, err := Teach(had, p, account, c, origin, s.now())
+	if err != nil {
+		return learned{}, err
+	}
+	if !changed {
+		return learned{rule: rule.ID(), was: was}, nil
 	}
 	if err := s.repo.saveRule(ctx, rule); err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)

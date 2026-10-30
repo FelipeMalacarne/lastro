@@ -5,6 +5,10 @@ package categorize
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -407,5 +411,40 @@ func TestANarrowedRuleLetsGo(t *testing.T) {
 	}
 	if got["UBER *EATS"].ID != rc.String() {
 		t.Errorf("UBER *EATS: %+v", got["UBER *EATS"])
+	}
+}
+
+// "New rule" with the words of a rule that exists, once normalized, is
+// refused as an edit into them is, and that rule keeps leading where it
+// did; a correction in To review still retargets it.
+func TestNewRuleNeverTakesOneOver(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t)
+	cats := byName(t, s)
+	mux := http.NewServeMux()
+	s.RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	post := func(text string, c Category) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		body := `{"pattern": {"kind": "contains", "text": "` + text + `"}, "category": "` + c.ID.String() + `"}`
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/rules", strings.NewReader(body)))
+		return rec
+	}
+	if rec := post("ZZ TEST RULE", cats["Other"]); rec.Code != http.StatusCreated {
+		t.Fatalf("the first rule: %d %s", rec.Code, rec.Body)
+	}
+	rec := post("zz-test-rule!", cats["Groceries"])
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "a rule with this pattern and account exists") {
+		t.Errorf("the same words again: %d %s", rec.Code, rec.Body)
+	}
+	views, err := s.Rules(ctx)
+	if err != nil || len(views) != 1 || views[0].Rule.Category() != cats["Other"].ID || views[0].Rule.Origin() != OriginHand {
+		t.Fatalf("the rule still leads to Other: %+v %v", views, err)
+	}
+
+	if _, err := s.Correct(ctx, pattern(t, PatternContains, "zz test rule"), "", cats["Groceries"].ID); err != nil {
+		t.Fatal(err)
+	}
+	if views, _ := s.Rules(ctx); len(views) != 1 || views[0].Rule.Category() != cats["Groceries"].ID {
+		t.Errorf("a correction retargets it: %+v", views)
 	}
 }

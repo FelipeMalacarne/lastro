@@ -48,6 +48,7 @@ func TestAPIError(t *testing.T) {
 		{ErrNotFound, http.StatusNotFound},
 		{ErrNameTaken, http.StatusConflict},
 		{ErrArchived, http.StatusConflict},
+		{ErrRuleTaken, http.StatusConflict},
 	}
 	for _, tt := range tests {
 		var he *httpx.Error
