@@ -46,6 +46,8 @@ With several agents running:
 - Run the app with `task up` in its own Orca terminal (`orca terminal create --worktree active --title app --command "nix develop -c task up" --json`), not in your shell. `task urls` and `orca ports --json` say where it is.
 - Never point a worktree at another one's ports or database, and do not use `task app` to check a change.
 
+`.claude/commands/explore.md` (`/explore` in Claude Code; any agent can follow the file) walks a worktree's running app looking for bugs, UX problems and feature ideas, and reports them without fixing anything.
+
 ## Repo map
 
 ```
