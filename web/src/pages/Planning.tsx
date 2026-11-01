@@ -74,7 +74,8 @@ function useYears(initial: number): [string, (s: string) => void, number, string
 
 /** Planning (canvas: "Planning"). F9: projections in today's money. */
 export function Planning() {
-  const budget = useResource<BudgetMonth>(`/api/v1/budget?month=${monthOf(new Date())}`).data;
+  const budgetRes = useResource<BudgetMonth>(`/api/v1/budget?month=${monthOf(new Date())}`);
+  const budget = budgetRes.data;
   const overview = useResource<PortfolioOverview>("/api/v1/portfolio").data;
   const wide = useWide();
   const [monthly, setMonthly, monthlyCents] = useAmount(null, budget?.payYourselfFirst.plannedCents ?? 0);
@@ -88,6 +89,8 @@ export function Planning() {
   const res = useResource<Projection>(url);
   const p = res.data;
   const reached = p && p.targetCents > 0 && p.startCents >= p.targetCents;
+  // With no amount typed, the projection waits for pay yourself first, which may not come.
+  const error = res.error ?? (url === null && !monthly ? budgetRes.error : undefined);
 
   const by = (n: string) => p?.scenarios.find((s) => s.name === n);
   const base = by("base");
@@ -105,7 +108,13 @@ export function Planning() {
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
             <div className="flex flex-col gap-1">
               <span className="type-label text-ink-muted">In {years} {years === 1 ? "year" : "years"}, base scenario</span>
-              {base ? <Amount cents={round(base.finalCents)} size="hero" sign="none" estimate /> : <span className="type-body text-ink-muted">…</span>}
+              {base ? (
+                <Amount cents={round(base.finalCents)} size="hero" sign="none" estimate />
+              ) : error ? (
+                <span className="type-body text-ink-muted">Could not load the projection: {error}.</span>
+              ) : (
+                <span className="type-body text-ink-muted">…</span>
+              )}
               {low && high && (
                 <span className="type-caption text-ink-muted">
                   ≈ {formatBRL(round(low.finalCents)).replace(",00", "")} if returns are pessimistic, ≈ {formatBRL(round(high.finalCents)).replace(",00", "")} if optimistic

@@ -7,6 +7,7 @@ import { CategoryTag } from "@/components/CategoryTag";
 import { Panel } from "@/components/Panel";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import {
   assetClasses,
   send,
@@ -48,7 +49,8 @@ function formatPoints(bp: number): string {
 export function Contribute() {
   // The next contribution is this month's until its pay yourself first is
   // done, then next month's (each month inherits the budget before it).
-  const thisMonth = useResource<BudgetMonth>(`/api/v1/budget?month=${monthOf(new Date())}`).data;
+  const thisRes = useResource<BudgetMonth>(`/api/v1/budget?month=${monthOf(new Date())}`);
+  const thisMonth = thisRes.data;
   const nextMonth = useResource<BudgetMonth>(thisMonth?.payYourselfFirst.doneOn ? `/api/v1/budget?month=${addMonths(monthOf(new Date()), 1)}` : null).data;
   const budget = thisMonth?.payYourselfFirst.doneOn ? nextMonth : thisMonth;
   const overview = useResource<PortfolioOverview>("/api/v1/portfolio").data;
@@ -63,7 +65,8 @@ export function Contribute() {
     const t = setTimeout(() => setCents(parsed), 250);
     return () => clearTimeout(t);
   }, [parsed]);
-  const plan = useResource<ContributionPlan>(cents !== null ? `/api/v1/contribute?amount=${cents}` : null).data;
+  const planRes = useResource<ContributionPlan>(cents !== null ? `/api/v1/contribute?amount=${cents}` : null);
+  const plan = planRes.data;
   const payday = budget ? nextPayday(budget.payday) : null;
 
   return (
@@ -102,7 +105,13 @@ export function Contribute() {
             </div>
             {plan && <Split plan={plan} />}
             {plan && payday && <PlanActions plan={plan} payday={payday} />}
-            {!plan && cents === null && <p className="m-0 type-body text-ink-muted">Type an amount to see where it goes.</p>}
+            {!plan && planRes.error && <p className="m-0 type-body text-ink-muted">Could not load the split: {planRes.error}.</p>}
+            {!plan && cents === null && (
+              <p className="m-0 type-body text-ink-muted">
+                {thisRes.error && !thisMonth && text === null && `Could not load your pay yourself first: ${thisRes.error}. `}
+                Type an amount to see where it goes.
+              </p>
+            )}
           </div>
         </Panel>
         {plan && <Moves plan={plan} />}
@@ -319,7 +328,9 @@ function Schedule() {
       footer="lastro never buys anything. Mark a purchase done when you made it, or cancel it with a reason."
     >
       {adding && <PurchaseForm onDone={() => setAdding(false)} />}
-      {list.length === 0 && !adding && <p className="m-0 px-5 type-body text-ink-muted">Nothing planned. Plan this month's split from above, or add a purchase.</p>}
+      {!res.data && res.error && <p className="m-0 px-5 type-body text-ink-muted">Could not load the purchases: {res.error}.</p>}
+      {!res.data && !res.error && <SkeletonRows count={3} className="border-t border-rule" />}
+      {res.data && list.length === 0 && !adding && <p className="m-0 px-5 type-body text-ink-muted">Nothing planned. Plan this month's split from above, or add a purchase.</p>}
       <div role="table" aria-label="Planned and past purchases">
         {[...planned, ...past].map((p) => {
           const b = statusBadge[p.status];
@@ -372,17 +383,24 @@ function PurchaseForm({ onDone }: { onDone: () => void }) {
   const [amount, setAmount] = useState("");
   const [condition, setCondition] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const cents = parseBRL(amount);
   return (
     <form
       className="mb-3 flex flex-col gap-3 border-y border-rule bg-paper px-5 py-4"
       onSubmit={async (e) => {
         e.preventDefault();
+        // One purchase per Add, however many times it is pressed while saving.
+        if (busy) return;
+        setBusy(true);
+        setError(null);
         try {
           await send("POST", "/api/v1/purchases", { plannedOn: on, what, class: cls, amountCents: cents, condition });
           onDone();
         } catch (err) {
           setError((err as Error).message);
+        } finally {
+          setBusy(false);
         }
       }}
     >
@@ -408,7 +426,7 @@ function PurchaseForm({ onDone }: { onDone: () => void }) {
       </div>
       {error && <p className="m-0 type-caption text-danger">Could not save: {error}.</p>}
       <div className="flex gap-2">
-        <Button type="submit" variant="primary" size="sm" disabled={!what.trim() || !cents}>
+        <Button type="submit" variant="primary" size="sm" disabled={busy || !what.trim() || !cents}>
           Add
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onDone}>
