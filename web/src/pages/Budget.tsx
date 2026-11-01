@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { ArrowRight, Check, CircleAlert, PiggyBank, Repeat, Sparkles, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
@@ -16,6 +17,7 @@ import { Sheet, SheetActions } from "@/components/ui/sheet";
 import { send, useResource, type BudgetLine, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type NoteColor, type TransactionList } from "@/lib/api";
 import { isShared, lineBody, lineColors, lineName, monthName, restore, saveLine, snapshot, type LineBody } from "@/lib/budget";
 import { useCategories } from "@/lib/categories";
+import { focusBack } from "@/lib/focus";
 import { addMonths, formatBRL, formatDay, formatMonth, inputBRL, parseBRL, titleCase } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
@@ -28,6 +30,14 @@ type Filter = "all" | "attention" | "shared" | "rollover";
 
 /** What is open beside the list, or in the sheet on a phone: a line, a category without one, or a line's editor (a new line when null). */
 type Open = { line: string } | { category: string } | { edit: string | null };
+
+/** The row that opens o, as a selector, when o has one. */
+function rowOf(o: Open | null): string[] {
+  if (!o) return [];
+  if ("line" in o) return [`[data-line="${o.line}"]`];
+  if ("category" in o) return [`[data-category="${o.category}"]`];
+  return o.edit ? [`[data-line="${o.edit}"]`] : [];
+}
 
 /**
  * Budget (canvas: "Budget", "Budget, phone", "Budget: shared lines and funds",
@@ -48,9 +58,16 @@ export function Budget() {
   // On a phone what is open sits in a sheet, which keeps it while it slides away.
   const inSheet = useRef<Open | null>(null);
   if (open) inSheet.current = open;
-  const startEditing = () => {
+  // Edit all limits opens from the header or from Not assigned, and closing it gives focus back there.
+  const editFrom = useRef("limits");
+  const startEditing = (from: string) => {
+    editFrom.current = from;
     setEditing(true);
     requestAnimationFrame(() => document.getElementById("limits-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const stopEditing = () => {
+    flushSync(() => setEditing(false));
+    focusBack(`[data-opener="${editFrom.current}"]`, '[data-opener="limits"]');
   };
 
   // On a wide screen the first line that needs attention starts open, so the detail is never empty.
@@ -140,10 +157,12 @@ export function Budget() {
           Copy {prevName}
         </Button>
       )}
-      <Button variant="ghost" onClick={() => setOpen({ edit: null })}>
+      <Button variant="ghost" data-opener="new-line" onClick={() => setOpen({ edit: null })}>
         Add a line
       </Button>
-      <Button onClick={startEditing}>Edit all limits</Button>
+      <Button data-opener="limits" onClick={() => startEditing("limits")}>
+        Edit all limits
+      </Button>
     </>
   );
 
@@ -176,7 +195,11 @@ export function Budget() {
         categories={live}
         byId={byId}
         inSheet={!wide}
-        onDone={() => setOpen(l && v.lines.some((x) => x.id === l.id) ? { line: l.id } : null)}
+        onDone={(removed) => {
+          flushSync(() => setOpen(l && !removed && v.lines.some((x) => x.id === l.id) ? { line: l.id } : null));
+          // The editor took the focus with it: back to what opened it.
+          focusBack(...(l && !removed ? ['[data-opener="edit-line"]', `[data-line="${l.id}"]`] : []), '[data-opener="new-line"]');
+        }}
       />
     );
     sheetLabel = l ? `Edit ${lineName(l, byId)}` : "A new line";
@@ -189,11 +212,11 @@ export function Budget() {
   return (
     <>
       <PageHeader title="Budget" caption={caption} actions={actions} />
-      {wide ? <Hero v={v} limits={limits} funds={funds} byId={byId} isCurrent={isCurrent} gone={gone} onAssign={editing ? undefined : startEditing} /> : <PhoneHero v={v} limits={limits} isCurrent={isCurrent} byId={byId} />}
+      {wide ? <Hero v={v} limits={limits} funds={funds} byId={byId} isCurrent={isCurrent} gone={gone} onAssign={editing ? undefined : () => startEditing("assign")} /> : <PhoneHero v={v} limits={limits} isCurrent={isCurrent} byId={byId} />}
       {!wide && <PayFirst v={v} />}
 
       {editing ? (
-        <LimitsEditor v={v} categories={live} byId={byId} onDone={() => setEditing(false)} />
+        <LimitsEditor v={v} categories={live} byId={byId} onDone={stopEditing} />
       ) : !wide ? (
         <>
           {attention.length > 0 && <PhoneGroup title="Needs attention" v={v} rows={attention} byId={byId} onSelect={selectLine} isOpen={isOpen} cover />}
@@ -207,7 +230,16 @@ export function Budget() {
             </section>
           )}
           {inSheet.current && (
-            <Sheet open={Boolean(open)} onOpenChange={(o) => !o && setOpen(null)} label={sheetLabel}>
+            <Sheet
+              open={Boolean(open)}
+              onOpenChange={(o) => !o && setOpen(null)}
+              label={sheetLabel}
+              onCloseAutoFocus={(e) => {
+                // Back to the row it came from, which a tap may never have focused.
+                e.preventDefault();
+                focusBack(...rowOf(inSheet.current), '[data-opener="new-line"]');
+              }}
+            >
               {detail}
             </Sheet>
           )}
@@ -372,7 +404,7 @@ function Hero({
               </span>
               <span role="cell">
                 {onAssign && (
-                  <Button variant="ghost" size="sm" onClick={onAssign}>
+                  <Button variant="ghost" size="sm" data-opener="assign" onClick={onAssign}>
                     {v.notAssignedCents < 0 ? "Adjust" : "Assign"}
                   </Button>
                 )}
@@ -478,6 +510,7 @@ function LineTable({
             type="button"
             role="row"
             aria-selected={on}
+            data-line={c.id}
             onClick={() => onSelect(c.id)}
             className={cn(
               "grid min-h-16 w-full cursor-pointer items-center gap-x-4 border-0 border-b border-rule px-5 py-2.5 text-left focus-visible:focus-ring",
@@ -636,6 +669,7 @@ function FundsPanel({
               type="button"
               role="row"
               aria-selected={on}
+              data-line={l.id}
               onClick={() => onSelect(l.id)}
               className={cn(
                 "grid min-h-16 w-full cursor-pointer items-center gap-x-4 border-0 border-b border-rule px-5 py-2.5 text-left focus-visible:focus-ring",
@@ -766,6 +800,7 @@ function Unlimited({
             type="button"
             role="row"
             aria-selected={on}
+            data-category={r.category}
             onClick={() => onSelect(r.category!)}
             className={cn(row, "cursor-pointer focus-visible:focus-ring", on ? "bg-tinta-soft shadow-[inset_3px_0_0_var(--tinta)]" : "bg-paper-raised hover:bg-paper-sunken")}
           >
@@ -1191,7 +1226,7 @@ function LimitEditor({
           {line ? "Save limit" : "Set limit"}
         </Button>
         {line && onEdit && (
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onEdit}>
+          <Button type="button" variant="ghost" size="sm" disabled={busy} data-opener="edit-line" onClick={onEdit}>
             Edit line
           </Button>
         )}
@@ -1412,6 +1447,7 @@ function PhoneGroup({
               key={c.id}
               type="button"
               aria-pressed={isOpen({ line: c.id })}
+              data-line={c.id}
               onClick={() => onSelect(c.id)}
               className="-m-1.5 flex cursor-pointer flex-col gap-1.5 rounded-sm border-0 bg-transparent p-1.5 text-left text-ink focus-visible:focus-ring aria-pressed:bg-tinta-soft"
             >
@@ -1466,6 +1502,7 @@ function PhoneFunds({
               key={l.id}
               type="button"
               aria-pressed={isOpen({ line: l.id })}
+              data-line={l.id}
               onClick={() => onSelect(l.id)}
               className="-mx-1.5 flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-sm border-0 border-b border-rule bg-transparent px-1.5 text-left text-ink last:border-0 focus-visible:focus-ring aria-pressed:bg-tinta-soft"
             >

@@ -37,8 +37,16 @@ export function useBanks(): { banks: Bank[]; loading: boolean; error?: string } 
 
 /** The sidebar's list: each connection's freshness, then its accounts and balances. */
 export function SidebarAccounts() {
-  const { banks } = useBanks();
+  const { banks, error } = useBanks();
   const { path } = useLocation();
+  // A failed load says so in one line, where the list would be.
+  if (error && !banks.some((b) => b.accounts.length))
+    return (
+      <section aria-label="Accounts" className="flex flex-col gap-1 px-2">
+        <span className="type-label text-ink-muted">Accounts</span>
+        <span className="type-caption text-ink-muted">Could not load the accounts: {error}.</span>
+      </section>
+    );
   if (banks.length === 0) return null;
   return (
     <section aria-label="Accounts" className="flex flex-col gap-3 px-2">
