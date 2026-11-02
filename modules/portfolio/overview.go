@@ -39,7 +39,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 	out := OverviewView{
 		InvestedCents: inv.Value.Cents(), BasisCents: inv.Basis.Cents(), BandBp: t.Band.Bps(),
 		Targets:  map[Class]int64{},
-		NetWorth: netWorthView(nw),
+		NetWorth: netWorthView(nw), Pots: potsView(v),
 		Classes:  []ClassView{}, Growth: []GrowthPoint{}, Groups: []GroupView{}, Theses: []ThesisView{},
 	}
 	for c, p := range t.Allocation.Weights() {
@@ -61,7 +61,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 			days = append(days, h.Date)
 		}
 		d.classes[h.Class] = h.Amounts
-		if h.Class != "emergency" {
+		if h.Class != dayPots {
 			d.invested = Amounts{Value: money.BRLCents(d.invested.Value.Cents() + h.Value.Cents()), Basis: money.BRLCents(d.invested.Basis.Cents() + h.Basis.Cents())}
 		}
 	}
@@ -103,7 +103,7 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 	// Each class against its target.
 	counts := map[Class]int{}
 	for _, g := range v.Groups {
-		if g.Amounts.Value.Cents() > g.Emergency.Value.Cents() {
+		if g.Amounts.Value.Cents() > g.Pots.Value.Cents() {
 			counts[g.Group.Class()]++
 		}
 	}
@@ -207,8 +207,7 @@ func groupView(g GroupValue) GroupView {
 	p := g.Holdings[0].Position
 	gv := GroupView{
 		ID: g.Group.ID, Name: p.Name, Institution: p.Institution, Kind: p.Kind, Class: g.Group.Class(), AutoClass: g.Group.AutoClass(),
-		Indexer: p.Indexer, RateBp: p.Rate.Bps(), Reserve: g.Group.Reserve.Mode(), ReserveCents: g.Group.Reserve.Amount().Cents(),
-		EmergencyCents: g.Emergency.Value.Cents(), ShortCents: g.Group.Reserve.Short(g.Amounts.Value).Cents(),
+		Indexer: p.Indexer, RateBp: p.Rate.Bps(), HoldsPots: g.Group.HoldsPots, PotsCents: g.Pots.Value.Cents(),
 		ValueCents: g.Amounts.Value.Cents(), BasisCents: g.Cost().Cents(), Lots: []LotView{},
 	}
 	if !p.Ticker.IsZero() {
@@ -245,10 +244,34 @@ func groupView(g GroupValue) GroupView {
 	return gv
 }
 
+func potsView(v Valuation) PotsView {
+	p := v.Pool
+	out := PotsView{
+		PoolCents: p.Value.Cents(), ClaimCents: Claim(v.Claims).Cents(), SetApartCents: p.SetApart().Cents(),
+		LeftCents: p.Left().Cents(), ShortCents: p.Short().Cents(), Pots: []PotView{},
+	}
+	for _, g := range v.Groups {
+		if g.Group.HoldsPots {
+			out.Groups++
+		}
+	}
+	if out.Groups == 0 {
+		out.LeftCents, out.ShortCents = 0, 0
+	}
+	for _, pot := range v.Claims {
+		pv := PotView{Name: pot.Name, BalanceCents: pot.Balance.Cents()}
+		if pot.Target.IsPositive() {
+			pv.TargetCents = ptr(pot.Target.Cents())
+		}
+		out.Pots = append(out.Pots, pv)
+	}
+	return out
+}
+
 func netWorthView(n NetWorth) NetWorthView {
 	return NetWorthView{
 		Date: day(n.Date), CashCents: n.Cash.Cents(), CardsCents: n.Cards.Cents(), InvestedCents: n.Invested.Cents(),
-		EmergencyCents: n.Emergency.Cents(), OtherCents: n.Other.Cents(), BasisCents: n.Basis.Cents(), TotalCents: n.Total().Cents(),
+		PotsCents: n.Pots.Cents(), OtherCents: n.Other.Cents(), BasisCents: n.Basis.Cents(), TotalCents: n.Total().Cents(),
 	}
 }
 

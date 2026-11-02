@@ -59,13 +59,14 @@ func (id LineID) IsZero() bool   { return id.s == "" }
 // maxLineName is how long a shared line's name may be.
 const maxLineName = 40
 
-// lineName checks a line's name: required when it covers several
-// categories, at most 40 characters, without the spaces around it.
-func lineName(name string, shared bool) (string, error) {
+// lineName checks a line's name: required when it does not cover exactly
+// one category (named for it), at most 40 characters, without the spaces
+// around it.
+func lineName(name string, needed bool) (string, error) {
 	name = strings.TrimSpace(name)
 	switch {
-	case name == "" && shared:
-		return "", fmt.Errorf("%w: a line with several categories needs a name", ErrInvalid)
+	case name == "" && needed:
+		return "", fmt.Errorf("%w: a line with several categories, or a pot with none, needs a name", ErrInvalid)
 	case utf8.RuneCountInString(name) > maxLineName:
 		return "", fmt.Errorf("%w: a line's name is at most %d characters", ErrInvalid, maxLineName)
 	}

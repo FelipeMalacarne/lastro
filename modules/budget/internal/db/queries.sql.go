@@ -49,17 +49,18 @@ func (q *Queries) GetPreferences(ctx context.Context) (bool, error) {
 }
 
 const insertLine = `-- name: InsertLine :exec
-INSERT INTO budget.lines (month, line_id, name, limit_cents, rollover, fund)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO budget.lines (month, line_id, name, limit_cents, rollover, fund, target_cents)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertLineParams struct {
-	Month      time.Time
-	LineID     string
-	Name       *string
-	LimitCents int64
-	Rollover   bool
-	Fund       bool
+	Month       time.Time
+	LineID      string
+	Name        *string
+	LimitCents  int64
+	Rollover    bool
+	Fund        bool
+	TargetCents *int64
 }
 
 func (q *Queries) InsertLine(ctx context.Context, arg InsertLineParams) error {
@@ -70,6 +71,7 @@ func (q *Queries) InsertLine(ctx context.Context, arg InsertLineParams) error {
 		arg.LimitCents,
 		arg.Rollover,
 		arg.Fund,
+		arg.TargetCents,
 	)
 	return err
 }
@@ -151,19 +153,20 @@ func (q *Queries) ListLineCategories(ctx context.Context, until time.Time) ([]Bu
 }
 
 const listLines = `-- name: ListLines :many
-SELECT month, line_id, name, limit_cents, rollover, fund
+SELECT month, line_id, name, limit_cents, rollover, fund, target_cents
 FROM budget.lines
 WHERE month <= $1::date
 ORDER BY month, line_id
 `
 
 type ListLinesRow struct {
-	Month      time.Time
-	LineID     string
-	Name       *string
-	LimitCents int64
-	Rollover   bool
-	Fund       bool
+	Month       time.Time
+	LineID      string
+	Name        *string
+	LimitCents  int64
+	Rollover    bool
+	Fund        bool
+	TargetCents *int64
 }
 
 func (q *Queries) ListLines(ctx context.Context, until time.Time) ([]ListLinesRow, error) {
@@ -182,6 +185,7 @@ func (q *Queries) ListLines(ctx context.Context, until time.Time) ([]ListLinesRo
 			&i.LimitCents,
 			&i.Rollover,
 			&i.Fund,
+			&i.TargetCents,
 		); err != nil {
 			return nil, err
 		}

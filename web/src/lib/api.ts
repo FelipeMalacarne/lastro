@@ -335,10 +335,10 @@ export type MonthSpend = { month: string; spentCents: number };
 /** One of a line's categories: its spending this month and, alone, its six-month average. */
 export type BudgetLinePart = { category: string; spentCents: number; count: number; averageCents: number };
 
-/** A budget line (ADR-0012): one or more categories under one amount, a limit or a fund (ADR-0011). */
+/** A budget line (ADR-0012): one or more categories under one amount, a limit or a pot (ADR-0011, ADR-0014). */
 export type BudgetLine = {
   id: string;
-  /** A shared line's own name; null for a line that goes by its one category's. */
+  /** A shared line's own name, or a pot's without categories; null for a line that goes by its one category's. */
   name: string | null;
   /** Every category the line covers, the most spent first. */
   byCategory: BudgetLinePart[];
@@ -352,6 +352,10 @@ export type BudgetLine = {
   /** A fund carries its balance, debt included: available and left are its balance before and after spending. */
   fund: boolean;
   adjustedCents: number;
+  /** A pot's target, null for none. */
+  targetCents: number | null;
+  /** What of limitCents the line takes this month: less only for a pot near its target. */
+  amountCents: number;
   usedBp: number;
   pace: Pace;
   count: number;
@@ -426,7 +430,8 @@ export type NetWorthPoint = {
   cashCents: number;
   cardsCents: number;
   investedCents: number;
-  emergencyCents: number;
+  /** Set apart for the pots (ADR-0014). */
+  potsCents: number;
   /** Assets outside Open Finance, typed in. */
   otherCents: number;
   basisCents: number;
@@ -445,8 +450,6 @@ export type Lot = {
   priced: boolean;
 };
 
-export type Reserve = "none" | "amount" | "all";
-
 /** A product held, in one or more lots (each Nubank Caixinha contribution is a CDB of its own). */
 export type PositionGroup = {
   id: string;
@@ -458,12 +461,9 @@ export type PositionGroup = {
   autoClass: AssetClass;
   indexer: "" | "CDI" | "SELIC" | "IPCA" | "PRE";
   rateBp: number;
-  /** How much of it is the emergency fund: none, reserveCents, or all of it. */
-  reserve: Reserve;
-  reserveCents: number;
-  /** What of it is the emergency fund today, and what it lacks to cover reserveCents. */
-  emergencyCents: number;
-  shortCents: number;
+  /** Whether it is in the pool that holds the pots, and what of it is set apart for them today. */
+  holdsPots: boolean;
+  potsCents: number;
   valueCents: number;
   basisCents: number;
   returnBp: number | null;
@@ -512,6 +512,7 @@ export type PortfolioOverview = {
   growth: { date: string; valueCents: number; basisCents: number }[];
   benchmarks: { from: string | null; cdiBp: number | null; ipcaBp: number | null; cdiUntil: string | null; ipcaUntil: string | null };
   groups: PositionGroup[];
+  pots: Pots;
   theses: Thesis[];
 };
 
@@ -549,4 +550,18 @@ export type MarketIndices = {
   CDI: { last12mBp: number; last: string | null; latestBp: number };
   IPCA: { last12mBp: number; last: string | null; latestBp: number };
   bonds: { title: string; name: string; maturity: string; date: string; buyRateBp: number; priceCents: number }[];
+};
+
+/** The pool that holds the pots against what they claim (ADR-0014); see modules/portfolio/views.go. */
+export type Pots = {
+  poolCents: number;
+  /** The pots' positive balances. */
+  claimCents: number;
+  setApartCents: number;
+  /** Counted in the pool's classes. */
+  leftCents: number;
+  shortCents: number;
+  /** Groups in the pool; with none, nothing is set apart. */
+  groups: number;
+  pots: { name: string; balanceCents: number; targetCents: number | null }[];
 };

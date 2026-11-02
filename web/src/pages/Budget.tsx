@@ -14,8 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetActions } from "@/components/ui/sheet";
-import { send, useResource, type BudgetLine, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type NoteColor, type TransactionList } from "@/lib/api";
-import { isShared, lineBody, lineColors, lineName, monthName, restore, saveLine, snapshot, type LineBody } from "@/lib/budget";
+import { send, useResource, type BudgetLine, type BudgetMonth, type BudgetSpend, type Category, type MonthSpend, type NoteColor, type Pots, type TransactionList } from "@/lib/api";
+import { isBare, isShared, lineBody, lineColors, lineName, monthName, restore, saveLine, snapshot, type LineBody } from "@/lib/budget";
 import { useCategories } from "@/lib/categories";
 import { focusBack } from "@/lib/focus";
 import { addMonths, formatBRL, formatDay, formatMonth, inputBRL, parseBRL, titleCase } from "@/lib/format";
@@ -112,7 +112,7 @@ export function Budget() {
   const caption = [
     isCurrent ? `Day ${v.days - v.daysLeft + 1} of ${v.days} · ${v.daysLeft} ${v.daysLeft === 1 ? "day" : "days"} left, today included` : `${formatMonth(v.month)} is over`,
     rolls.length ? `${rolls.length} ${rolls.length === 1 ? "line rolls" : "lines roll"} over` : null,
-    funds.length ? `${funds.length} ${funds.length === 1 ? "fund" : "funds"}` : null,
+    funds.length ? `${funds.length} ${funds.length === 1 ? "pot" : "pots"}` : null,
     v.hasBudget && !v.saved && v.from ? `lines as set in ${formatMonth(v.from)}` : null,
   ]
     .filter(Boolean)
@@ -223,7 +223,7 @@ export function Budget() {
           {limits.length > attention.length && (
             <PhoneGroup title={isCurrent ? "On pace" : "Within the limit"} v={v} rows={limits.filter((l) => l.pace === "on_pace")} byId={byId} onSelect={selectLine} isOpen={isOpen} />
           )}
-          {funds.length > 0 && <PhoneFunds v={v} rows={funds} byId={byId} onSelect={selectLine} isOpen={isOpen} />}
+          {funds.length > 0 && <PhoneFunds v={v} rows={funds} byId={byId} onSelect={selectLine} isOpen={isOpen} isCurrent={isCurrent} />}
           {v.unlimited.length > 0 && (
             <section className="overflow-hidden rounded-md border border-rule bg-paper-raised pt-4">
               <Unlimited v={v} rows={v.unlimited} byId={byId} isOpen={isOpen} onSelect={selectCategory} className="-mb-px" />
@@ -273,7 +273,7 @@ export function Budget() {
               <LineTable v={v} rows={shown} byId={byId} isOpen={isOpen} onSelect={selectLine} gone={v.elapsedBp / 100} total={filter === "all"} />
               {filter === "all" && v.unlimited.length > 0 && <Unlimited v={v} rows={v.unlimited} byId={byId} isOpen={isOpen} onSelect={selectCategory} />}
             </Panel>
-            {funds.length > 0 && <FundsPanel v={v} rows={funds} byId={byId} isOpen={isOpen} onSelect={selectLine} />}
+            {funds.length > 0 && <FundsPanel v={v} rows={funds} byId={byId} isOpen={isOpen} onSelect={selectLine} isCurrent={isCurrent} />}
           </div>
 
           <aside aria-label="Details" className="flex min-w-0 flex-[1_1_340px] flex-col gap-4 lg:sticky lg:top-6 lg:max-w-[420px]">
@@ -318,7 +318,7 @@ function Hero({
   else if (fixed > 0 && variableUsed <= gone + 10)
     pace = `Ahead of the calendar only because ${formatBRL(fixed)} in fixed charges were already paid. Without them you are on pace.`;
   else pace = `Ahead of pace: ${used}% of the limits are used with ${gone}% of the month gone.`;
-  if (funds.length) pace = <>{pace} The funds are apart.</>;
+  if (funds.length) pace = <>{pace} The pots are apart.</>;
 
   return (
     <Panel className="lg:p-6">
@@ -391,7 +391,7 @@ function Hero({
               <Amount cents={-(v.limitsCents - v.funds.amountCents)} />
             </MoneyRow>
             {funds.length > 0 && (
-              <MoneyRow label="Into the funds" hint={`${funds.map((f) => lineName(f, byId)).join(" and ")}, kept invested`}>
+              <MoneyRow label="Into the pots" hint={`${funds.map((f) => lineName(f, byId)).join(", ")}, kept invested`}>
                 <Amount cents={-v.funds.amountCents} />
               </MoneyRow>
             )}
@@ -444,6 +444,14 @@ function status(c: BudgetLine): { text: string; tone: string; icon?: typeof Circ
 
 /** A line's name: a shared line's swatches and name, or its one category's tag. */
 function LineName({ l, byId }: { l: BudgetLine; byId: Map<string, Category> }) {
+  if (isBare(l)) {
+    return (
+      <span className="inline-flex min-w-0 items-center gap-2 text-[14px] leading-5 font-semibold">
+        <PiggyBank className="size-3.5 flex-none text-ink-muted" aria-hidden />
+        <span className="truncate">{lineName(l, byId)}</span>
+      </span>
+    );
+  }
   if (!isShared(l)) {
     const cat = byId.get(l.byCategory[0]?.category ?? "");
     return <CategoryTag name={cat?.name ?? "Archived"} color={cat?.color} />;
@@ -610,43 +618,46 @@ function PaceBar({
   );
 }
 
-/** The funds (ADR-0011): what each brought, put in this month, paid, and its balance. */
+/** The pots (ADR-0011, ADR-0014): what each brought, put in this month, paid, and its balance; this month, the pool they are kept in. */
 function FundsPanel({
   v,
   rows,
   byId,
   isOpen,
   onSelect,
+  isCurrent,
 }: {
   v: BudgetMonth;
   rows: BudgetLine[];
   byId: Map<string, Category>;
   isOpen: (o: Open) => boolean;
   onSelect: (id: string) => void;
+  isCurrent: boolean;
 }) {
   const f = v.funds;
+  const claimed = rows.reduce((s, l) => s + Math.max(l.leftCents, 0), 0);
   const fcols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1.3fr)_96px_104px_96px_112px]";
   return (
     <Panel
       bodyClassName="-mx-5"
-      footer="A fund saves its amount up month by month, kept invested, and carries its balance, debt included: what goes past it is paid back by the months after. Its spending comes in lumps, so it has no pace. Kept is the amounts minus the spending; pay yourself first leaves it out."
+      footer="A pot saves its amount up month by month and carries its balance, debt included: what goes past it is paid back by the months after. With a target it takes only what it lacks, and asks again when spending brings it below. Its spending comes in lumps, so it has no pace. Kept is the amounts minus the spending; pay yourself first leaves it out. Pots are kept invested in the pool; the Portfolio sets what they claim apart from it."
     >
       <div className="flex flex-wrap items-end justify-between gap-3 px-5 pb-3">
         <div className="flex flex-col gap-0.5">
           <h2 className="m-0 flex items-center gap-2 type-heading">
             <PiggyBank className="size-4 text-ink-muted" aria-hidden />
-            Funds
+            Pots
           </h2>
-          <span className="type-caption text-ink-muted">Kept invested, apart from what is left to spend</span>
+          <span className="type-caption text-ink-muted">Money set apart, kept invested, apart from what is left to spend</span>
         </div>
         <span className="flex flex-col items-end">
-          <Amount cents={f.balanceCents} size="lg" sign="negative" tone={f.balanceCents < 0 ? "warning" : "ink"} />
-          <span className="type-caption text-ink-muted">saved, {rows.length === 1 ? "in the one fund" : `the ${rows.length} funds together`}</span>
+          <Amount cents={claimed} size="lg" sign="none" />
+          <span className="type-caption text-ink-muted">claimed by {rows.length === 1 ? "the one pot" : `the ${rows.length} pots`}</span>
         </span>
       </div>
-      <div role="table" aria-label={`Funds in ${formatMonth(v.month)}`}>
+      <div role="table" aria-label={`Pots in ${formatMonth(v.month)}`}>
         <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", fcols)}>
-          <span role="columnheader">Fund</span>
+          <span role="columnheader">Pot</span>
           <span role="columnheader" className="hidden text-right sm:block">
             Brought
           </span>
@@ -680,6 +691,7 @@ function FundsPanel({
               <span role="cell" className="flex min-w-0 flex-col gap-1">
                 <LineName l={l} byId={byId} />
                 {isShared(l) && <span className="truncate type-caption text-ink-muted">{members(l, byId)}</span>}
+                {l.targetCents !== null && <TargetBar l={l} name={lineName(l, byId)} />}
                 <span className={cn("inline-flex items-center gap-1 type-caption", red ? "font-semibold text-warning" : "text-ink-muted")}>
                   {red && <TriangleAlert className="size-3.5" aria-hidden />}
                   {fundStatus(l, v.month)}
@@ -689,7 +701,7 @@ function FundsPanel({
                 <Amount cents={l.carriedCents} tone="muted" />
               </span>
               <span role="cell" className="hidden text-right sm:block">
-                <Amount cents={l.limitCents + l.adjustedCents} sign="always" tone="ink" />
+                <Amount cents={l.amountCents + l.adjustedCents} sign="always" tone="ink" />
               </span>
               <span role="cell" className="hidden text-right sm:block">
                 <Amount cents={l.spentCents} sign="none" />
@@ -721,19 +733,78 @@ function FundsPanel({
             <Amount cents={f.balanceCents} tone={f.balanceCents < 0 ? "warning" : "ink"} />
           </span>
         </div>
+        {isCurrent && <PoolLine />}
       </div>
     </Panel>
   );
 }
 
-/** How a fund stands, in a few words. */
+/** A pot's share of its target, as a thin bar under its name. */
+function TargetBar({ l, name }: { l: BudgetLine; name: string }) {
+  const pct = l.targetCents ? Math.max(0, Math.min(100, Math.round((l.leftCents * 100) / l.targetCents))) : 0;
+  return (
+    <span
+      role="meter"
+      aria-label={`${name}: ${pct}% of its target`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+      className="relative block h-1.5 max-w-[240px] rounded-xs bg-paper-sunken shadow-[inset_0_0_0_1px_var(--rule)]"
+    >
+      <span className="absolute inset-y-0 left-0 rounded-xs bg-tinta" style={{ width: `${pct}%` }} />
+    </span>
+  );
+}
+
+/** What the pool that keeps the pots holds against what they claim, today (ADR-0014). */
+function PoolLine() {
+  const { data: p } = useResource<Pots>("/api/v1/pots");
+  if (!p || p.claimCents === 0) return null;
+  return (
+    <div role="row" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 bg-paper-sunken px-5 py-3 text-[14px] leading-5">
+      <span role="cell" className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        {p.groups === 0 ? (
+          <span>
+            The pots claim <strong className="font-figure font-medium">{formatBRL(p.claimCents)}</strong>, and no investment is marked as holding them. Mark the group on Portfolio.
+          </span>
+        ) : (
+          <>
+            <span>
+              <strong className="font-semibold">The pool</strong> holds <strong className="font-figure font-medium">{formatBRL(p.poolCents)}</strong>
+            </span>
+            <span>
+              · the pots claim <strong className="font-figure font-medium">{formatBRL(p.claimCents)}</strong>
+            </span>
+            {p.shortCents > 0 ? (
+              <span className="inline-flex items-center gap-1 font-semibold text-warning">
+                <TriangleAlert className="size-3.5" aria-hidden /> {formatBRL(p.shortCents)} short
+              </span>
+            ) : (
+              <span className="text-ink-muted">· {formatBRL(p.leftCents)} left over, counted in its class</span>
+            )}
+          </>
+        )}
+      </span>
+      <Link role="cell" to="/portfolio" className="font-semibold">
+        {p.groups === 0 ? "Open Portfolio" : "See it on Portfolio"}
+      </Link>
+    </div>
+  );
+}
+
+/** How a pot stands, in a few words. */
 function fundStatus(l: BudgetLine, month: string): string {
   if (l.leftCents < 0) {
     if (l.limitCents <= 0) return "In the red";
     return `In the red · back above zero in ${monthName(addMonths(month, Math.ceil(-l.leftCents / l.limitCents)))}`;
   }
+  const bare = l.byCategory.length === 0 ? " · no categories" : "";
+  if (l.targetCents) {
+    if (l.leftCents >= l.targetCents) return `Reached ${formatBRL(l.targetCents)}${bare}`;
+    return `${Math.round((l.leftCents * 100) / l.targetCents)}% of ${formatBRL(l.targetCents)}${bare}`;
+  }
   if (l.spentCents > 0) return `Paid ${formatBRL(l.spentCents)} this month`;
-  return "Saving up";
+  return `Saving up${bare}`;
 }
 
 /** Spending in categories no line covers, and what still waits for a category. */
@@ -1324,7 +1395,7 @@ function PhoneHero({ v, limits, isCurrent, byId }: { v: BudgetMonth; limits: Bud
   const gone = v.days - v.daysLeft + 1;
   const legend: { label: string; cents: number; swatch: ReactNode }[] = [
     { label: "Pay yourself first", cents: pyf, swatch: <span className="size-2.5 rounded-xs bg-ink" /> },
-    ...(funds > 0 ? [{ label: "Into the funds", cents: funds, swatch: <span className="size-2.5 rounded-xs bg-rule-strong" /> }] : []),
+    ...(funds > 0 ? [{ label: "Into the pots", cents: funds, swatch: <span className="size-2.5 rounded-xs bg-rule-strong" /> }] : []),
     {
       label: "Spent",
       cents: v.spentCents,
@@ -1354,7 +1425,7 @@ function PhoneHero({ v, limits, isCurrent, byId }: { v: BudgetMonth; limits: Bud
         {total > 0 && (
           <div
             role="img"
-            aria-label={`Of ${formatBRL(total)}: pay yourself first ${formatBRL(pyf)},${funds > 0 ? ` into the funds ${formatBRL(funds)},` : ""} spent ${formatBRL(v.spentCents)}, left in limits ${formatBRL(inLimits)}, not assigned ${formatBRL(spare)}.`}
+            aria-label={`Of ${formatBRL(total)}: pay yourself first ${formatBRL(pyf)},${funds > 0 ? ` into the pots ${formatBRL(funds)},` : ""} spent ${formatBRL(v.spentCents)}, left in limits ${formatBRL(inLimits)}, not assigned ${formatBRL(spare)}.`}
             className="flex h-4 gap-0.5"
           >
             {pyf > 0 && <span className="min-w-0 rounded-xs bg-ink" style={{ flex: `${pyf} 1 0` }} />}
@@ -1485,22 +1556,24 @@ function PhoneGroup({
   );
 }
 
-/** The funds on a phone: each with its balance; tapping one opens it in the sheet (canvas: "Budget, phone: a fund in a sheet"). */
+/** The pots on a phone: each with its balance, and this month the pool; tapping one opens it in the sheet (canvas: "Budget, phone: a fund in a sheet"). */
 function PhoneFunds({
   v,
   rows,
   byId,
   onSelect,
   isOpen,
+  isCurrent,
 }: {
   v: BudgetMonth;
   rows: BudgetLine[];
   byId: Map<string, Category>;
   onSelect: (id: string) => void;
   isOpen: (o: Open) => boolean;
+  isCurrent: boolean;
 }) {
   return (
-    <Panel title={`Funds · ${rows.length}`} footer={`${formatBRL(v.funds.balanceCents)} saved, kept invested and apart from what is left to spend.`}>
+    <Panel title={`Pots · ${rows.length}`} footer={`${formatBRL(v.funds.balanceCents)} saved, kept invested and apart from what is left to spend.`}>
       <div className="flex flex-col">
         {rows.map((l) => {
           const red = l.leftCents < 0;
@@ -1515,6 +1588,7 @@ function PhoneFunds({
             >
               <span className="flex min-w-0 flex-col gap-0.5">
                 <LineName l={l} byId={byId} />
+                {l.targetCents !== null && <TargetBar l={l} name={lineName(l, byId)} />}
                 <span className={cn("inline-flex items-center gap-1 type-caption", red ? "font-semibold text-warning" : "text-ink-muted")}>
                   {red && <TriangleAlert className="size-3.5" aria-hidden />}
                   {red ? "In the red" : fundStatus(l, v.month)}
@@ -1525,6 +1599,11 @@ function PhoneFunds({
           );
         })}
       </div>
+      {isCurrent && (
+        <div className="-mx-5 mt-2">
+          <PoolLine />
+        </div>
+      )}
     </Panel>
   );
 }
@@ -1534,10 +1613,14 @@ type Row = { key: string; line?: BudgetLine; category?: Category; label: ReactNo
 /** Every line at once: what each gets, whether a limit rolls over, and what is left unassigned. A shared line is one row; a category on its own, another. */
 function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categories: Category[]; byId: Map<string, Category>; onDone: () => void }) {
   const [rows] = useState<Row[]>(() => {
+    // A shared line, or a pot without categories, is a row of its own; a category on its own, another.
+    const named = (l: BudgetLine) => isShared(l) || isBare(l);
     const inShared = new Set(v.lines.filter(isShared).flatMap((l) => l.byCategory.map((p) => p.category)));
-    const own = new Map(v.lines.filter((l) => !isShared(l)).map((l) => [l.byCategory[0].category, l]));
+    const own = new Map(v.lines.filter((l) => !named(l)).map((l) => [l.byCategory[0].category, l]));
     const avg = new Map<string, number>(v.unlimited.filter((u) => u.category).map((u) => [u.category!, u.averageCents]));
-    const lines: Row[] = v.lines.filter(isShared).map((l) => ({ key: l.id, line: l, label: lineName(l, byId), hint: members(l, byId), average: l.averageCents }));
+    const lines: Row[] = v.lines
+      .filter(named)
+      .map((l) => ({ key: l.id, line: l, label: lineName(l, byId), hint: isBare(l) ? "No categories" : members(l, byId), average: l.averageCents }));
     const singles: Row[] = categories
       .filter((c) => c.budgeted && !inShared.has(c.id))
       .map((c) => {
@@ -1554,7 +1637,12 @@ function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categor
   const cents = (key: string) => (vals[key].text.trim() ? parseBRL(vals[key].text) : null);
   const name = (r: Row) => (r.line ? lineName(r.line, byId) : (r.category?.name ?? ""));
   const bad = rows.filter((r) => vals[r.key].text.trim() && cents(r.key) === null);
-  const total = rows.reduce((s, r) => s + (cents(r.key) ?? 0), 0);
+  // A pot near its target takes only what it lacks, as Not assigned counts it.
+  const takes = (r: Row) => {
+    const c = cents(r.key) ?? 0;
+    return r.line && c === r.line.limitCents ? r.line.amountCents : c;
+  };
+  const total = rows.reduce((s, r) => s + takes(r), 0);
   const spare = v.notAssignedCents + v.limitsCents - total;
   const set = (key: string, p: Partial<{ text: string; rollover: boolean }>) => setVals((x) => ({ ...x, [key]: { ...x[key], ...p } }));
   const grid = "grid-cols-[minmax(0,1fr)_128px_44px] sm:grid-cols-[minmax(0,1fr)_110px_150px_96px]";
@@ -1595,7 +1683,7 @@ function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categor
           </span>
         }
         bodyClassName="-mx-5"
-        footer={`From ${monthName(v.month)} on; earlier months keep theirs. An empty limit removes it; a shared line's categories and a fund change in the line's editor. ${v.incomeCents ? `${formatBRL(v.incomeCents)} came in, ${formatBRL(v.payYourselfFirst.plannedCents)} of it set aside first.` : ""}`}
+        footer={`From ${monthName(v.month)} on; earlier months keep theirs. An empty limit removes it; a shared line's categories and a pot change in the line's editor. ${v.incomeCents ? `${formatBRL(v.incomeCents)} came in, ${formatBRL(v.payYourselfFirst.plannedCents)} of it set aside first.` : ""}`}
       >
         <div role="table" aria-label="Limits">
           <div role="row" className={cn("grid h-8 items-center gap-x-3 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", grid)}>
@@ -1619,10 +1707,10 @@ function LimitsEditor({ v, categories, byId, onDone }: { v: BudgetMonth; categor
               <div role="row" key={r.key} className={cn("grid min-h-14 items-center gap-x-3 border-b border-rule px-5 py-1.5", grid)}>
                 <span role="cell" className="flex min-w-0 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    {r.line && isShared(r.line) ? <LineName l={r.line} byId={byId} /> : <CategoryTag name={r.category?.name ?? name(r)} color={r.category?.color} />}
+                    {r.line && (isShared(r.line) || isBare(r.line)) ? <LineName l={r.line} byId={byId} /> : <CategoryTag name={r.category?.name ?? name(r)} color={r.category?.color} />}
                     {fund && (
                       <Badge icon={PiggyBank} className="flex-none">
-                        Fund
+                        Pot
                       </Badge>
                     )}
                   </span>

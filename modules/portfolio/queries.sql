@@ -14,12 +14,12 @@ ON CONFLICT (external_id) DO UPDATE SET
     updated_at = excluded.updated_at, realized_cents = excluded.realized_cents;
 
 -- name: ListPositionGroups :many
-SELECT id, class_override, reserve, reserve_cents FROM portfolio.position_groups;
+SELECT id, class_override, holds_pots FROM portfolio.position_groups;
 
 -- name: SavePositionGroup :exec
-INSERT INTO portfolio.position_groups (id, class_override, reserve, reserve_cents, updated_at) VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE SET class_override = excluded.class_override, reserve = excluded.reserve,
-    reserve_cents = excluded.reserve_cents, updated_at = excluded.updated_at;
+INSERT INTO portfolio.position_groups (id, class_override, holds_pots, updated_at) VALUES ($1, $2, $3, $4)
+ON CONFLICT (id) DO UPDATE SET class_override = excluded.class_override, holds_pots = excluded.holds_pots,
+    updated_at = excluded.updated_at;
 
 -- name: GetSettings :one
 SELECT targets, band_bps FROM portfolio.settings WHERE id = 1;
@@ -40,14 +40,14 @@ SELECT date, class, value_cents, basis_cents FROM portfolio.valuations
 WHERE date >= sqlc.arg(date_from)::date ORDER BY date, class;
 
 -- name: SaveNetWorth :exec
-INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, emergency_cents, other_cents, basis_cents, updated_at)
+INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, pots_cents, other_cents, basis_cents, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (date) DO UPDATE SET cash_cents = excluded.cash_cents, cards_cents = excluded.cards_cents,
-    invested_cents = excluded.invested_cents, emergency_cents = excluded.emergency_cents,
+    invested_cents = excluded.invested_cents, pots_cents = excluded.pots_cents,
     other_cents = excluded.other_cents, basis_cents = excluded.basis_cents, updated_at = excluded.updated_at;
 
 -- name: ListNetWorth :many
-SELECT date, cash_cents, cards_cents, invested_cents, emergency_cents, other_cents, basis_cents FROM portfolio.net_worth
+SELECT date, cash_cents, cards_cents, invested_cents, pots_cents, other_cents, basis_cents FROM portfolio.net_worth
 WHERE date >= sqlc.arg(date_from)::date ORDER BY date;
 
 -- name: ListTheses :many

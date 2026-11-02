@@ -682,6 +682,62 @@ func TestFundRoutes(t *testing.T) {
 	}
 }
 
+// A pot without categories, with a target, saves and comes back (ADR-0014):
+// through the API, in the month's view and in Pots, which the portfolio
+// reads.
+func TestPotRoutes(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	mux := http.NewServeMux()
+	w.budget.RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec
+	}
+	rec := do(http.MethodPost, "/api/v1/budget/2026-10/lines", `{"name": "Emergency fund", "categories": [], "limitCents": 50000, "fund": true, "targetCents": 1500000}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST a pot: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct{ ID string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/lines/"+out.ID+"/adjustment", `{"amountCents": 1480000}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT its starting balance: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPost, "/api/v1/budget/2026-10/lines", `{"name": "Nothing", "limitCents": 100}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("a limit without categories: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPut, "/api/v1/budget/2026-10/limits/"+w.cats["Groceries"].String(), `{"limitCents": 80000, "rollover": false}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT a limit: %d %s", rec.Code, rec.Body.String())
+	}
+
+	v, err := w.budget.Month(ctx, month(t, "2026-10"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pot *LineView
+	for i, l := range v.Lines {
+		if l.ID == out.ID {
+			pot = &v.Lines[i]
+		}
+	}
+	if pot == nil || !pot.Fund || pot.Name == nil || *pot.Name != "Emergency fund" || pot.TargetCents == nil || *pot.TargetCents != 1500000 ||
+		pot.AmountCents != 20000 || pot.LeftCents != 1500000 || len(pot.ByCategory) != 0 {
+		t.Fatalf("the pot takes only the R$ 200 it lacks: %+v", pot)
+	}
+	if v.LimitsCents != 80000+20000 {
+		t.Errorf("Not assigned leaves out what the pot does not take: limits %d", v.LimitsCents)
+	}
+	pots, err := w.budget.Pots(ctx, month(t, "2026-11"))
+	if err != nil || len(pots) != 1 || pots[0].Name != "Emergency fund" || pots[0].Balance.Cents() != 1500000 || pots[0].Target.Cents() != 1500000 {
+		t.Errorf("November's pots: %+v %v", pots, err)
+	}
+	// Copying October keeps the pot, though it has no category to copy.
+	if n, err := w.budget.CopyLimits(ctx, month(t, "2026-12"), month(t, "2026-10")); err != nil || n != 2 {
+		t.Errorf("copied %d lines: %v", n, err)
+	}
+}
+
 // addsUp checks that a month's lines, funds included, and the spending
 // without a limit add up to its spending, so nothing spent goes missing:
 // the monthly report lists them all.

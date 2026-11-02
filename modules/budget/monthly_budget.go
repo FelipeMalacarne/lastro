@@ -13,9 +13,12 @@ import (
 
 // Line is one amount for one or more categories (ADR-0012), and what kind
 // of amount it is (ADR-0011): a limit, of which what is left may roll over
-// to the next month, or a fund's monthly amount, which saves up. A line
-// with one category goes by its category's name; a line shared by several
-// has a name of its own.
+// to the next month, or a fund's monthly amount, which saves up. A fund is
+// a pot (ADR-0014): it may cover no category at all, money that leaves only
+// through an adjustment (the emergency fund, a goal), and it may have a
+// target, past which it takes no monthly amount. A line with one category
+// goes by its category's name; a line shared by several, or a pot with
+// none, has a name of its own.
 type Line struct {
 	ID         LineID
 	Name       string
@@ -23,6 +26,7 @@ type Line struct {
 	Limit      money.Money         // a fund's monthly amount
 	Rollover   bool                // a limit's; a fund always carries its balance
 	Kind       Kind
+	Target     money.Money // a fund's, zero for none
 }
 
 // Kind is what a line's amount is. A line given without one keeps the kind
@@ -36,6 +40,19 @@ const (
 
 // Shared reports whether the line covers more than one category.
 func (l Line) Shared() bool { return len(l.Categories) > 1 }
+
+// HasTarget reports whether the line is a fund with a target.
+func (l Line) HasTarget() bool { return l.IsFund() && l.Target.IsPositive() }
+
+// takes is what of its monthly amount a line takes in a month it brings
+// brought into (what it carried plus its adjustment): a limit or a fund
+// without a target all of it, a fund with one only what it lacks of it.
+func (l Line) takes(brought int64) int64 {
+	if !l.HasTarget() {
+		return l.Limit.Cents()
+	}
+	return min(l.Limit.Cents(), max(l.Target.Cents()-brought, 0))
+}
 
 // IsFund reports whether the line is a fund, which carries its balance,
 // debt included, instead of a limit.
@@ -216,6 +233,9 @@ func (b *MonthlyBudget) put(l Line, now time.Time) error {
 	}
 	had, ok := b.lines[l.ID]
 	l = l.as(had, ok)
+	if err := settled(l); err != nil {
+		return err
+	}
 	if l.Name != "" {
 		for _, o := range b.lines {
 			if o.ID != l.ID && strings.EqualFold(o.Name, l.Name) {
@@ -227,10 +247,13 @@ func (b *MonthlyBudget) put(l Line, now time.Time) error {
 		if id == l.ID {
 			continue
 		}
+		n := len(o.Categories)
 		o.Categories = slices.DeleteFunc(o.Categories, l.Covers)
-		if len(o.Categories) == 0 {
-			delete(b.lines, id)
-		} else {
+		switch {
+		case len(o.Categories) == n:
+		case len(o.Categories) == 0:
+			delete(b.lines, id) // a pot that never had a category stays
+		default:
 			b.lines[id] = o
 		}
 	}
@@ -335,6 +358,9 @@ func (b *MonthlyBudget) SetLimits(lines []Line, now time.Time) error {
 		}
 		had, ok := b.lines[l.ID]
 		l = l.as(had, ok)
+		if err := settled(l); err != nil {
+			return err
+		}
 		if _, dup := next[l.ID]; dup {
 			return fmt.Errorf("%w: two lines with one id", ErrInvalid)
 		}
@@ -388,9 +414,10 @@ func (b *MonthlyBudget) newID(cats []ledger.CategoryID, taken func(LineID) bool)
 }
 
 // idOf is the id of the line that covers exactly these categories, given
-// in id order; none in a nil budget.
+// in id order; none in a nil budget, and none for no category, which says
+// nothing about which pot is meant.
 func (b *MonthlyBudget) idOf(cats []ledger.CategoryID) (LineID, bool) {
-	if b == nil {
+	if b == nil || len(cats) == 0 {
 		return LineID{}, false
 	}
 	for id, l := range b.lines {
@@ -401,15 +428,21 @@ func (b *MonthlyBudget) idOf(cats []ledger.CategoryID) (LineID, bool) {
 	return LineID{}, false
 }
 
-// checked is a line that keeps the rules: at least one category, each
-// once, a name when it covers several, a known kind and a limit in reais,
-// never negative.
+// checked is a line that keeps the rules its kind does not change: each
+// category once, a name when it covers several or none, a known kind, a
+// limit in reais, never negative, and a target in reais, positive. Once
+// its kind is settled, settled checks the rest.
 func checked(l Line) (Line, error) {
-	if len(l.Categories) == 0 {
-		return Line{}, fmt.Errorf("%w: limit without a category", ErrInvalid)
-	}
 	if l.Kind != "" && l.Kind != KindLimit && l.Kind != KindFund {
 		return Line{}, fmt.Errorf("%w: a line is a limit or a fund, not %q", ErrInvalid, l.Kind)
+	}
+	if !l.Target.IsZero() {
+		switch {
+		case l.Target.Currency() != money.BRL:
+			return Line{}, fmt.Errorf("%w: target in %s, want BRL", ErrInvalid, l.Target.Currency())
+		case !l.Target.IsPositive():
+			return Line{}, fmt.Errorf("%w: a target is more than zero", ErrInvalid)
+		}
 	}
 	l = l.clone()
 	slices.SortFunc(l.Categories, byID)
@@ -421,7 +454,7 @@ func checked(l Line) (Line, error) {
 			return Line{}, fmt.Errorf("%w: a category twice in one line", ErrInvalid)
 		}
 	}
-	name, err := lineName(l.Name, l.Shared())
+	name, err := lineName(l.Name, len(l.Categories) != 1)
 	if err != nil {
 		return Line{}, err
 	}
@@ -430,6 +463,20 @@ func checked(l Line) (Line, error) {
 		return Line{}, err
 	}
 	return l, nil
+}
+
+// settled checks what depends on a line's kind, once it is settled: a
+// limit covers at least one category and has no target.
+func settled(l Line) error {
+	switch {
+	case l.IsFund():
+		return nil
+	case len(l.Categories) == 0:
+		return fmt.Errorf("%w: limit without a category", ErrInvalid)
+	case !l.Target.IsZero():
+		return fmt.Errorf("%w: only a fund has a target", ErrInvalid)
+	}
+	return nil
 }
 
 func byID(a, b ledger.CategoryID) int { return strings.Compare(a.String(), b.String()) }

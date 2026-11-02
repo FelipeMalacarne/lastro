@@ -83,11 +83,11 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
 	series, quotes, bonds := market.Sources(cfg.BrapiToken)
 	a.Market = market.New(market.NewRepository(pool), series, quotes, bonds, logger)
-	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market)
-	a.Planning = planning.New(a.Portfolio)
-	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Portfolio, a.Bus, logger)
 	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, a.Bus, logger)
 	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
+	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market, budgetPots{a.Budget})
+	a.Planning = planning.New(a.Portfolio)
+	a.Ingest = ingest.New(ingest.NewRepository(pool), cfg.Pluggy, a.Ledger, a.Portfolio, a.Bus, logger)
 
 	// The rules categorize each import as it commits. After every sync they
 	// also reach whatever is still without a category: transactions imported

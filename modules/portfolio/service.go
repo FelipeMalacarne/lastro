@@ -15,15 +15,22 @@ import (
 
 var saoPaulo, _ = time.LoadLocation("America/Sao_Paulo")
 
+// PotSource is where the pots come from: Budget's, which app hands in
+// (ADR-0014). Their balances are as the day's month stands.
+type PotSource interface {
+	Pots(ctx context.Context, day time.Time) ([]Pot, error)
+}
+
 type Service struct {
 	repo   *PostgresRepository
 	ledger *ledger.Service
 	market *market.Service
+	pots   PotSource
 	now    func() time.Time
 }
 
-func New(repo *PostgresRepository, l *ledger.Service, m *market.Service) *Service {
-	return &Service{repo: repo, ledger: l, market: m, now: time.Now}
+func New(repo *PostgresRepository, l *ledger.Service, m *market.Service, pots PotSource) *Service {
+	return &Service{repo: repo, ledger: l, market: m, pots: pots, now: time.Now}
 }
 
 // Today is the date in São Paulo.
@@ -124,7 +131,16 @@ func (s *Service) Tickers(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// value values the open positions today, at the latest quotes.
+// potsOn are the pots on a day; none without a source.
+func (s *Service) potsOn(ctx context.Context, day time.Time) ([]Pot, error) {
+	if s.pots == nil {
+		return nil, nil
+	}
+	return s.pots.Pots(ctx, day)
+}
+
+// value values the open positions on a day, at the latest quotes, with the
+// pots' claim set apart from the pool.
 func (s *Service) value(ctx context.Context, day time.Time) (Valuation, []*Position, error) {
 	ps, err := s.repo.positions(ctx)
 	if err != nil {
@@ -148,7 +164,22 @@ func (s *Service) value(ctx context.Context, day time.Time) (Valuation, []*Posit
 	for t, q := range qs {
 		prices[t] = Price{Date: q.Date, Price: q.Close}
 	}
-	return Value(GroupPositions(ps, settings), prices, day), ps, nil
+	pots, err := s.potsOn(ctx, day)
+	if err != nil {
+		return Valuation{}, nil, err
+	}
+	v := Value(GroupPositions(ps, settings), prices, day, Claim(pots))
+	v.Claims = pots
+	return v, ps, nil
+}
+
+// Pots is the pool that holds the pots against what they claim, today.
+func (s *Service) Pots(ctx context.Context) (PotsView, error) {
+	v, _, err := s.value(ctx, s.Today())
+	if err != nil {
+		return PotsView{}, fmt.Errorf("portfolio: pots: %w", err)
+	}
+	return potsView(v), nil
 }
 
 // netWorth adds the accounts to a valuation.
@@ -157,7 +188,7 @@ func (s *Service) netWorth(ctx context.Context, v Valuation) (NetWorth, error) {
 	if err != nil {
 		return NetWorth{}, err
 	}
-	nw := NetWorth{Date: v.Date, Invested: v.Invested().Value, Emergency: v.Emergency.Value}
+	nw := NetWorth{Date: v.Date, Invested: v.Invested().Value, Pots: v.Pots.Value}
 	var cash, cards, other int64
 	for _, a := range accs {
 		if a.Currency != "BRL" {
@@ -173,7 +204,7 @@ func (s *Service) netWorth(ctx context.Context, v Valuation) (NetWorth, error) {
 		}
 	}
 	nw.Cash, nw.Cards, nw.Other = money.BRLCents(cash), money.BRLCents(cards), money.BRLCents(other)
-	nw.Basis = money.BRLCents(v.Invested().Basis.Cents() + v.Emergency.Basis.Cents())
+	nw.Basis = money.BRLCents(v.Invested().Basis.Cents() + v.Pots.Basis.Cents())
 	return nw, nil
 }
 
@@ -220,9 +251,9 @@ func (s *Service) SetTargets(ctx context.Context, weights map[Class]money.Percen
 }
 
 // UpdateGroup moves every lot of a product to another class (nil leaves
-// it, "" goes back to the automatic one) or changes how much of it is the
-// emergency fund (nil leaves it).
-func (s *Service) UpdateGroup(ctx context.Context, id string, class *string, reserve *Reserve) error {
+// it, "" goes back to the automatic one) or puts it in the pool that holds
+// the pots, or out of it (nil leaves it).
+func (s *Service) UpdateGroup(ctx context.Context, id string, class *string, holdsPots *bool) error {
 	ps, err := s.repo.positions(ctx)
 	if err != nil {
 		return fmt.Errorf("portfolio: update group: %w", err)
@@ -240,8 +271,8 @@ func (s *Service) UpdateGroup(ctx context.Context, id string, class *string, res
 				return err
 			}
 		}
-		if reserve != nil {
-			g.SetReserve(*reserve)
+		if holdsPots != nil {
+			g.SetHoldsPots(*holdsPots)
 		}
 		if err := s.repo.saveGroupSetting(ctx, g.ID, g.GroupSetting, s.now()); err != nil {
 			return fmt.Errorf("portfolio: update group: %w", err)
@@ -297,7 +328,7 @@ func suggest(c Class, v Valuation, bonds []market.Bond, today time.Time) *string
 	var top *GroupValue
 	var most int64
 	for i, g := range v.Groups {
-		in := g.Amounts.Value.Cents() - g.Emergency.Value.Cents()
+		in := g.Amounts.Value.Cents() - g.Pots.Value.Cents()
 		if g.Group.Class() == c && in > 0 && (top == nil || in > most) {
 			top, most = &v.Groups[i], in
 		}
@@ -333,7 +364,7 @@ func fmtPercent(p money.Percent) string {
 	return s + "%"
 }
 
-// Invested is the allocation's value today, the emergency fund left out,
+// Invested is the allocation's value today, the pots left out,
 // and the target weights: what a projection starts from.
 func (s *Service) Invested(ctx context.Context) (money.Money, map[Class]money.Percent, error) {
 	t, err := s.Targets(ctx)

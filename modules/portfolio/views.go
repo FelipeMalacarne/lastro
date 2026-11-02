@@ -25,6 +25,7 @@ type OverviewView struct {
 	Benchmarks BenchmarksView `json:"benchmarks"`
 
 	Groups []GroupView  `json:"groups"`
+	Pots   PotsView     `json:"pots"`
 	Theses []ThesisView `json:"theses"`
 }
 
@@ -33,7 +34,7 @@ type NetWorthView struct {
 	CashCents      int64  `json:"cashCents"`
 	CardsCents     int64  `json:"cardsCents"`
 	InvestedCents  int64  `json:"investedCents"`
-	EmergencyCents int64  `json:"emergencyCents"`
+	PotsCents      int64  `json:"potsCents"`  // set apart for the pots
 	OtherCents     int64  `json:"otherCents"` // outside Open Finance
 	BasisCents     int64  `json:"basisCents"`
 	TotalCents     int64  `json:"totalCents"`
@@ -65,7 +66,7 @@ type BenchmarksView struct {
 }
 
 // GroupView is a product held, in one or more lots, and how much of it is
-// the emergency fund.
+// set apart for the pots.
 type GroupView struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -76,13 +77,10 @@ type GroupView struct {
 	AutoClass   Class   `json:"autoClass"` // Classify's, to go back to
 	Indexer     Indexer `json:"indexer"`
 	RateBp      int64   `json:"rateBp"`
-	// Reserve is "none", "amount" or "all"; ReserveCents is the amount set
-	// apart, for "amount". EmergencyCents is what of the group is the
-	// emergency fund today, and ShortCents what it lacks to cover the amount.
-	Reserve        string    `json:"reserve"`
-	ReserveCents   int64     `json:"reserveCents"`
-	EmergencyCents int64     `json:"emergencyCents"`
-	ShortCents     int64     `json:"shortCents"`
+	// HoldsPots is whether the group is in the pool; PotsCents is what of
+	// it is set apart for the pots today.
+	HoldsPots      bool      `json:"holdsPots"`
+	PotsCents      int64     `json:"potsCents"`
 	ValueCents     int64     `json:"valueCents"`
 	BasisCents     int64     `json:"basisCents"` // the open lots, at cost
 	ReturnBp       *int64    `json:"returnBp"`   // since bought
@@ -173,4 +171,26 @@ type ScoreboardView struct {
 	// Ibovespa is false when there are no Ibovespa quotes (brapi needs
 	// LASTRO_BRAPI_TOKEN for the index).
 	Ibovespa bool `json:"ibovespa"`
+}
+
+// PotsView is the pool that holds the pots against what they claim
+// (ADR-0014): what the pool holds, what the pots claim (their positive
+// balances), what it sets apart, and what is left over (counted in its
+// groups' classes) or short. Groups is how many groups are in the pool;
+// with none, nothing is set apart and the pots' money counts in its class.
+type PotsView struct {
+	PoolCents     int64     `json:"poolCents"`
+	ClaimCents    int64     `json:"claimCents"`
+	SetApartCents int64     `json:"setApartCents"`
+	LeftCents     int64     `json:"leftCents"`
+	ShortCents    int64     `json:"shortCents"`
+	Groups        int       `json:"groups"`
+	Pots          []PotView `json:"pots"` // by name
+}
+
+// PotView is one pot as Budget has it.
+type PotView struct {
+	Name         string `json:"name"`
+	BalanceCents int64  `json:"balanceCents"`
+	TargetCents  *int64 `json:"targetCents"`
 }

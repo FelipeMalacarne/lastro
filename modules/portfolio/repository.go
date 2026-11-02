@@ -88,11 +88,7 @@ func (r *PostgresRepository) groupSettings(ctx context.Context) (map[string]Grou
 	}
 	out := make(map[string]GroupSetting, len(rows))
 	for _, row := range rows {
-		res, err := ParseReserve(row.Reserve, row.ReserveCents)
-		if err != nil {
-			return nil, err
-		}
-		gs := GroupSetting{Reserve: res}
+		gs := GroupSetting{HoldsPots: row.HoldsPots}
 		if row.ClassOverride != nil {
 			gs.Override = Class(*row.ClassOverride)
 		}
@@ -102,7 +98,7 @@ func (r *PostgresRepository) groupSettings(ctx context.Context) (map[string]Grou
 }
 
 func (r *PostgresRepository) saveGroupSetting(ctx context.Context, id string, gs GroupSetting, now time.Time) error {
-	arg := db.SavePositionGroupParams{ID: id, Reserve: gs.Reserve.Mode(), ReserveCents: gs.Reserve.Amount().Cents(), UpdatedAt: now}
+	arg := db.SavePositionGroupParams{ID: id, HoldsPots: gs.HoldsPots, UpdatedAt: now}
 	if gs.Override != "" {
 		c := string(gs.Override)
 		arg.ClassOverride = &c
@@ -164,7 +160,7 @@ func (r *PostgresRepository) saveValuation(ctx context.Context, v Valuation, nw 
 				return err
 			}
 		}
-		rows := map[string]Amounts{"emergency": v.Emergency}
+		rows := map[string]Amounts{dayPots: v.Pots}
 		for c, a := range v.Classes {
 			rows[string(c)] = a
 		}
@@ -175,12 +171,15 @@ func (r *PostgresRepository) saveValuation(ctx context.Context, v Valuation, nw 
 		}
 		return q.SaveNetWorth(ctx, db.SaveNetWorthParams{
 			Date: v.Date, CashCents: nw.Cash.Cents(), CardsCents: nw.Cards.Cents(), InvestedCents: nw.Invested.Cents(),
-			EmergencyCents: nw.Emergency.Cents(), OtherCents: nw.Other.Cents(), BasisCents: nw.Basis.Cents(), UpdatedAt: now,
+			PotsCents: nw.Pots.Cents(), OtherCents: nw.Other.Cents(), BasisCents: nw.Basis.Cents(), UpdatedAt: now,
 		})
 	})
 }
 
-// DayClass is one day's value and basis of a class ("emergency" too).
+// dayPots is the pots' row among a day's classes.
+const dayPots = "pots"
+
+// DayClass is one day's value and basis of a class, or of the pots.
 type DayClass struct {
 	Date  time.Time
 	Class string
@@ -208,7 +207,7 @@ func (r *PostgresRepository) netWorth(ctx context.Context, from time.Time) ([]Ne
 	for i, row := range rows {
 		out[i] = NetWorth{
 			Date: row.Date, Cash: money.BRLCents(row.CashCents), Cards: money.BRLCents(row.CardsCents),
-			Invested: money.BRLCents(row.InvestedCents), Emergency: money.BRLCents(row.EmergencyCents), Other: money.BRLCents(row.OtherCents), Basis: money.BRLCents(row.BasisCents),
+			Invested: money.BRLCents(row.InvestedCents), Pots: money.BRLCents(row.PotsCents), Other: money.BRLCents(row.OtherCents), Basis: money.BRLCents(row.BasisCents),
 		}
 	}
 	return out, nil

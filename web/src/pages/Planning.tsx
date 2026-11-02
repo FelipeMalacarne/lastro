@@ -101,7 +101,7 @@ export function Planning() {
 
   return (
     <>
-      <PageHeader title="Planning" caption="Every value in today's money · invested money only, the emergency fund stays out" monthless />
+      <PageHeader title="Planning" caption="Every value in today's money · invested money only, the pots stay out" monthless />
 
       <Panel className="lg:p-6" footer="Estimates, not promises. Real returns are after inflation and before tax.">
         <div className="flex flex-col gap-6">

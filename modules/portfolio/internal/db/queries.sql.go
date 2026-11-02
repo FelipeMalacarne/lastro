@@ -191,18 +191,18 @@ func (q *Queries) ListMovements(ctx context.Context) ([]PortfolioMovement, error
 }
 
 const listNetWorth = `-- name: ListNetWorth :many
-SELECT date, cash_cents, cards_cents, invested_cents, emergency_cents, other_cents, basis_cents FROM portfolio.net_worth
+SELECT date, cash_cents, cards_cents, invested_cents, pots_cents, other_cents, basis_cents FROM portfolio.net_worth
 WHERE date >= $1::date ORDER BY date
 `
 
 type ListNetWorthRow struct {
-	Date           time.Time
-	CashCents      int64
-	CardsCents     int64
-	InvestedCents  int64
-	EmergencyCents int64
-	OtherCents     int64
-	BasisCents     int64
+	Date          time.Time
+	CashCents     int64
+	CardsCents    int64
+	InvestedCents int64
+	PotsCents     int64
+	OtherCents    int64
+	BasisCents    int64
 }
 
 func (q *Queries) ListNetWorth(ctx context.Context, dateFrom time.Time) ([]ListNetWorthRow, error) {
@@ -219,7 +219,7 @@ func (q *Queries) ListNetWorth(ctx context.Context, dateFrom time.Time) ([]ListN
 			&i.CashCents,
 			&i.CardsCents,
 			&i.InvestedCents,
-			&i.EmergencyCents,
+			&i.PotsCents,
 			&i.OtherCents,
 			&i.BasisCents,
 		); err != nil {
@@ -234,14 +234,13 @@ func (q *Queries) ListNetWorth(ctx context.Context, dateFrom time.Time) ([]ListN
 }
 
 const listPositionGroups = `-- name: ListPositionGroups :many
-SELECT id, class_override, reserve, reserve_cents FROM portfolio.position_groups
+SELECT id, class_override, holds_pots FROM portfolio.position_groups
 `
 
 type ListPositionGroupsRow struct {
 	ID            string
 	ClassOverride *string
-	Reserve       string
-	ReserveCents  int64
+	HoldsPots     bool
 }
 
 func (q *Queries) ListPositionGroups(ctx context.Context) ([]ListPositionGroupsRow, error) {
@@ -253,12 +252,7 @@ func (q *Queries) ListPositionGroups(ctx context.Context) ([]ListPositionGroupsR
 	var items []ListPositionGroupsRow
 	for rows.Next() {
 		var i ListPositionGroupsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ClassOverride,
-			&i.Reserve,
-			&i.ReserveCents,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.ClassOverride, &i.HoldsPots); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -535,22 +529,22 @@ func (q *Queries) SaveMovement(ctx context.Context, arg SaveMovementParams) erro
 }
 
 const saveNetWorth = `-- name: SaveNetWorth :exec
-INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, emergency_cents, other_cents, basis_cents, updated_at)
+INSERT INTO portfolio.net_worth (date, cash_cents, cards_cents, invested_cents, pots_cents, other_cents, basis_cents, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (date) DO UPDATE SET cash_cents = excluded.cash_cents, cards_cents = excluded.cards_cents,
-    invested_cents = excluded.invested_cents, emergency_cents = excluded.emergency_cents,
+    invested_cents = excluded.invested_cents, pots_cents = excluded.pots_cents,
     other_cents = excluded.other_cents, basis_cents = excluded.basis_cents, updated_at = excluded.updated_at
 `
 
 type SaveNetWorthParams struct {
-	Date           time.Time
-	CashCents      int64
-	CardsCents     int64
-	InvestedCents  int64
-	EmergencyCents int64
-	OtherCents     int64
-	BasisCents     int64
-	UpdatedAt      time.Time
+	Date          time.Time
+	CashCents     int64
+	CardsCents    int64
+	InvestedCents int64
+	PotsCents     int64
+	OtherCents    int64
+	BasisCents    int64
+	UpdatedAt     time.Time
 }
 
 func (q *Queries) SaveNetWorth(ctx context.Context, arg SaveNetWorthParams) error {
@@ -559,7 +553,7 @@ func (q *Queries) SaveNetWorth(ctx context.Context, arg SaveNetWorthParams) erro
 		arg.CashCents,
 		arg.CardsCents,
 		arg.InvestedCents,
-		arg.EmergencyCents,
+		arg.PotsCents,
 		arg.OtherCents,
 		arg.BasisCents,
 		arg.UpdatedAt,
@@ -626,16 +620,15 @@ func (q *Queries) SavePosition(ctx context.Context, arg SavePositionParams) erro
 }
 
 const savePositionGroup = `-- name: SavePositionGroup :exec
-INSERT INTO portfolio.position_groups (id, class_override, reserve, reserve_cents, updated_at) VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE SET class_override = excluded.class_override, reserve = excluded.reserve,
-    reserve_cents = excluded.reserve_cents, updated_at = excluded.updated_at
+INSERT INTO portfolio.position_groups (id, class_override, holds_pots, updated_at) VALUES ($1, $2, $3, $4)
+ON CONFLICT (id) DO UPDATE SET class_override = excluded.class_override, holds_pots = excluded.holds_pots,
+    updated_at = excluded.updated_at
 `
 
 type SavePositionGroupParams struct {
 	ID            string
 	ClassOverride *string
-	Reserve       string
-	ReserveCents  int64
+	HoldsPots     bool
 	UpdatedAt     time.Time
 }
 
@@ -643,8 +636,7 @@ func (q *Queries) SavePositionGroup(ctx context.Context, arg SavePositionGroupPa
 	_, err := q.db.Exec(ctx, savePositionGroup,
 		arg.ID,
 		arg.ClassOverride,
-		arg.Reserve,
-		arg.ReserveCents,
+		arg.HoldsPots,
 		arg.UpdatedAt,
 	)
 	return err

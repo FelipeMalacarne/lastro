@@ -62,8 +62,11 @@ func (r *PostgresRepository) Saved(ctx context.Context, until Month) ([]*Monthly
 		if row.Fund {
 			l.Kind = KindFund
 		}
-		if len(l.Categories) == 0 {
-			continue // Save writes a line with its categories; one without any covers nothing
+		if row.TargetCents != nil {
+			l.Target = money.BRLCents(*row.TargetCents)
+		}
+		if len(l.Categories) == 0 && !l.IsFund() {
+			continue // Save writes a limit with its categories; one without any covers nothing
 		}
 		if row.Name != nil {
 			l.Name = *row.Name
@@ -111,8 +114,13 @@ func saveMonth(ctx context.Context, q *db.Queries, b *MonthlyBudget) error {
 		if l.Name != "" {
 			name = &l.Name
 		}
+		var target *int64
+		if l.HasTarget() {
+			t := l.Target.Cents()
+			target = &t
+		}
 		if err := q.InsertLine(ctx, db.InsertLineParams{
-			Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover, Fund: l.IsFund(),
+			Month: m, LineID: l.ID.String(), Name: name, LimitCents: l.Limit.Cents(), Rollover: l.Rollover, Fund: l.IsFund(), TargetCents: target,
 		}); err != nil {
 			return fmt.Errorf("insert line: %w", err)
 		}
