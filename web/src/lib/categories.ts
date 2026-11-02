@@ -2,13 +2,17 @@ import { useMemo } from "react";
 
 import { useResource, type Category } from "@/lib/api";
 
-/** Every category by id (archived ones too, so old transactions keep theirs), and the live ones in order. */
-export function useCategories(): { byId: Map<string, Category>; live: Category[]; loading: boolean } {
+/**
+ * Every category by id (archived ones too, so old transactions keep theirs),
+ * and the live ones in order. Until loaded both are empty; error says why
+ * they did not load.
+ */
+export function useCategories(): { byId: Map<string, Category>; live: Category[]; loading: boolean; loaded: boolean; error?: string } {
   const res = useResource<{ categories: Category[] }>("/api/v1/categories");
   return useMemo(() => {
     const all = res.data?.categories ?? [];
-    return { byId: new Map(all.map((c) => [c.id, c])), live: all.filter((c) => !c.archived), loading: res.loading };
-  }, [res.data, res.loading]);
+    return { byId: new Map(all.map((c) => [c.id, c])), live: all.filter((c) => !c.archived), loading: res.loading, loaded: Boolean(res.data), error: res.error };
+  }, [res.data, res.loading, res.error]);
 }
 
 /** How many transactions wait for a category, for the badges. */

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { ChevronDown, ChevronLeft, Plus, Search } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
@@ -9,7 +10,7 @@ import { Panel } from "@/components/Panel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
-import { SkeletonRows } from "@/components/ui/skeleton";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Sheet, SheetActions } from "@/components/ui/sheet";
@@ -25,6 +26,7 @@ import {
   typeLabel,
   useResource,
   type Account,
+  type BudgetMonth,
   type Category,
   type CategoryTotal,
   type NoteColor,
@@ -33,8 +35,11 @@ import {
   type RuleOrigin,
   type TransactionList,
 } from "@/lib/api";
+import { isShared, lineName } from "@/lib/budget";
 import { useCategories, useWaiting } from "@/lib/categories";
-import { formatDay, formatMonth } from "@/lib/format";
+import { focusBack } from "@/lib/focus";
+import { asSentence, formatDay, formatMonth } from "@/lib/format";
+import { isShortcut } from "@/lib/keys";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link } from "@/lib/router";
@@ -64,6 +69,16 @@ const kinds: { value: PatternKind; label: string }[] = [
   { value: "exact", label: "Is exactly" },
 ];
 
+/** A rule's words as the server keeps them: accents dropped, upper case, anything but a letter or a digit a space ("zz-test-rule!" is ZZ TEST RULE). */
+function words(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{Mn}/gu, "")
+    .replace(/[^\p{L}\p{Nd}]+/gu, " ")
+    .trim()
+    .toUpperCase();
+}
+
 /** Categories and rules (canvas: "Categories and rules (M2)" and "Edit a rule, phone"). */
 export function Categories() {
   const { month } = useMonth();
@@ -79,8 +94,7 @@ export function Categories() {
   // N opens a new rule, as on the canvas.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      if (!isShortcut(e)) return;
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         openNewRule();
@@ -93,13 +107,23 @@ export function Categories() {
     setNewRule(true);
     requestAnimationFrame(() => document.getElementById("rule-editor")?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
   }
+  // The table sits below the rules: bring the form to the screen and Name to the cursor.
+  function openNewCategory() {
+    setCreating(true);
+    requestAnimationFrame(() => {
+      const form = document.getElementById("new-category");
+      form?.scrollIntoView({ behavior: "smooth", block: "center" });
+      form?.querySelector("input")?.focus({ preventScroll: true });
+    });
+  }
 
   const ruleList = rules.data?.rules ?? [];
   const rulesByCategory = useMemo(() => {
+    if (!rules.data) return null;
     const m = new Map<string, number>();
     for (const r of ruleList) m.set(r.category, (m.get(r.category) ?? 0) + 1);
     return m;
-  }, [ruleList]);
+  }, [rules.data, ruleList]);
 
   // Who chose this month's categories: rules, the model, me, or nobody yet.
   const flow = useMemo(() => {
@@ -112,7 +136,13 @@ export function Categories() {
     return f;
   }, [list.data]);
 
-  const caption = `${cats.live.length} categories · ${ruleList.length} ${ruleList.length === 1 ? "rule" : "rules"}${waiting ? ` · ${waiting} to review` : ""}`;
+  // Counts only once they are known: a load that failed is no "0 categories".
+  const failed = !cats.loaded && cats.error ? `the categories: ${cats.error}` : !rules.data && rules.error ? `the rules: ${rules.error}` : null;
+  const caption = failed
+    ? `Could not load ${failed}.`
+    : cats.loaded && rules.data
+      ? `${cats.live.length} categories · ${ruleList.length} ${ruleList.length === 1 ? "rule" : "rules"}${waiting ? ` · ${waiting} to review` : ""}`
+      : undefined;
 
   return (
     <>
@@ -127,11 +157,11 @@ export function Categories() {
          
           actions={
             <>
-              <Button onClick={() => setCreating(true)}>
+              <Button data-opener="new-category" onClick={openNewCategory}>
                 <Plus aria-hidden />
                 New category
               </Button>
-              <Button onClick={openNewRule}>
+              <Button data-opener="new-rule" onClick={openNewRule}>
                 <Plus aria-hidden />
                 New rule
                 <Kbd className="hidden pointer-fine:inline-block">N</Kbd>
@@ -141,7 +171,7 @@ export function Categories() {
         />
       </div>
 
-      <FlowPanel flow={flow} month={month} waiting={waiting ?? 0} />
+      <FlowPanel flow={list.data ? flow : null} error={list.error} month={month} waiting={waiting ?? 0} />
 
       <RulesPanel
         rules={ruleList}
@@ -155,28 +185,34 @@ export function Categories() {
       />
 
       <CategoriesPanel
-        categories={cats.live}
+        categories={cats.loaded ? cats.live : null}
+        error={cats.error}
         rulesByCategory={rulesByCategory}
-        totals={totals.data?.categories ?? []}
+        totals={totals.data?.categories ?? null}
+        totalsError={totals.error}
         month={month}
         creating={creating}
-        onCreated={() => setCreating(false)}
-        onCreate={() => setCreating(true)}
+        onCreated={() => {
+          flushSync(() => setCreating(false));
+          focusBack('[data-opener="new-category"]');
+        }}
+        onCreate={openNewCategory}
       />
     </>
   );
 }
 
-function FlowPanel({ flow, month, waiting }: { flow: { rule: number; llm: number; manual: number; none: number }; month: string; waiting: number }) {
-  const total = flow.rule + flow.llm + flow.manual + flow.none;
-  const steps: { key: string; title: string; n: number; text: ReactNode; swatch: string }[] = [
-    { key: "rule", title: "1. Your rules", n: flow.rule, text: "Tried first, from the most specific to the most generic. The first rule that matches wins.", swatch: "bg-ink" },
-    { key: "llm", title: "2. The local model", n: flow.llm, text: "Only when no rule matches, and only with a category that exists. From 80% sure.", swatch: "bg-tinta" },
-    { key: "manual", title: "3. Your own choices", n: flow.manual, text: "Never overwritten by automation, and each one taught a rule.", swatch: "bg-note-2" },
+/** The month's transactions by who chose their category; null until they load, with error when they did not. */
+function FlowPanel({ flow, error, month, waiting }: { flow: { rule: number; llm: number; manual: number; none: number } | null; error?: string; month: string; waiting: number }) {
+  const total = flow ? flow.rule + flow.llm + flow.manual + flow.none : 0;
+  const steps: { key: string; title: string; n?: number; text: ReactNode; swatch: string }[] = [
+    { key: "rule", title: "1. Your rules", n: flow?.rule, text: "Tried first, from the most specific to the most generic. The first rule that matches wins.", swatch: "bg-ink" },
+    { key: "llm", title: "2. The local model", n: flow?.llm, text: "Only when no rule matches, and only with a category that exists. From 80% sure.", swatch: "bg-tinta" },
+    { key: "manual", title: "3. Your own choices", n: flow?.manual, text: "Never overwritten by automation, and each one taught a rule.", swatch: "bg-note-2" },
     {
       key: "none",
       title: "4. To review",
-      n: flow.none,
+      n: flow?.none,
       text: (
         <>
           When nothing is sure. Nothing gets a guessed category.{" "}
@@ -196,10 +232,11 @@ function FlowPanel({ flow, month, waiting }: { flow: { rule: number; llm: number
       footer="A category you pick by hand always becomes a rule and is never overwritten by automation."
     >
       <div className="flex flex-col gap-4">
+        {!flow && error && <p className="m-0 type-body text-ink-muted">Could not load the transactions: {error}.</p>}
         {total > 0 && (
           <div role="img" aria-label={steps.map((s) => `${s.n} ${s.title.slice(3).toLowerCase()}`).join(", ")} className="flex h-3 gap-0.5">
             {steps
-              .filter((s) => s.n > 0)
+              .filter((s) => (s.n ?? 0) > 0)
               .map((s) => (
                 <div key={s.key} className={cn("min-w-2 rounded-xs", s.swatch)} style={{ flex: `${s.n} 1 0` }} />
               ))}
@@ -211,7 +248,7 @@ function FlowPanel({ flow, month, waiting }: { flow: { rule: number; llm: number
               <span className="flex items-center gap-2 type-body-strong">
                 <span aria-hidden className={cn("size-3 flex-none rounded-xs", s.swatch)} />
                 <span className="flex-1">{s.title}</span>
-                <span className="type-figure">{s.n}</span>
+                {s.n !== undefined ? <span className="type-figure">{s.n}</span> : !error && <Skeleton className="h-3.5 w-6" />}
               </span>
               <span className="type-caption text-ink-muted">{s.text}</span>
             </li>
@@ -259,16 +296,36 @@ function RulesPanel({
   // On a phone the editor opens in a sheet, which keeps it while it slides away.
   const inSheet = useRef<{ rule: Rule | null } | null>(null);
   if (rule || newRule) inSheet.current = { rule };
-  const closeEditor = () => {
-    setSelected(null);
-    onNewRule(false);
+  // Closing the editor leaves focus nowhere. It goes back to the rule's row, or
+  // to New rule; after a delete, to the row that took its place.
+  const back = useRef<string[]>([]);
+  const closeEditor = (deleted?: boolean) => {
+    const i = rule ? shown.findIndex((r) => r.id === rule.id) : -1;
+    const near = !rule ? [] : deleted ? [shown[i + 1], shown[i - 1]] : [rule];
+    back.current = [...near.filter((r) => r).map((r) => `[data-rule="${r.id}"]`), '[data-opener="new-rule"]'];
+    // A sheet gives it back once it has slid away.
+    if (!wide) {
+      setSelected(null);
+      onNewRule(false);
+      return;
+    }
+    flushSync(() => {
+      setSelected(null);
+      onNewRule(false);
+    });
+    focusBack(...back.current);
+  };
+  // From a form whose words another rule has: that rule, ready to edit.
+  const editInstead = (id: string) => {
+    select(id);
+    setTimeout(() => document.querySelector<HTMLInputElement>("#rule-editor input")?.focus());
   };
   const accountName = (id: string | null) => {
     const a = accounts.find((x) => x.id === id);
     return a ? `${a.institution} ${typeLabel[a.type]}` : null;
   };
   return (
-    <Panel title={`Rules · ${rules.length}`} bodyClassName="-mx-5 -mb-5 border-t border-rule">
+    <Panel title={loading ? "Rules" : `Rules · ${rules.length}`} bodyClassName="-mx-5 -mb-5 border-t border-rule">
       <div className="flex flex-wrap">
         <div className="flex min-w-0 flex-[1_1_520px] flex-col">
           <div className="flex flex-wrap items-end gap-3 px-5 py-4">
@@ -326,6 +383,7 @@ function RulesPanel({
                       type="button"
                       role="row"
                       aria-selected={on}
+                      data-rule={r.id}
                       onClick={() => select(on ? null : r.id)}
                       className={cn(
                         "grid min-h-14 w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[28px_minmax(0,1fr)_140px_96px_96px] items-center gap-x-3 border-0 border-b border-rule px-5 py-2 text-left focus-visible:focus-ring",
@@ -366,13 +424,17 @@ function RulesPanel({
         </div>
 
         {wide && (rule || newRule) && (
-          <RuleEditor key={rule?.id ?? "new"} rule={rule} rules={rules} categories={categories} accounts={accounts} onClose={closeEditor} />
+          <RuleEditor key={rule?.id ?? "new"} rule={rule} rules={rules} categories={categories} accounts={accounts} onClose={closeEditor} onEdit={editInstead} />
         )}
         {!wide && inSheet.current && (
           <Sheet
             open={Boolean(rule || newRule)}
             onOpenChange={(o) => !o && closeEditor()}
             label={inSheet.current.rule ? `Rule ${inSheet.current.rule.order}` : "New rule"}
+            onCloseAutoFocus={(e) => {
+              e.preventDefault();
+              focusBack(...back.current);
+            }}
           >
             <RuleEditor
               key={inSheet.current.rule?.id ?? "new"}
@@ -381,6 +443,7 @@ function RulesPanel({
               categories={categories}
               accounts={accounts}
               onClose={closeEditor}
+              onEdit={editInstead}
               inSheet
             />
           </Sheet>
@@ -396,13 +459,17 @@ function RuleEditor({
   categories,
   accounts,
   onClose,
+  onEdit,
   inSheet,
 }: {
   rule: Rule | null;
   rules: Rule[];
   categories: Category[];
   accounts: Account[];
-  onClose: () => void;
+  /** Closes the editor; deleted when the rule is gone. */
+  onClose: (deleted?: boolean) => void;
+  /** Opens another rule: the one whose words and account these are. */
+  onEdit: (id: string) => void;
   /** In a phone sheet: its head has the name and ✕, its footer the save button. */
   inSheet?: boolean;
 }) {
@@ -412,9 +479,21 @@ function RuleEditor({
   const [category, setCategory] = useState(rule?.category ?? "");
   const [busy, setBusy] = useState(false);
   const before = rule && rules.find((r) => r.order > rule.order && rule.pattern.text.includes(r.pattern.text) && r.id !== rule.id);
-  const same = !rule && rules.find((r) => r.pattern.kind === kind && r.pattern.text.toLowerCase() === text.trim().toLowerCase() && (r.account ?? "") === account);
+  // One rule per words and account, as the server keeps them: a rule that has them is edited, never taken over.
+  const same = rules.find((r) => r.id !== rule?.id && r.pattern.kind === kind && r.pattern.text === words(text) && (r.account ?? "") === account);
   const valid = Boolean(text.trim()) && Boolean(category) && !same;
   const current = accounts.find((a) => a.id === account);
+
+  // On a desktop, Esc closes the editor, as it closes the phone's sheet. A
+  // menu or dialog open over it takes its own Esc (and marks it handled).
+  useEffect(() => {
+    if (inSheet) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inSheet, onClose]);
 
   async function save() {
     setBusy(true);
@@ -444,7 +523,7 @@ function RuleEditor({
   async function remove() {
     if (!rule) return;
     await send("DELETE", `/api/v1/rules/${rule.id}`);
-    onClose();
+    onClose(true);
     toast({ id: "rule", text: <>Rule {rule.order}, <strong>{rule.pattern.text}</strong>, deleted.</> });
   }
 
@@ -476,8 +555,18 @@ function RuleEditor({
         autoFocus={!rule}
         placeholder={rule ? undefined : "e.g. UBER EATS"}
         onChange={(e) => setText(e.target.value)}
-        hint={same ? "A rule with this text already exists." : "Case, accents and symbols are ignored."}
+        hint="Case, accents and symbols are ignored."
+        error={
+          same
+            ? `Rule ${same.order} already ${same.pattern.kind === "exact" ? "is exactly" : "contains"} ${same.pattern.text}${same.account ? " in this account" : ""}, for ${categories.find((c) => c.id === same.category)?.name ?? "its category"}.`
+            : undefined
+        }
       />
+      {same && (
+        <Button variant="ghost" size="sm" className="-mt-3 self-start" onClick={() => onEdit(same.id)}>
+          Edit rule {same.order}
+        </Button>
+      )}
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] leading-[18px] font-semibold">Account</span>
         <DropdownMenu>
@@ -529,7 +618,7 @@ function RuleEditor({
           {rule ? "Save rule" : "Create rule"}
         </Button>
         {!inSheet && (
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={() => onClose()}>
             Close
           </Button>
         )}
@@ -549,7 +638,11 @@ function RuleEditor({
             New transactions with “{rule.pattern.text}” stop going to {categories.find((c) => c.id === rule.category)?.name ?? "its category"} and wait in To review, unless another rule
             matches them.
           </p>
-          <p className="type-caption text-ink-muted">The {rule.decides} {rule.decides === 1 ? "transaction" : "transactions"} it categorized keep their category.</p>
+          {rule.decides > 0 && (
+            <p className="type-caption text-ink-muted">
+              {rule.decides === 1 ? "The transaction it categorized keeps its category." : `The ${rule.decides} transactions it categorized keep their category.`}
+            </p>
+          )}
         </ConfirmDialog>
       )}
       <p className="m-0 type-caption text-ink-muted">
@@ -563,29 +656,54 @@ function RuleEditor({
 
 function CategoriesPanel({
   categories,
+  error,
   rulesByCategory,
   totals,
+  totalsError,
   month,
   creating,
   onCreated,
   onCreate,
 }: {
-  categories: Category[];
-  rulesByCategory: Map<string, number>;
-  totals: CategoryTotal[];
+  /** Null until loaded; error says why they did not. The same for the rules and the month's totals. */
+  categories: Category[] | null;
+  error?: string;
+  rulesByCategory: Map<string, number> | null;
+  totals: CategoryTotal[] | null;
+  totalsError?: string;
   month: string;
   creating: boolean;
   onCreated: () => void;
   onCreate: () => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const out = new Map(totals.map((t) => [t.category, t]));
+  // Closing a category's form leaves focus nowhere: back to its Edit, or after
+  // an archive, to the Edit of the row that took its place.
+  const closeForm = (c: Category, archived?: boolean) => {
+    const list = categories ?? [];
+    const i = list.findIndex((x) => x.id === c.id);
+    const near = archived ? [list[i + 1], list[i - 1]] : [c];
+    flushSync(() => setEditing(null));
+    focusBack(...near.filter((x) => x).map((x) => `[data-category="${x.id}"]`), '[data-opener="new-category"]');
+  };
+  const out = new Map((totals ?? []).map((t) => [t.category, t]));
   const monthName = formatMonth(month).split(" ")[0];
+  const budget = useResource<BudgetMonth>(`/api/v1/budget?month=${month}`).data;
+  const byId = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
+  // What the month's budget holds for a category: its own limit, a fund, a share of a line, or nothing.
+  const holds = (c: Category): string => {
+    if (!c.budgeted) return "Not counted";
+    if (!budget) return "";
+    const l = budget.lines.find((x) => x.byCategory.some((p) => p.category === c.id));
+    if (!l) return "No limit";
+    if (l.fund) return "Fund";
+    return isShared(l) ? `In ${lineName(l, byId)}` : "Limit";
+  };
   return (
     <Panel
-      title={`Categories · ${categories.length}`}
+      title={categories ? `Categories · ${categories.length}` : "Categories"}
       action={
-        <Button size="sm" variant="ghost" onClick={onCreate}>
+        <Button size="sm" variant="ghost" data-opener="new-category" onClick={onCreate}>
           <Plus aria-hidden />
           New
         </Button>
@@ -614,7 +732,12 @@ function CategoriesPanel({
             </span>
           </div>
           {creating && <CategoryForm onDone={onCreated} />}
-          {categories.map((c) => {
+          {!categories && error && <p className="m-0 px-5 py-4 type-body text-ink-muted">Could not load the categories: {error}.</p>}
+          {!categories && !error && <SkeletonRows count={6} />}
+          {categories && !totals && totalsError && (
+            <p className="m-0 border-b border-rule px-5 py-3 type-caption text-ink-muted">Could not load {monthName}'s totals: {totalsError}.</p>
+          )}
+          {categories?.map((c) => {
             const t = out.get(c.id);
             const net = t ? (c.budgeted ? -(t.outCents - t.inCents) : t.inCents - t.outCents) : 0;
             return (
@@ -629,22 +752,22 @@ function CategoriesPanel({
                   <span role="cell" className="flex min-w-0">
                     <CategoryTag name={c.name} color={c.color} />
                   </span>
-                  <span role="cell" className={cn("hidden text-[14px] leading-5 sm:block", !c.budgeted && "text-ink-muted")}>
-                    {c.budgeted ? "Has a limit" : "Not counted"}
+                  <span role="cell" className={cn("hidden truncate text-[14px] leading-5 sm:block", holds(c) !== "Limit" && holds(c) !== "Fund" && "text-ink-muted")}>
+                    {holds(c)}
                   </span>
                   <span role="cell" className="hidden text-right type-figure sm:block">
-                    {rulesByCategory.get(c.id) ?? 0}
+                    {rulesByCategory && (rulesByCategory.get(c.id) ?? 0)}
                   </span>
                   <span role="cell" className="text-right">
-                    <Amount cents={c.budgeted ? Math.abs(net) : net} sign={c.budgeted ? "none" : "always"} />
+                    {totals && <Amount cents={c.budgeted ? Math.abs(net) : net} sign={c.budgeted ? "none" : "always"} />}
                   </span>
                   <span role="cell" className="flex justify-end">
-                    <Button variant="ghost" size="sm" aria-label={`Edit ${c.name}`} onClick={() => setEditing(editing === c.id ? null : c.id)}>
+                    <Button variant="ghost" size="sm" aria-label={`Edit ${c.name}`} data-category={c.id} onClick={() => setEditing(editing === c.id ? null : c.id)}>
                       {editing === c.id ? "Close" : "Edit"}
                     </Button>
                   </span>
                 </div>
-                {editing === c.id && <CategoryForm category={c} rules={rulesByCategory.get(c.id) ?? 0} onDone={() => setEditing(null)} />}
+                {editing === c.id && <CategoryForm category={c} rules={rulesByCategory?.get(c.id) ?? 0} onDone={(archived) => closeForm(c, archived)} />}
               </div>
             );
           })}
@@ -654,14 +777,17 @@ function CategoriesPanel({
   );
 }
 
-function CategoryForm({ category, rules, onDone }: { category?: Category; rules?: number; onDone: () => void }) {
+/** A new category, or one being edited; onDone closes it, archived when the category is gone. */
+function CategoryForm({ category, rules, onDone }: { category?: Category; rules?: number; onDone: (archived?: boolean) => void }) {
   const [name, setName] = useState(category?.name ?? "");
   const [color, setColor] = useState<NoteColor>(category?.color ?? "note-200");
   const [budgeted, setBudgeted] = useState(category?.budgeted ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function save() {
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy || !name.trim()) return;
     setBusy(true);
     setError(null);
     try {
@@ -669,7 +795,8 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
       else await send("POST", "/api/v1/categories", { name, color, budgeted });
       onDone();
     } catch (e) {
-      setError((e as Error).message);
+      // The server says it as a clause: "up to 40 characters", "there is already a category called Pets".
+      setError(asSentence((e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -677,7 +804,7 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
   async function archive() {
     if (!category) return;
     const r = await send<{ rulesRemoved: number }>("DELETE", `/api/v1/categories/${category.id}`);
-    onDone();
+    onDone(true);
     toast({
       text: (
         <>
@@ -688,11 +815,23 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
   }
 
   return (
-    <section
+    <form
+      id={category ? undefined : "new-category"}
       aria-label={category ? `Edit ${category.name}` : "New category"}
-      className="flex flex-wrap items-start gap-x-8 gap-y-5 border-b border-rule bg-paper px-5 pt-4 pb-5 shadow-[inset_3px_0_0_var(--tinta)]"
+      onSubmit={save}
+      className="flex scroll-mt-20 flex-wrap items-start gap-x-8 gap-y-5 border-b border-rule bg-paper px-5 pt-4 pb-5 shadow-[inset_3px_0_0_var(--tinta)]"
     >
-      <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} error={error ?? undefined} className="max-w-60 min-w-0 flex-[1_1_180px]" />
+      <TextField
+        label="Name"
+        value={name}
+        maxLength={40}
+        onChange={(e) => {
+          setName(e.target.value);
+          setError(null);
+        }}
+        error={error ?? undefined}
+        className="max-w-60 min-w-0 flex-[1_1_180px]"
+      />
       <div className="flex flex-col gap-1.5">
         <span id={`colour-${category?.id ?? "new"}`} className="text-[13px] leading-[18px] font-semibold">
           Colour
@@ -725,10 +864,10 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
         </span>
       </label>
       <div className="flex basis-full flex-wrap items-center gap-2">
-        <Button onClick={save} disabled={busy || !name.trim()}>
+        <Button type="submit" disabled={busy || !name.trim()}>
           {category ? "Save category" : "Create category"}
         </Button>
-        <Button variant="ghost" onClick={onDone}>
+        <Button type="button" variant="ghost" onClick={() => onDone()}>
           Cancel
         </Button>
         {category && (
@@ -736,7 +875,7 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
             <span className="flex-auto" />
             <ConfirmDialog
               trigger={
-                <Button variant="ghost" disabled={busy}>
+                <Button type="button" variant="ghost" disabled={busy}>
                   Archive {category.name}
                 </Button>
               }
@@ -754,6 +893,6 @@ function CategoryForm({ category, rules, onDone }: { category?: Category; rules?
           </>
         )}
       </div>
-    </section>
+    </form>
   );
 }

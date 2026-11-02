@@ -2,6 +2,7 @@ package categorize
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 
 func TestCategoryEndpointsValidateFirst(t *testing.T) {
 	mux := http.NewServeMux()
-	New(nil, nil, nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	New(nil, nil, nil, nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	id := "/api/v1/categories/6f1c2d3e-4a5b-4c6d-8e7f-901a2b3c4d5e"
 	tests := []struct {
 		method, path, body string
@@ -22,7 +23,8 @@ func TestCategoryEndpointsValidateFirst(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets"}`, "name and color are required"},
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets", "color": "purple"}`, "colour"},
-		{http.MethodPost, "/api/v1/categories", `{"name": "  ", "color": "note-5"}`, "category name"},
+		{http.MethodPost, "/api/v1/categories", `{"name": "  ", "color": "note-5"}`, `"message":"type a name"`},
+		{http.MethodPost, "/api/v1/categories", `{"name": "` + strings.Repeat("x", 41) + `", "color": "note-5"}`, `"message":"up to 40 characters"`},
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets", "color": "note-5", "icon": "dog"}`, "a JSON object"},
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets", "color": "note-5"} {}`, "a single JSON object"},
 		{http.MethodPost, "/api/v1/categories", `not json`, "a JSON object"},
@@ -48,12 +50,18 @@ func TestAPIError(t *testing.T) {
 		{ErrNotFound, http.StatusNotFound},
 		{ErrNameTaken, http.StatusConflict},
 		{ErrArchived, http.StatusConflict},
+		{ErrRuleTaken, http.StatusConflict},
 	}
 	for _, tt := range tests {
 		var he *httpx.Error
 		if !errors.As(apiError(tt.err), &he) || he.Status != tt.want {
 			t.Errorf("%v: got %v", tt.err, apiError(tt.err))
 		}
+	}
+	pets := "  Pets  and vet "
+	var taken *httpx.Error
+	if !errors.As(apiError(nameTakenBy(fmt.Errorf("%w: pets", ErrNameTaken), &pets)), &taken) || taken.Status != http.StatusConflict || taken.Message != "there is already a category called Pets and vet" {
+		t.Errorf("a taken name is named: %+v", taken)
 	}
 	other := errors.New("boom")
 	var he *httpx.Error

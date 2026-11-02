@@ -36,7 +36,8 @@ export function LineEditor({
   categories: Category[];
   byId: Map<string, Category>;
   inSheet?: boolean;
-  onDone: () => void;
+  /** Closes the editor; removed when the line is gone. */
+  onDone: (removed?: boolean) => void;
 }) {
   const formId = useId();
   const [kind, setKind] = useState<Kind>(line?.fund ? "fund" : "limit");
@@ -154,7 +155,7 @@ export function LineEditor({
         ),
         undo: () => restore(v.month, before),
       });
-      onDone();
+      onDone(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -268,7 +269,7 @@ export function LineEditor({
           <Button type="submit" form={formId} variant="primary" size="sm" disabled={busy || Boolean(problem)}>
             {line ? "Save line" : kind === "fund" ? "Add pot" : "Add line"}
           </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={onDone}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onDone()}>
             Cancel
           </Button>
         </span>

@@ -83,7 +83,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	a.Ledger = ledger.New(ledger.NewRepository(pool), a.Bus)
 	series, quotes, bonds := market.Sources(cfg.BrapiToken)
 	a.Market = market.New(market.NewRepository(pool), series, quotes, bonds, logger)
-	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, logger)
+	a.Categorize = categorize.New(categorize.NewRepository(pool), a.Ledger, a.LLM, a.Bus, logger)
 	a.Budget = budget.New(budget.NewRepository(pool), a.Ledger, a.Categorize)
 	a.Portfolio = portfolio.New(portfolio.NewRepository(pool), a.Ledger, a.Market, budgetPots{a.Budget})
 	a.Planning = planning.New(a.Portfolio)
@@ -94,6 +94,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	// before a rule existed, or while the rules could not run.
 	events.Subscribe(a.Bus, a.Categorize.OnTransactionsImported)
 	events.Subscribe(a.Bus, a.categorizeAfterSync)
+	// An archived category leaves the budget from the month it was archived on.
+	events.Subscribe(a.Bus, a.Budget.OnCategoryArchived)
 
 	return a, nil
 }

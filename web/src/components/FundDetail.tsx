@@ -246,7 +246,7 @@ export function FundDetail({
           <Button type="submit" form={formId} size="sm" disabled={busy || bad || !changed}>
             Save pot
           </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onEdit}>
+          <Button type="button" variant="ghost" size="sm" disabled={busy} data-opener="edit-line" onClick={onEdit}>
             Edit line
           </Button>
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void remove()}>

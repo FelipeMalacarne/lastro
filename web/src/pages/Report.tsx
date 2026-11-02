@@ -1,3 +1,5 @@
+import { PiggyBank } from "lucide-react";
+
 import { Amount } from "@/components/Amount";
 import { CategoryTag } from "@/components/CategoryTag";
 import { Panel } from "@/components/Panel";
@@ -20,6 +22,7 @@ type ReportView = {
   prevSpentCents: number | null;
   spendingChangeBp: number | null;
   categories: { category: string; name: string; spentCents: number; availableCents: number }[];
+  funds: { category: string; name: string; spentCents: number; balanceCents: number }[];
   unlimited: { category: string; name: string; spentCents: number }[];
   notes: string[];
   netWorthStartCents: number | null;
@@ -81,7 +84,7 @@ export function Report() {
           </Panel>
 
           <div className="flex flex-wrap items-start gap-4 lg:gap-6">
-            <Panel title="Against the limits" className="min-w-0 flex-[7_1_460px]" footer="Spent over what was available, rollover included, the fullest first; then spending in categories without a limit.">
+            <Panel title="Against the limits" className="min-w-0 flex-[7_1_460px]" footer="Spent over what was available, rollover included, the fullest first; then what the funds paid, with what each has saved, and spending in categories without a limit.">
               {d.categories.length === 0 ? (
                 <p className="m-0 type-body text-ink-muted">
                   No limits this month. <Link to="/budget">Set them on the Budget</Link>.
@@ -103,6 +106,29 @@ export function Report() {
                         <span className={over ? "col-span-2 text-right type-figure-sm text-danger sm:col-span-1" : "col-span-2 text-right type-figure-sm sm:col-span-1"}>
                           {formatBRL(c.spentCents)} of {formatBRL(c.availableCents)}
                         </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {d.funds.length > 0 && (
+                <div className="mt-4 flex flex-col gap-1.5 border-t border-rule pt-3">
+                  <span className="inline-flex items-center gap-1.5 type-label text-ink-muted">
+                    <PiggyBank className="size-3.5" aria-hidden />
+                    Funds
+                  </span>
+                  {d.funds.map((f) => {
+                    const cat = f.category ? byId.get(f.category) : undefined;
+                    const red = f.balanceCents < 0;
+                    return (
+                      <div key={f.category || f.name} className="flex items-center justify-between gap-3">
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <CategoryTag name={cat?.name ?? f.name} color={cat?.color} />
+                          <span className={red ? "type-caption font-semibold text-warning" : "type-caption text-ink-muted"}>
+                            {red ? `${formatBRL(-f.balanceCents)} in the red` : `${formatBRL(f.balanceCents)} saved`}
+                          </span>
+                        </span>
+                        <span className="type-figure-sm">{formatBRL(f.spentCents)}</span>
                       </div>
                     );
                   })}

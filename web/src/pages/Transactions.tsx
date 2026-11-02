@@ -25,6 +25,7 @@ import {
 import { typeLabel, useResource, type Category, type DaysView, type TagView, type Transaction, type TransactionList } from "@/lib/api";
 import { useCategories, useWaiting } from "@/lib/categories";
 import { addMonths, dayLabel, formatBRL, formatDay, formatMonth, formatWeekday, todayISO } from "@/lib/format";
+import { isShortcut } from "@/lib/keys";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { Link, hrefWith, navigate, setQuery, useLocation } from "@/lib/router";
@@ -101,9 +102,10 @@ export function Transactions() {
   useEffect(() => {
     if (!tx) return;
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      // Esc in the phone sheet is the sheet's: it has already closed it.
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      // Esc in the phone sheet is the sheet's: it has already closed it. The
+      // sheet is the detail these keys move through, but a dialog over it,
+      // like "Remove this entry?", keeps them.
+      if (e.defaultPrevented || !isShortcut(e, "[role=alertdialog]")) return;
       const to = e.key === "ArrowUp" || e.key === "k" ? prev : e.key === "ArrowDown" || e.key === "j" ? next : undefined;
       if (e.key === "Escape") {
         e.preventDefault();
@@ -130,7 +132,7 @@ export function Transactions() {
     ? everyMonth
       ? `${list.summary.count} ${list.summary.count === 1 ? "match" : "matches"} for ${q ? `“${q}”` : `#${tag}`} in every month · ${formatBRL(-list.summary.outCents)} out` +
         (list.summary.inCents ? ` · ${formatBRL(list.summary.inCents)} in` : "")
-      : `${list.summary.count} ${filtered ? "found" : ""} in ${day ? formatDay(day) : monthName}`.replace("  ", " ") +
+      : `${list.summary.count} ${filtered ? "found" : ""} ${day ? `on ${formatDay(day)}` : `in ${monthName}`}`.replace("  ", " ") +
         (list.summary.pending ? ` · ${list.summary.pending} pending` : "")
     : undefined;
 
@@ -162,7 +164,7 @@ export function Transactions() {
           waiting ? (
             <Button asChild variant="primary">
               <Link to="/review">
-                Review {waiting} <Kbd>R</Kbd>
+                Review {waiting} {wide && <Kbd>R</Kbd>}
               </Link>
             </Button>
           ) : undefined
@@ -318,15 +320,15 @@ export function Transactions() {
                 : q
                   ? everyMonth
                     ? `Nothing matches “${q}” in any month.`
-                    : `Nothing matches “${q}” in ${day ? formatDay(day) : monthName}.`
+                    : `Nothing matches “${q}” ${day ? `on ${formatDay(day)}` : `in ${monthName}`}.`
                   : day
                     ? `Nothing on ${formatDay(day)}.`
                     : filtered
                       ? `Nothing like this in ${monthName}.`
-                      : `Nothing in ${monthName} yet.`}
+                      : `Nothing in ${monthName}${month === current ? " yet" : ""}.`}
             </Empty>
           )}
-          {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} />}
+          {list && <Days transactions={list.transactions} selected={tx} categories={cats.byId} filter={category} />}
         </Panel>
 
         {tx && wide && (
@@ -532,8 +534,23 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="m-0 px-5 py-6 type-body text-ink-muted">{children}</p>;
 }
 
-/** The list, grouped by day, each day with what it added up to. */
-function Days({ transactions, selected, categories }: { transactions: Transaction[]; selected: string | null; categories: Map<string, Category> }) {
+/**
+ * The list, grouped by day, each day with what it added up to. Under a
+ * category filter a split shows its part in that category, as the figures
+ * count it, and names that category.
+ */
+function Days({
+  transactions,
+  selected,
+  categories,
+  filter,
+}: {
+  transactions: Transaction[];
+  selected: string | null;
+  categories: Map<string, Category>;
+  /** The category filter: an id, "none" or "". */
+  filter: string;
+}) {
   const today = todayISO();
   const days: { date: string; rows: Transaction[] }[] = [];
   for (const t of transactions) {
@@ -558,10 +575,10 @@ function Days({ transactions, selected, categories }: { transactions: Transactio
                 description={t.description}
                 meta={meta(t)}
                 kind={t.kind}
-                amountCents={t.amountCents}
+                amountCents={t.countedCents}
                 pending={t.status === "pending"}
                 installment={t.installment ? `${t.installment.number} of ${t.installment.total}` : undefined}
-                category={categoryOf(t, categories)}
+                category={categoryOf(t, categories, filter)}
                 moreCategories={Math.max(0, t.splitCategories.length - 1)}
                 tags={t.tags}
                 noted={Boolean(t.note)}
@@ -574,14 +591,14 @@ function Days({ transactions, selected, categories }: { transactions: Transactio
   );
 }
 
-/** "R$ 72,00 out · R$ 480,00 in": only what counts. */
+/** "R$ 72,00 out · R$ 480,00 in": only what counts, a split's filtered part included. */
 function dayTotal(rows: Transaction[]): string {
   let out = 0;
   let inn = 0;
   for (const t of rows) {
     if (t.kind === "transfer" || t.kind === "bill_payment") continue;
-    if (t.amountCents < 0) out -= t.amountCents;
-    else inn += t.amountCents;
+    if (t.countedCents < 0) out -= t.countedCents;
+    else inn += t.countedCents;
   }
   const parts = [];
   if (out) parts.push(`${formatBRL(out)} out`);
@@ -601,8 +618,9 @@ function meta(t: Transaction): string {
   return `${t.account.institution} · ${typeLabel[t.account.type]}${by}`;
 }
 
-/** The row's category: its name and colour, or null while it waits for one. */
-function categoryOf(t: Transaction, categories: Map<string, Category>) {
-  const c = t.category ? categories.get(t.category.id) : undefined;
+/** The row's category: its name and colour, or null while it waits for one. A split under a category filter names the filtered one. */
+function categoryOf(t: Transaction, categories: Map<string, Category>, filter: string) {
+  const id = t.splitCategories.includes(filter) ? filter : t.category?.id;
+  const c = id ? categories.get(id) : undefined;
   return c ? { name: c.name, color: c.color } : null;
 }

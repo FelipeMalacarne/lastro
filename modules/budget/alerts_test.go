@@ -45,3 +45,15 @@ func TestFindAlerts(t *testing.T) {
 		t.Errorf("September: %+v", sep)
 	}
 }
+
+func TestMerchantLink(t *testing.T) {
+	for _, c := range []struct{ name, want string }{
+		{"SPOTIFY", "/transactions?q=Spotify&scope=all"},
+		{"PAO DE ACUCAR", "/transactions?q=Pao+de+Acucar&scope=all"},
+		{"PG&E", "/transactions?q=Pg%26e&scope=all"},
+	} {
+		if got := merchantLink(c.name); got != c.want {
+			t.Errorf("merchantLink(%q) = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

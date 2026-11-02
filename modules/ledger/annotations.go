@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 
 	"lastro/money"
 )
@@ -22,19 +25,24 @@ func NewNote(s string) (Note, error) {
 }
 
 // Tag cuts across categories ("trip-rio" for a trip's flights, hotel and
-// meals): lowercase letters and digits joined by dashes, up to 32.
+// meals, "educação"): lowercase letters and digits of any alphabet joined by
+// dashes, up to 32 characters.
 type Tag string
+
+// maxTag is how many characters a tag has at most.
+const maxTag = 32
 
 // NewTag lowercases the text and drops a leading "#"; spaces become dashes.
 func NewTag(s string) (Tag, error) {
-	s = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#")))
+	s = strings.ToLower(norm.NFC.String(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))))
 	s = strings.Join(strings.Fields(s), "-")
-	if s == "" || len(s) > 32 {
-		return "", fmt.Errorf("%w: a tag has 1 to 32 characters", ErrInvalid)
+	rs := []rune(s)
+	if len(rs) == 0 || len(rs) > maxTag {
+		return "", reason(fmt.Sprintf("a tag has 1 to %d characters", maxTag))
 	}
-	for i, r := range s {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && (r != '-' || i == 0 || i == len(s)-1) {
-			return "", fmt.Errorf("%w: tag %q: use letters, digits and dashes", ErrInvalid, s)
+	for i, r := range rs {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && (r != '-' || i == 0 || i == len(rs)-1) {
+			return "", reason("a tag takes letters, digits and dashes between them, like trip-rio")
 		}
 	}
 	return Tag(s), nil
@@ -56,7 +64,7 @@ func NewTags(in []string) ([]Tag, error) {
 		}
 	}
 	if len(out) > maxTags {
-		return nil, fmt.Errorf("%w: at most %d tags", ErrInvalid, maxTags)
+		return nil, reason(fmt.Sprintf("a transaction takes up to %d tags", maxTags))
 	}
 	slices.Sort(out)
 	return out, nil

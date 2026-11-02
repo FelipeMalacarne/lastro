@@ -14,6 +14,14 @@ import (
 // answer "bad input" with errors.Is(err, ledger.ErrInvalid).
 var ErrInvalid = errors.New("ledger: invalid value")
 
+// reason is an invalid value I can fix by typing something else, said as a
+// clause the screens show as it is ("a tag has 1 to 32 characters"). The
+// API answers with the clause alone.
+type reason string
+
+func (r reason) Error() string { return ErrInvalid.Error() + ": " + string(r) }
+func (r reason) Unwrap() error { return ErrInvalid }
+
 // ExternalID is the id a source system gives an account or a transaction
 // (today, Pluggy). The ledger only compares it, except to tell what I typed
 // in, which it ids itself with manualPrefix.

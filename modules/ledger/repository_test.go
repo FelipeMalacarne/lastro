@@ -651,6 +651,11 @@ func TestRepositoryManualAccounts(t *testing.T) {
 	if _, err := svc.AddManualTransaction(ctx, pgbl, oct(27), "x", money.BRLCents(-1)); !errors.Is(err, ErrInvalid) {
 		t.Errorf("an asset takes no transactions: %v", err)
 	}
+	for _, day := range []time.Time{oct(28), time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)} {
+		if _, err := svc.AddManualTransaction(ctx, wallet, day, "x", money.BRLCents(-1)); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s is outside 1 Jan 2000 to today: %v", day.Format(time.DateOnly), err)
+		}
+	}
 }
 
 func TestRepositoryMarkedTransferSurvivesASync(t *testing.T) {

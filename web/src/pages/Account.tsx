@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeftRight, CreditCard, List, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/api";
 import { addMonths, formatBRL, formatDate, formatDay, formatMonth, todayISO } from "@/lib/format";
 import { useCategories } from "@/lib/categories";
+import { focusBack } from "@/lib/focus";
 import { useWide } from "@/lib/media";
 import { useMonth } from "@/lib/month";
 import { pickNotice } from "@/lib/notice";
@@ -337,6 +338,9 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
   // On a wide screen the open bill starts selected beside the list; on a
   // phone nothing is, until a bill opens in the sheet.
   const [picked, setPicked] = useState<string | null>(null);
+  // The bill the sheet came from, kept while it slides away.
+  const fromBill = useRef<string | null>(null);
+  if (picked) fromBill.current = picked;
 
   const limit = a.card?.limitCents;
   const available = a.card?.availableCents;
@@ -454,7 +458,16 @@ function CardView({ a, bank }: { a: Account; bank: Bank }) {
           </Panel>
         )}
         {!wide && (
-          <Sheet open={Boolean(picked && selected)} onOpenChange={(o) => !o && setPicked(null)} label={selected ? billName(selected, today) : "Bill"}>
+          <Sheet
+            open={Boolean(picked && selected)}
+            onOpenChange={(o) => !o && setPicked(null)}
+            label={selected ? billName(selected, today) : "Bill"}
+            onCloseAutoFocus={(e) => {
+              // Back to the bill it came from, which a tap may never have focused.
+              e.preventDefault();
+              focusBack(`[data-bill="${fromBill.current}"]`);
+            }}
+          >
             {detail}
           </Sheet>
         )}

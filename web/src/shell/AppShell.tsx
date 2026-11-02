@@ -8,10 +8,12 @@ import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { useResource } from "@/lib/api";
 import { useWaiting } from "@/lib/categories";
 import { formatMonth } from "@/lib/format";
+import { isShortcut } from "@/lib/keys";
 import { useMonth } from "@/lib/month";
 import { Link, navigate, useLocation } from "@/lib/router";
 import { setTheme, useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/shell/ErrorBoundary";
 
 type Destination = { to: string; label: string; icon: LucideIcon; phone: boolean };
 
@@ -47,6 +49,8 @@ function NavItem({ to, label, icon: Icon, here, count, countLabel }: { to: strin
     <Link
       to={to}
       aria-current={here ? "page" : undefined}
+      // Read once, as "Transactions, 78 to review", not "Transactions 78 78 to review".
+      aria-label={count && countLabel ? `${label}, ${countLabel}` : undefined}
       className={cn(
         "flex h-9 items-center gap-3 rounded-sm px-2 text-[14px] leading-5 font-semibold no-underline transition-colors",
         here ? "bg-tinta-soft text-tinta shadow-[inset_2px_0_0_var(--tinta)] hover:text-tinta" : "text-ink hover:bg-paper-sunken hover:text-ink",
@@ -58,7 +62,6 @@ function NavItem({ to, label, icon: Icon, here, count, countLabel }: { to: strin
         <Tooltip label={countLabel} side="right">
           <span className="inline-flex h-5 min-w-[22px] items-center justify-center rounded-sm bg-warning-soft px-1.5 font-figure text-[12px] leading-4 font-medium text-warning">
             {count}
-            <span className="sr-only"> {countLabel}</span>
           </span>
         </Tooltip>
       ) : null}
@@ -101,11 +104,11 @@ export function AppShell({ accounts, children }: Props) {
   const waiting = useWaiting();
   const me = useResource<{ version: string; env: string }>("/api/v1/me");
 
-  // "/" opens search from anywhere; R opens the review queue.
+  // "/" opens search from anywhere; R opens the review queue. Neither reaches
+  // under an open dialog or sheet.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement;
-      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [contenteditable], [role=menu]")) return;
+      if (!isShortcut(e)) return;
       if (e.key.toLowerCase() === "r" && location.pathname !== "/review") {
         e.preventDefault();
         navigate("/review");
@@ -184,7 +187,10 @@ export function AppShell({ accounts, children }: Props) {
             </div>
           </header>
           <main className="px-4 pt-4 pb-24 lg:px-8 lg:pt-8 lg:pb-14">
-            <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">{children}</div>
+            <div className="mx-auto flex max-w-[1180px] flex-col gap-4 lg:gap-6">
+              {/* Keyed by the path, so going to another screen leaves a failed one behind. */}
+              <ErrorBoundary key={path}>{children}</ErrorBoundary>
+            </div>
           </main>
           <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 grid h-16 grid-cols-5 border-t border-rule bg-paper-raised pb-[env(safe-area-inset-bottom)] lg:hidden">
             {destinations
@@ -196,6 +202,7 @@ export function AppShell({ accounts, children }: Props) {
                     key={d.to}
                     to={d.to}
                     aria-current={here ? "page" : undefined}
+                    aria-label={d.to === "/transactions" && waiting ? `${d.label}, ${waiting} to review` : undefined}
                     className={cn(
                       "relative flex flex-col items-center justify-center gap-1 text-[12px] leading-4 font-semibold no-underline",
                       here ? "text-tinta hover:text-tinta" : "text-ink-muted hover:text-ink",
@@ -206,7 +213,6 @@ export function AppShell({ accounts, children }: Props) {
                     {d.to === "/transactions" && waiting ? (
                       <span className="absolute top-2 left-[calc(50%+6px)] inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-warning-soft px-1 font-figure text-[11px] leading-4 font-medium text-warning">
                         {waiting > 99 ? "99+" : waiting}
-                        <span className="sr-only"> to review</span>
                       </span>
                     ) : null}
                   </Link>

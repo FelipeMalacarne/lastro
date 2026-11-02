@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -41,6 +42,20 @@ func TestTransactionsEndpointValidatesTheFilter(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/transactions/days?month=2026-10&q=uber&scope=all", nil))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "days are one month's") {
 		t.Errorf("the days are always one month's: got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestInvalidValuesAnswerTheirReason(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("ledger: set tags: %w", reason("a tag has 1 to 32 characters")), "a tag has 1 to 32 characters"},
+		{fmt.Errorf("%w: kind %q", ErrInvalid, "x"), `ledger: invalid value: kind "x"`},
+	} {
+		if got := badRequest(c.err); got.Status != http.StatusBadRequest || got.Message != c.want {
+			t.Errorf("badRequest(%v) = %+v, want %q", c.err, got, c.want)
+		}
 	}
 }
 

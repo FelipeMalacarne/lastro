@@ -10,6 +10,7 @@ import (
 
 	"lastro/modules/ledger"
 	"lastro/money"
+	"lastro/platform/events"
 )
 
 var (
@@ -31,17 +32,21 @@ type Service struct {
 	repo   *Repository
 	ledger *ledger.Service
 	llm    LLM
+	bus    *events.Bus
 	logger *slog.Logger
 	now    func() time.Time
 }
 
-// New creates the service. llm and logger may be nil: without a model,
-// what no rule meets waits in To review.
-func New(repo *Repository, l *ledger.Service, llm LLM, logger *slog.Logger) *Service {
+// New creates the service. llm, bus and logger may be nil: without a model,
+// what no rule meets waits in To review; without a bus, nothing listens.
+func New(repo *Repository, l *ledger.Service, llm LLM, bus *events.Bus, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Service{repo: repo, ledger: l, llm: llm, logger: logger, now: time.Now}
+	if bus == nil {
+		bus = events.NewBus(nil)
+	}
+	return &Service{repo: repo, ledger: l, llm: llm, bus: bus, logger: logger, now: time.Now}
 }
 
 // OnTransactionsImported runs the rules over what an import brought. It
@@ -214,12 +219,17 @@ func (s *Service) UpdateCategory(ctx context.Context, id ledger.CategoryID, ch C
 }
 
 // ArchiveCategory takes a category out of use and deletes its rules, which
-// could no longer lead anywhere. Transactions already in it keep it. It
+// could no longer lead anywhere. Transactions already in it keep it. After
+// the commit it publishes CategoryArchived, so the budget lets it go. It
 // returns how many rules went with it.
 func (s *Service) ArchiveCategory(ctx context.Context, id ledger.CategoryID) (int64, error) {
-	n, err := s.repo.archiveCategory(ctx, id, s.now())
+	now := s.now()
+	n, err := s.repo.archiveCategory(ctx, id, now)
 	if err != nil {
 		return 0, fmt.Errorf("categorize: archive category: %w", err)
+	}
+	if err := s.bus.Publish(ctx, CategoryArchived{Category: id, At: now}); err != nil {
+		return n, fmt.Errorf("categorize: archive category: publish: %w", err)
 	}
 	return n, nil
 }
@@ -245,25 +255,20 @@ func (s *Service) learn(ctx context.Context, p Pattern, account ledger.AccountID
 	if err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
-	now := s.now()
-	rule, err := s.repo.ruleByPattern(ctx, p, account)
+	had, err := s.repo.ruleByPattern(ctx, p, account)
 	if err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)
 	}
 	var was ledger.CategoryID
-	if rule == nil {
-		if rule, err = NewRule(p, account, c, origin, now); err != nil {
-			return learned{}, err
-		}
-	} else {
-		was = rule.Category()
-		changed, err := rule.Retarget(c, now)
-		if err != nil {
-			return learned{}, err
-		}
-		if !changed {
-			return learned{rule: rule.ID(), was: was}, nil
-		}
+	if had != nil {
+		was = had.Category()
+	}
+	rule, changed, err := Teach(had, p, account, c, origin, s.now())
+	if err != nil {
+		return learned{}, err
+	}
+	if !changed {
+		return learned{rule: rule.ID(), was: was}, nil
 	}
 	if err := s.repo.saveRule(ctx, rule); err != nil {
 		return learned{}, fmt.Errorf("categorize: learn: %w", err)

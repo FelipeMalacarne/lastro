@@ -53,6 +53,8 @@ export type Transaction = {
   tags: string[];
   /** A split's categories, largest part first; empty when not split. */
   splitCategories: string[];
+  /** What counts in the list: under a category filter, a split's part in it; otherwise the amount. */
+  countedCents: number;
   /** A transfer I marked: to an account lastro does not have. */
   markedTransfer: boolean;
   /** Added by me: a wallet entry, or one the bank never sent. */
@@ -193,7 +195,14 @@ async function load(url: string) {
   notify();
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
-    const body = await r.json().catch(() => ({}));
+    // An error's body may not be JSON, and its status says enough; a success's must be.
+    const body = await r.json().catch(() => {
+      if (r.ok) throw new Error("the answer could not be read");
+      return {};
+    });
+    // A newer load of the same URL aborted this one, maybe while the body was
+    // read: what this one has is not the data, and the newer load writes it.
+    if (ctrl.signal.aborted) return;
     if (signInIfAsked(r, body)) return;
     if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
     cache.set(url, { data: body, loading: false, at: Date.now() });
@@ -244,7 +253,18 @@ export function refreshAll() {
   for (const url of cache.keys()) void load(url);
 }
 
-/** Sends a change and refreshes what the screens show. Throws the API's message. */
+/** What send() throws: the API's message, with the status and code it came with. */
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Sends a change and refreshes what the screens show. Throws the API's message, as an ApiError. */
 export async function send<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELETE", url: string, body?: unknown): Promise<T> {
   const r = await fetch(url, {
     method,
@@ -253,7 +273,7 @@ export async function send<T = unknown>(method: "POST" | "PUT" | "PATCH" | "DELE
   });
   const out = await r.json().catch(() => ({}));
   if (signInIfAsked(r, out)) throw new Error("Signing in again…");
-  if (!r.ok) throw new Error(out.message || `HTTP ${r.status}`);
+  if (!r.ok) throw new ApiError(out.message || `HTTP ${r.status}`, r.status, out.code);
   refreshAll();
   return out as T;
 }

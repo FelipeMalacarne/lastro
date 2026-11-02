@@ -2,8 +2,10 @@ package budget
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"lastro/modules/ledger"
 	"lastro/money"
@@ -233,5 +235,60 @@ func TestLimitSetAgainCarriesWhatItDid(t *testing.T) {
 	}
 	if err := b.SetLimits([]Line{{ID: grown.ID, Name: "Food and fun", Categories: cats(fun, shop), Limit: money.BRLCents(80000)}, one(food, 1, false)}, now); err != nil {
 		t.Errorf("every line at once, food's id given to the shared line: %v", err)
+	}
+}
+
+// Archiving a category takes it out of the budget from the month it was
+// archived on: out of its line, which keeps its other categories and its id,
+// and a line left without any goes. The months before keep it.
+func TestDropFrom(t *testing.T) {
+	food, fun, shop, pet := cat(t, "food"), cat(t, "fun"), cat(t, "shop"), cat(t, "pet")
+	aug, _ := NewMonthlyBudget(month(t, "2026-08"), now)
+	_ = aug.SetLimit(food, money.BRLCents(50000), true, now)
+	free, _ := aug.AddLine(Line{Name: "Free", Categories: cats(fun, shop), Limit: money.BRLCents(100000), Rollover: true}, now)
+	oct := aug.For(month(t, "2026-10"))
+	dec := aug.For(month(t, "2026-12"))
+	_, _ = dec.RemoveLimit(food, now)
+	_ = dec.ChangeLine(Line{ID: free, Name: "Free", Categories: cats(fun, shop, pet), Limit: money.BRLCents(120000), Rollover: true}, now)
+	saved := []*MonthlyBudget{aug, oct, dec}
+	later := now.Add(time.Hour)
+
+	tests := []struct {
+		name     string
+		archived ledger.CategoryID
+		month    string
+		want     []string // the months saved again
+	}{
+		{"its own line goes", food, "2026-10", []string{"2026-10"}},
+		{"a shared line keeps the others", shop, "2026-10", []string{"2026-10", "2026-12"}},
+		{"a month that inherits is saved as its own", food, "2026-09", []string{"2026-09", "2026-10"}},
+		{"only from that month on", pet, "2026-10", []string{"2026-12"}},
+		{"before the first budget", food, "2026-07", []string{"2026-08", "2026-10"}},
+		{"a category no line covers", cat(t, "gifts"), "2026-10", nil},
+	}
+	for _, tt := range tests {
+		got := DropFrom(saved, month(t, tt.month), tt.archived, later)
+		var months []string
+		for _, b := range got {
+			months = append(months, b.Month().String())
+			if _, ok := b.LineOf(tt.archived); ok || !b.UpdatedAt().Equal(later) {
+				t.Errorf("%s: %s still covers it, or was not changed now", tt.name, b.Month())
+			}
+			// Every other category stays in the line it was in.
+			was, _ := Effective(saved, b.Month())
+			for _, l := range was.Lines() {
+				for _, c := range l.Categories {
+					if got, ok := b.LineOf(c); c != tt.archived && (!ok || got.ID != l.ID || got.Name != l.Name) {
+						t.Errorf("%s: in %s, %s left line %s: %+v", tt.name, b.Month(), c, l.ID, got)
+					}
+				}
+			}
+		}
+		if !slices.Equal(months, tt.want) {
+			t.Errorf("%s: saved %v again, want %v", tt.name, months, tt.want)
+		}
+	}
+	if _, ok := aug.LineOf(food); !ok || len(aug.Lines()) != 2 || len(oct.Lines()) != 2 {
+		t.Error("the budgets read changed: the months before must keep their figures")
 	}
 }

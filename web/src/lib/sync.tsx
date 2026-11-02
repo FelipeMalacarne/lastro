@@ -3,8 +3,10 @@ import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { refreshAll, send, useResource } from "@/lib/api";
-import { toast } from "@/lib/toast";
+import { ApiError, refreshAll, send, useResource, type Connection } from "@/lib/api";
+import { MEU_PLUGGY } from "@/lib/notice";
+import { navigate } from "@/lib/router";
+import { toast, type ToastAction } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 // The sync CronJob: minute 17 of every sixth hour, in Brasília time.
@@ -21,6 +23,51 @@ export function nextSync(now = new Date()): string {
 }
 
 type SyncStatus = { running: boolean; started: string | null; finished: string | null; ok: boolean; message: string };
+
+/** Opens Settings › Server, where the server says how it is set up. */
+const openServer: ToastAction = {
+  label: "Open Settings",
+  run: () => {
+    navigate("/settings#server");
+    requestAnimationFrame(() => document.getElementById("server")?.scrollIntoView({ block: "start" }));
+  },
+};
+
+/**
+ * Why a sync could not start, in one sentence (canvas: R2ToastDesktop). The
+ * server's error chain goes to the console, never on screen.
+ */
+function startFailure(e: unknown): { text: string; action?: ToastAction } {
+  console.error("lastro: sync now:", e);
+  if (e instanceof ApiError && e.status === 503 && e.code === "unavailable") {
+    return { text: "Sync is off: Pluggy is not set up on this server.", action: openServer };
+  }
+  if (e instanceof ApiError && e.status === 409) return { text: "A sync is already running." };
+  return { text: "Could not start the sync. Try again in a minute." };
+}
+
+/**
+ * How a finished sync that went wrong reads: the bank that needs a new
+ * login, with a way to Meu Pluggy, or one sentence; never the error chain.
+ */
+async function syncFailure(s: SyncStatus): Promise<{ text: string; action?: ToastAction } | null> {
+  if (!s.ok) {
+    console.error("lastro: sync failed:", s.message);
+    return { text: `Sync failed: the server could not finish it. It tries again at ${nextSync()}.` };
+  }
+  // "…; 1 bank failed": when a bank wants a new login, say which and where.
+  if (!/ failed$/.test(s.message)) return null;
+  const conns = await fetch("/api/v1/connections", { headers: { Accept: "application/json" } })
+    .then((x) => x.json() as Promise<{ connections: Connection[] }>)
+    .then((x) => x.connections)
+    .catch(() => []);
+  const reauth = conns.find((c) => c.health === "reauth");
+  if (!reauth) return null;
+  return {
+    text: `Sync failed: ${reauth.institution} needs you to log in again.`,
+    action: { label: "Open Meu Pluggy", run: () => window.open(MEU_PLUGGY, "_blank", "noreferrer") },
+  };
+}
 
 // One watcher for the page, however many Sync buttons it shows: it polls a
 // running sync until it ends, then everything on screen reloads. A sync
@@ -40,7 +87,10 @@ function watch() {
           .catch(() => null);
         if (!s || s.running) continue;
         refreshAll();
-        if (reportOutcome) toast({ id: "sync", tone: s.ok ? "done" : "error", text: s.ok ? `Synced: ${s.message}.` : `Sync failed: ${s.message}.` });
+        if (reportOutcome) {
+          const failure = await syncFailure(s);
+          toast(failure ? { id: "sync", tone: "error", ...failure } : { id: "sync", text: `Synced: ${s.message}.` });
+        }
         reportOutcome = false;
         return;
       }
@@ -67,8 +117,9 @@ export function useSync() {
       watch();
     } catch (e) {
       reportOutcome = false;
-      setError((e as Error).message);
-      toast({ id: "sync", tone: "error", text: `Could not start the sync: ${(e as Error).message}.` });
+      const failure = startFailure(e);
+      setError(failure.text);
+      toast({ id: "sync", tone: "error", ...failure });
     }
   }
   const last = res.data;

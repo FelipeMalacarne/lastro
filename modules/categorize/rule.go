@@ -56,6 +56,26 @@ func NewRule(p Pattern, account ledger.AccountID, c Category, origin Origin, now
 	return r, nil
 }
 
+// Teach is the rule a choice teaches: a new one, or had, the rule with the
+// same pattern and account, retargeted. Only a correction retargets one: a
+// rule written by hand never takes another over, so it is refused with
+// ErrRuleTaken, as an edit into that pattern is. It reports whether the
+// rule changed.
+func Teach(had *Rule, p Pattern, account ledger.AccountID, c Category, origin Origin, now time.Time) (*Rule, bool, error) {
+	if had == nil {
+		r, err := NewRule(p, account, c, origin, now)
+		return r, err == nil, err
+	}
+	if origin == OriginHand {
+		return nil, false, fmt.Errorf("%w: %s %s", ErrRuleTaken, had.pattern.kind, had.pattern.text)
+	}
+	changed, err := had.Retarget(c, now)
+	if err != nil {
+		return nil, false, err
+	}
+	return had, changed, nil
+}
+
 // Retarget sends the rule to another category, for a correction that meets
 // a pattern already taught. It reports whether anything changed.
 func (r *Rule) Retarget(c Category, now time.Time) (bool, error) {
