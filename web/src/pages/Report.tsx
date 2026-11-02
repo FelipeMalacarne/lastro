@@ -136,7 +136,7 @@ export function Report() {
                   </ul>
                 )}
               </Panel>
-              <Panel title={`Investments in ${name.split(" ")[0]}`} footer="Invested money and the emergency fund together, as net worth counts them.">
+              <Panel title={`Investments in ${name.split(" ")[0]}`} footer="Invested money and the pots together, as net worth counts them.">
                 <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[14px] leading-5">
                   <dt className="text-ink-muted">Put in</dt>
                   <dd className="m-0 text-right font-figure">{d.putInCents === null ? "—" : formatBRL(d.putInCents)}</dd>

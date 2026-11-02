@@ -11,12 +11,11 @@ import (
 
 func TestGroupEndpointValidatesFirst(t *testing.T) {
 	mux := http.NewServeMux()
-	New(nil, nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	New(nil, nil, nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	path := "/api/v1/position-groups/0123456789abcdef"
 	tests := []struct{ body, want string }{
-		{`{"reserve": "amount"}`, "emergency fund"},
-		{`{"reserve": "amount", "reserveCents": -100}`, "emergency fund"},
-		{`{"reserve": "half"}`, "emergency fund"},
+		{`{"reserve": "amount"}`, "a JSON object"}, // the emergency fund is a pot now (ADR-0014)
+		{`{"holdsPots": "yes"}`, "a JSON object"},
 		{`{"emergency": true}`, "a JSON object"},
 		{`not json`, "a JSON object"},
 	}

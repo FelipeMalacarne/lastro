@@ -26,6 +26,17 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		httpx.JSON(w, http.StatusOK, v)
 	})
 
+	// GET /api/v1/pots: the pool that holds the pots against what they
+	// claim (ADR-0014).
+	mux.HandleFunc("GET /api/v1/pots", func(w http.ResponseWriter, r *http.Request) {
+		v, err := s.Pots(r.Context())
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, v)
+	})
+
 	// GET /api/v1/scoreboard: the stock picks against the Ibovespa and CDI, by year.
 	mux.HandleFunc("GET /api/v1/scoreboard", func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.Scoreboard(r.Context())
@@ -77,27 +88,17 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 
 	// PATCH /api/v1/position-groups/{id} {"class": "ipca" | "" (automatic),
-	// "reserve": "none" | "amount" | "all", "reserveCents": 1200000}.
+	// "holdsPots": true}.
 	mux.HandleFunc("PATCH /api/v1/position-groups/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Class        *string `json:"class"`
-			Reserve      *string `json:"reserve"`
-			ReserveCents int64   `json:"reserveCents"`
+			Class     *string `json:"class"`
+			HoldsPots *bool   `json:"holdsPots"`
 		}
-		if err := decode(w, r, &in, "class, reserve and reserveCents"); err != nil {
+		if err := decode(w, r, &in, "class and holdsPots"); err != nil {
 			fail(w, r, err)
 			return
 		}
-		var res *Reserve
-		if in.Reserve != nil {
-			x, err := ParseReserve(*in.Reserve, in.ReserveCents)
-			if err != nil {
-				fail(w, r, err)
-				return
-			}
-			res = &x
-		}
-		if err := s.UpdateGroup(r.Context(), r.PathValue("id"), in.Class, res); err != nil {
+		if err := s.UpdateGroup(r.Context(), r.PathValue("id"), in.Class, in.HoldsPots); err != nil {
 			fail(w, r, err)
 			return
 		}

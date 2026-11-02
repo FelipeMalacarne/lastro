@@ -1,4 +1,4 @@
-// What the Budget screen's parts share about lines (ADR-0011, ADR-0012).
+// What the Budget screen's parts share about lines (ADR-0011, ADR-0012, ADR-0014).
 
 import { send, type BudgetLine, type BudgetMonth, type Category, type NoteColor } from "@/lib/api";
 import { formatMonth } from "@/lib/format";
@@ -6,9 +6,13 @@ import { formatMonth } from "@/lib/format";
 /** A line shared by several categories, which goes by a name of its own. */
 export const isShared = (l: BudgetLine) => l.byCategory.length > 1;
 
-/** What a line is called: a shared line's name, else its one category's. */
+/** A pot without categories (the emergency fund, a goal): its money leaves only when moved out. */
+export const isBare = (l: BudgetLine) => l.byCategory.length === 0;
+
+/** What a line is called: a shared line's or a bare pot's name, else its one category's. */
 export function lineName(l: BudgetLine, byId: Map<string, Category>): string {
   if (isShared(l)) return l.name ?? "Shared line";
+  if (isBare(l)) return l.name ?? "Pot";
   return byId.get(l.byCategory[0]?.category ?? "")?.name ?? l.name ?? "Archived category";
 }
 
@@ -21,7 +25,7 @@ export function lineColors(l: BudgetLine, byId: Map<string, Category>): NoteColo
 export const monthName = (m: string) => formatMonth(m).split(" ")[0];
 
 /** A line as the API takes it, for PUT and POST. */
-export type LineBody = { id?: string; name: string; categories: string[]; limitCents: number; rollover: boolean; fund: boolean };
+export type LineBody = { id?: string; name: string; categories: string[]; limitCents: number; rollover: boolean; fund: boolean; targetCents: number | null };
 
 /** A line's body with some of it changed: the rest stays as it is. */
 export function lineBody(l: BudgetLine, change: Partial<LineBody> = {}): LineBody {
@@ -31,6 +35,7 @@ export function lineBody(l: BudgetLine, change: Partial<LineBody> = {}): LineBod
     limitCents: l.limitCents,
     rollover: l.rollover,
     fund: l.fund,
+    targetCents: l.targetCents,
     ...change,
   };
 }

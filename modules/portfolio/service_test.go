@@ -19,7 +19,7 @@ func TestPortfolio(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
 	l := ledger.New(ledger.NewRepository(pool), nil)
-	s := New(NewRepository(pool), l, market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	s := New(NewRepository(pool), l, market.New(market.NewRepository(pool), nil, nil, nil, nil), fixedPots{{Name: "Emergency fund", Balance: money.BRLCents(1000000)}})
 	day1 := time.Date(2025, 10, 27, 15, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return day1 }
 
@@ -43,11 +43,11 @@ func TestPortfolio(t *testing.T) {
 	if n, err := s.SyncPositions(ctx, "it", reports(day1, "100", 1000000)); err != nil || n != 5 {
 		t.Fatalf("first sync: %d, %v (a CDB withdrawn before lastro knew it is not followed)", n, err)
 	}
-	all := WholeReserve()
-	if err := s.UpdateGroup(ctx, GroupID(reports(day1, "100", 1000000)[4]), nil, &all); err != nil {
+	holds := true
+	if err := s.UpdateGroup(ctx, GroupID(reports(day1, "100", 1000000)[4]), nil, &holds); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpdateGroup(ctx, "nope", nil, &all); !errors.Is(err, ErrNotFound) {
+	if err := s.UpdateGroup(ctx, "nope", nil, &holds); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown position: %v", err)
 	}
 	if _, err := s.Valuate(ctx, s.Today()); err != nil {
@@ -65,7 +65,7 @@ func TestPortfolio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nw.Invested.Cents() != 2000000+1800000+4500000 || nw.Emergency.Cents() != 1000000 || nw.Cash.Cents() != 500000 {
+	if nw.Invested.Cents() != 2000000+1800000+4500000 || nw.Pots.Cents() != 1000000 || nw.Cash.Cents() != 500000 {
 		t.Errorf("net worth %+v", nw)
 	}
 
@@ -142,7 +142,7 @@ func TestDividendsAndPriceDrops(t *testing.T) {
 	pool := dbtest.New(t)
 	l := ledger.New(ledger.NewRepository(pool), nil)
 	m := market.New(market.NewRepository(pool), nil, nil, nil, nil)
-	s := New(NewRepository(pool), l, m)
+	s := New(NewRepository(pool), l, m, nil)
 	date := func(s string) time.Time { d, _ := time.Parse(time.DateOnly, s); return d }
 	at := func(day string) { s.now = func() time.Time { return date(day).Add(15 * time.Hour) } }
 	wege := func(qty string, asOf time.Time) []Report {
@@ -202,12 +202,18 @@ func TestDividendsAndPriceDrops(t *testing.T) {
 	}
 }
 
-// Caixinha contributions are one group: its class and the amount set apart
-// as the emergency fund apply to every lot, the next ones too.
+// fixedPots are pots that never change, for a portfolio without Budget.
+type fixedPots []Pot
+
+func (f fixedPots) Pots(context.Context, time.Time) ([]Pot, error) { return f, nil }
+
+// Caixinha contributions are one group: its class, and holding the pots,
+// apply to every lot, the next ones too.
 func TestGroups(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
-	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	pots := fixedPots{{Name: "Emergency fund", Balance: money.BRLCents(1100000), Target: money.BRLCents(1500000)}, {Name: "Car", Balance: money.BRLCents(-40000)}, {Name: "Dates", Balance: money.BRLCents(100000)}}
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil), pots)
 	now := time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
 	lot := func(id string, value int64, maturity string) Report {
@@ -219,28 +225,37 @@ func TestGroups(t *testing.T) {
 	if _, err := s.SyncPositions(ctx, "it", lots); err != nil {
 		t.Fatal(err)
 	}
-	fund, _ := AmountReserve(money.BRLCents(1200000))
-	if err := s.UpdateGroup(ctx, GroupID(lots[0]), nil, &fund); err != nil {
+	o, err := s.Overview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := o.Pots; p.Groups != 0 || p.ClaimCents != 1200000 || p.SetApartCents != 0 || p.ShortCents != 0 || o.InvestedCents != 2100000 {
+		t.Errorf("no group holds the pots yet: %+v, invested %d", p, o.InvestedCents)
+	}
+	holds := true
+	if err := s.UpdateGroup(ctx, GroupID(lots[0]), nil, &holds); err != nil {
 		t.Fatal(err)
 	}
 	// A new contribution joins the group.
 	if _, err := s.SyncPositions(ctx, "it", append(lots, lot("d", 100000, "2028-10-27"))); err != nil {
 		t.Fatal(err)
 	}
-	o, err := s.Overview(ctx)
-	if err != nil {
+	if o, err = s.Overview(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if len(o.Groups) != 1 || o.Positions != 1 {
 		t.Fatalf("groups %+v", o.Groups)
 	}
 	g := o.Groups[0]
-	if g.ValueCents != 2200000 || len(g.Lots) != 4 || g.Reserve != ReserveAmount || g.ReserveCents != 1200000 || g.EmergencyCents != 1200000 ||
+	if g.ValueCents != 2200000 || len(g.Lots) != 4 || !g.HoldsPots || g.PotsCents != 1200000 ||
 		*g.FirstMaturity != "2027-12-11" || *g.LastMaturity != "2028-10-27" || g.Lots[0].ValueCents != 1000000 {
 		t.Errorf("group %+v", g)
 	}
-	if o.NetWorth.EmergencyCents != 1200000 || o.InvestedCents != 1000000 {
-		t.Errorf("emergency %d, invested %d", o.NetWorth.EmergencyCents, o.InvestedCents)
+	if o.NetWorth.PotsCents != 1200000 || o.InvestedCents != 1000000 {
+		t.Errorf("pots %d, invested %d", o.NetWorth.PotsCents, o.InvestedCents)
+	}
+	if p := o.Pots; p.Groups != 1 || p.PoolCents != 2200000 || p.ClaimCents != 1200000 || p.LeftCents != 1000000 || p.ShortCents != 0 || len(p.Pots) != 3 {
+		t.Errorf("pool %+v", p)
 	}
 	// Withdrawing two lots leaves the group short of the amount.
 	if _, err := s.SyncPositions(ctx, "it", []Report{lots[1], lot("d", 100000, "2028-10-27")}); err != nil {
@@ -249,15 +264,15 @@ func TestGroups(t *testing.T) {
 	if o, err = s.Overview(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if g := o.Groups[0]; g.EmergencyCents != 900000 || g.ShortCents != 300000 || o.InvestedCents != 0 {
-		t.Errorf("short: %+v, invested %d", g, o.InvestedCents)
+	if g, p := o.Groups[0], o.Pots; g.PotsCents != 900000 || p.ShortCents != 300000 || p.LeftCents != 0 || o.InvestedCents != 0 {
+		t.Errorf("short: %+v, %+v, invested %d", g, p, o.InvestedCents)
 	}
 }
 
-// The migration to groups keeps what each lot was marked as: a group whose
-// open lots were all emergency fund stays all of it, one partly marked sets
-// apart what those lots were worth, and the class chosen for a lot goes to
-// its group. The ids it computes in SQL are GroupID's.
+// The migration to groups keeps what each lot was marked as, and the one
+// to pots (ADR-0014) puts every group that had an emergency fund in the
+// pool: the class chosen for a lot goes to its group. The ids it computes
+// in SQL are GroupID's.
 func TestGroupsFromMarkedLots(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
@@ -280,24 +295,23 @@ func TestGroupsFromMarkedLots(t *testing.T) {
 	if err := migrations.Up(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil), nil)
 	o, err := s.Overview(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	type want struct {
-		reserve          string
-		cents, emergency int64
-		class            Class
+		holds bool
+		class Class
 	}
 	got := map[int64]want{}
 	for _, g := range o.Groups {
-		got[g.RateBp] = want{g.Reserve, g.ReserveCents, g.EmergencyCents, g.Class}
+		got[g.RateBp] = want{g.HoldsPots, g.Class}
 	}
 	exp := map[int64]want{
-		10000: {ReserveAmount, 1500000, 1500000, ClassCDI}, // a and b marked, c not, d closed
-		12000: {ReserveAll, 0, 400000, ClassCDI},
-		0:     {ReserveNone, 0, 0, ClassGlobal},
+		10000: {true, ClassCDI}, // a and b marked, c not, d closed
+		12000: {true, ClassCDI},
+		0:     {false, ClassGlobal},
 	}
 	for rate, w := range exp {
 		if got[rate] != w {
@@ -309,7 +323,7 @@ func TestGroupsFromMarkedLots(t *testing.T) {
 func TestSyncHistories(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
-	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil))
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil), nil)
 	s.now = func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) }
 	day := func(s string) time.Time { d, _ := time.Parse(time.DateOnly, s); return d }
 	q := func(s string) *Quantity { x, _ := ParseQuantity(s); return &x }

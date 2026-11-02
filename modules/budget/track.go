@@ -39,7 +39,11 @@ const aheadBy = 1000
 // balance it brought, debt included, Available that plus its monthly amount
 // and adjustment, and Left its balance after the month's spending.
 type LineStatus struct {
-	Line      Line
+	Line Line
+	// Amount is what of its limit or monthly amount the line takes this
+	// month: all of it, but for a pot with a target, which takes only what
+	// it lacks of it (ADR-0014).
+	Amount    money.Money
 	Carried   money.Money   // rolled over from the month before
 	Adjusted  money.Money   // a fund's adjustment this month
 	Available money.Money   // limit plus carried, plus a fund's adjustment
@@ -92,6 +96,9 @@ type Tracking struct {
 	Spent     money.Money
 	Left      money.Money // available minus spent
 	Funds     Funds
+	// Assigned is what every line takes this month, the limits and the
+	// pots' monthly amounts as taken: what Not assigned leaves out.
+	Assigned money.Money
 }
 
 // Funds is the month's funds together (ADR-0011): their monthly amounts,
@@ -136,7 +143,7 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 	b, ok := Effective(saved, m)
 	if !ok {
 		zero := money.BRLCents(0)
-		t.Available, t.Spent, t.Left = zero, zero, zero
+		t.Available, t.Spent, t.Left, t.Assigned = zero, zero, zero, zero
 		t.Funds = Funds{Amount: zero, Carried: zero, Adjusted: zero, Spent: zero, Balance: zero, Kept: zero}
 		for c, s := range spending[m] {
 			t.Unlimited[c] = s
@@ -152,7 +159,7 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 	t.Saved = t.From == m
 
 	carry, ends := carried(saved, spending, adjusted, m)
-	var avail, spent int64
+	var avail, spent, assigned int64
 	var funds struct{ amount, carried, adjusted, spent, kept int64 }
 	for _, l := range b.Lines() {
 		s := spending[m].on(l.Categories)
@@ -160,9 +167,12 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 		if l.IsFund() {
 			adj = adjusted.of(m, l.ID)
 		}
-		a := l.Limit.Cents() + in + adj
+		amt := l.takes(in + adj)
+		assigned += amt
+		a := amt + in + adj
 		st := LineStatus{
 			Line:      l,
+			Amount:    money.BRLCents(amt),
 			Carried:   money.BRLCents(in),
 			Adjusted:  money.BRLCents(adj),
 			Available: money.BRLCents(a),
@@ -191,11 +201,11 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 		}
 		t.Lines = append(t.Lines, st)
 		if l.IsFund() {
-			funds.amount += l.Limit.Cents()
+			funds.amount += amt
 			funds.carried += in
 			funds.adjusted += adj
 			funds.spent += s
-			funds.kept += l.Limit.Cents() - s
+			funds.kept += amt - s
 			t.Funds.Count++
 			continue
 		}
@@ -222,13 +232,15 @@ func Track(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustm
 		return a.Line.ID.String() < b.Line.ID.String()
 	})
 	t.Available, t.Spent, t.Left = money.BRLCents(avail), money.BRLCents(spent), money.BRLCents(avail-spent)
+	t.Assigned = money.BRLCents(assigned)
 	return t
 }
 
 // carried is what each line brings into m: walking from the first saved
 // month, a limit that rolls over passes on what it has left, never a debt,
 // and one that does not passes on nothing; a fund passes on its balance
-// after its monthly amount, adjustment and spending, debt included. What a
+// after its monthly amount (as taken), adjustment and spending, debt
+// included. What a
 // line carries follows its id, whatever categories it covers. ends is each
 // fund's balance at the end of every month walked.
 func carried(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjustments, m Month) (carry map[LineID]int64, ends map[Month]map[LineID]int64) {
@@ -243,10 +255,14 @@ func carried(saved []*MonthlyBudget, spending map[Month]Spending, adjusted Adjus
 		}
 		next := map[LineID]int64{}
 		for _, l := range b.Lines() {
-			left := l.Limit.Cents() + intake(l, carry[l.ID]) - spending[k].on(l.Categories)
+			in, adj := intake(l, carry[l.ID]), int64(0)
+			if l.IsFund() {
+				adj = adjusted.of(k, l.ID)
+			}
+			left := l.takes(in+adj) + in - spending[k].on(l.Categories)
 			switch {
 			case l.IsFund():
-				next[l.ID] = left + adjusted.of(k, l.ID)
+				next[l.ID] = left + adj
 				if ends[k] == nil {
 					ends[k] = map[LineID]int64{}
 				}

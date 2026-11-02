@@ -313,27 +313,35 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 	})
 }
 
-// lineIn is a line as the API takes it: one category or several, and a
-// fund or a limit; without "fund", a line keeps the kind it had.
+// lineIn is a line as the API takes it: one category or several, or none
+// for a pot (ADR-0014), and a fund or a limit; without "fund", a line keeps
+// the kind it had. A fund's target is replaced with the line: left out, it
+// has none.
 type lineIn struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Category   string   `json:"category"`
-	Categories []string `json:"categories"`
-	LimitCents *int64   `json:"limitCents"`
-	Rollover   bool     `json:"rollover"`
-	Fund       *bool    `json:"fund"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Category    string   `json:"category"`
+	Categories  []string `json:"categories"`
+	LimitCents  *int64   `json:"limitCents"`
+	Rollover    bool     `json:"rollover"`
+	Fund        *bool    `json:"fund"`
+	TargetCents *int64   `json:"targetCents"`
 }
+
+const lineShape = "limitCents and up to 50 categories (a limit needs one)"
 
 func (in lineIn) line() (Line, error) {
 	ids := in.Categories
 	if in.Category != "" {
 		ids = append([]string{in.Category}, ids...)
 	}
-	if len(ids) == 0 || len(ids) > 50 || in.LimitCents == nil {
-		return Line{}, httpx.BadRequest("each line needs a category (or up to 50 categories) and limitCents")
+	if len(ids) > 50 || in.LimitCents == nil {
+		return Line{}, httpx.BadRequest("each line needs " + lineShape)
 	}
 	l := Line{Name: in.Name, Limit: money.BRLCents(*in.LimitCents), Rollover: in.Rollover}
+	if in.TargetCents != nil {
+		l.Target = money.BRLCents(*in.TargetCents)
+	}
 	switch {
 	case in.Fund == nil:
 	case *in.Fund:
@@ -344,7 +352,7 @@ func (in lineIn) line() (Line, error) {
 	for _, id := range ids {
 		c, err := ledger.NewCategoryID(id)
 		if err != nil {
-			return Line{}, httpx.BadRequest("each line needs a category (or up to 50 categories) and limitCents")
+			return Line{}, httpx.BadRequest("each line needs " + lineShape)
 		}
 		l.Categories = append(l.Categories, c)
 	}

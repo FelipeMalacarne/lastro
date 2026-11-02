@@ -412,7 +412,7 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
   const sum = parts.reduce<number>((s, p) => s + (p ?? 0), 0);
   const bandBps = bps(band);
   const valid = parts.every((p) => p !== null) && sum === 10000 && bandBps !== null && bandBps <= 1000;
-  const emergency = v.groups.filter((g) => g.reserve !== "none");
+  const pool = v.groups.filter((g) => g.holdsPots);
 
   async function save() {
     setState("busy");
@@ -440,7 +440,7 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
           <span className={cn("inline-flex items-center gap-1", sum === 10000 ? "text-inflow" : "text-warning")}>
             {sum === 10000 ? <Check className="size-3.5" aria-hidden /> : <TriangleAlert className="size-3.5" aria-hidden />}
             {sum === 10000 ? "Adds up to 100%" : `Adds up to ${formatPercent(sum)}: ${formatPercent(Math.abs(10000 - sum))} ${sum < 10000 ? "missing" : "too much"}`}
-            <span className="text-ink-muted">· the emergency fund stays out</span>
+            <span className="text-ink-muted">· the pots stay out</span>
           </span>
         }
       >
@@ -457,17 +457,17 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
         <TextField aria-label="Band, points either side" numeric inputMode="decimal" value={band} onChange={(e) => setBand(e.target.value)} suffix="points either side" className="w-[200px]" error={bandBps === null || bandBps > 1000 ? "0 to 10" : undefined} />
       </Row>
       <Row
-        label="Emergency fund"
+        label="Pots"
         hint={
           <>
-            Shown apart and never part of a contribution split. Set an amount, or all of a position, on the <Link to="/portfolio">Portfolio</Link>, by opening the position.
+            The emergency fund and the other pots live on <Link to="/budget">Budget</Link>; what they claim is set apart from the groups that hold them, shown apart and never part of a contribution split. Mark those groups on the <Link to="/portfolio">Portfolio</Link>, by opening the position.
           </>
         }
       >
-        <span className="text-right text-[14px] leading-5">{emergency.length ? (
-            emergency.map((g) => `${g.name}: ${g.reserve === "all" ? "all of it" : formatBRL(g.reserveCents)}`).join("; ")
+        <span className="text-right text-[14px] leading-5">{pool.length ? (
+            `Held by ${pool.map((g) => g.name).join("; ")} · ${formatBRL(v.pots.claimCents)} claimed`
           ) : (
-            <span className="text-ink-muted">None set</span>
+            <span className="text-ink-muted">No group holds them</span>
           )}</span>
       </Row>
       <Row label="Review the targets" hint="Each January the Portfolio asks you to look at the allocation again, before the year's first contribution.">

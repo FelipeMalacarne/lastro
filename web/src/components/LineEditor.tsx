@@ -15,10 +15,12 @@ import { cn } from "@/lib/utils";
 type Kind = "limit" | "fund";
 
 /**
- * A line's editor (canvas: "Budget: shared lines and funds", editing a line):
- * a limit or a fund, its name, the categories it covers, its amount, and for
- * a limit whether it rolls over; a new fund also takes what is already saved
- * for it. Beside the list on desktop, in the sheet on a phone.
+ * A line's editor (canvas: "Budget: shared lines and funds", editing a line;
+ * "Pots in one pool: Budget", adding a pot): a limit or a pot, its name, the
+ * categories it covers (none for a pot like the emergency fund), its amount,
+ * for a limit whether it rolls over and for a pot its target; a new pot also
+ * takes what is already saved for it. Beside the list on desktop, in the
+ * sheet on a phone.
  */
 export function LineEditor({
   v,
@@ -41,6 +43,7 @@ export function LineEditor({
   const [name, setName] = useState(line?.name ?? "");
   const [picked, setPicked] = useState<Set<string>>(() => new Set(line?.byCategory.map((p) => p.category) ?? []));
   const [amount, setAmount] = useState(line ? inputBRL(line.limitCents) : "");
+  const [target, setTarget] = useState(line?.targetCents ? inputBRL(line.targetCents) : "");
   const [rollover, setRollover] = useState(line ? line.rollover : v.rolloverNew);
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,25 +58,32 @@ export function LineEditor({
   const options = categories.filter((c) => c.budgeted && !c.archived);
   const cents = amount.trim() ? parseBRL(amount) : null;
   const savedCents = saved.trim() ? parseBRL(saved) : 0;
+  const targetCents = target.trim() ? parseBRL(target) : 0;
   const shared = picked.size > 1;
+  const bare = kind === "fund" && picked.size === 0;
+  const named = shared || bare;
   const month = monthName(v.month);
   const problem =
-    picked.size === 0
+    picked.size === 0 && kind === "limit"
       ? "Tick at least one category."
-      : shared && !name.trim()
-        ? "A line with more than one category needs a name."
+      : named && !name.trim()
+        ? shared
+          ? "A line with more than one category needs a name."
+          : "A pot without categories needs a name."
         : cents === null
           ? `Type ${kind === "fund" ? "what goes in each month" : "the monthly limit"}, like 500,00.`
           : savedCents === null
             ? "Type what is already saved, like 750,00, or leave it empty."
-            : null;
+            : kind === "fund" && (targetCents === null || targetCents < 0)
+              ? "Type a target, like 15.000,00, or leave it empty."
+              : null;
 
   function note(c: Category): { text: string; strong?: boolean } {
     const at = where.get(c.id);
     if (line && at?.id === line.id) return { text: "In this line" };
     if (!at) return { text: "No limit yet" };
     const own = !isShared(at);
-    const what = own ? `its own ${at.fund ? "fund" : "limit"} of ${formatBRL(at.limitCents)}` : lineName(at, byId);
+    const what = own ? `its own ${at.fund ? "pot" : "limit"} of ${formatBRL(at.limitCents)}` : lineName(at, byId);
     return picked.has(c.id) ? { text: `Leaves ${what}`, strong: true } : { text: own ? `Has ${what}` : `In ${what}` };
   }
 
@@ -91,14 +101,15 @@ export function LineEditor({
     if (problem || cents === null) return;
     const before = snapshot(v);
     const body: LineBody = {
-      name: shared ? name.trim() : "",
+      name: named ? name.trim() : "",
       categories: [...picked],
       limitCents: cents,
       rollover: kind === "limit" && rollover,
       fund: kind === "fund",
+      targetCents: kind === "fund" && targetCents ? targetCents : null,
     };
     const moved = [...picked].filter((id) => where.has(id) && where.get(id)!.id !== line?.id).map((id) => byId.get(id)?.name ?? "A category");
-    const called = shared ? body.name : (byId.get(body.categories[0])?.name ?? "The line");
+    const called = named ? body.name : (byId.get(body.categories[0])?.name ?? "The line");
     setBusy(true);
     setError(null);
     try {
@@ -138,7 +149,7 @@ export function LineEditor({
         id: "budget",
         text: (
           <>
-            <strong>{called}</strong> has no {line.fund ? "fund" : "limit"} from {month} on.
+            <strong>{called}</strong> has no {line.fund ? "pot" : "limit"} from {month} on.
           </>
         ),
         undo: () => restore(v.month, before),
@@ -151,7 +162,7 @@ export function LineEditor({
     }
   }
 
-  const title = line ? lineName(line, byId) : kind === "fund" ? "A new fund" : "A new line";
+  const title = line ? lineName(line, byId) : kind === "fund" ? "A new pot" : "A new line";
   const body = (
     <form id={formId} onSubmit={save} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
@@ -161,20 +172,22 @@ export function LineEditor({
           onChange={setKind}
           options={[
             { value: "limit", label: "Limit" },
-            { value: "fund", label: "Fund" },
+            { value: "fund", label: "Pot" },
           ]}
         />
         <span className="type-caption text-ink-muted">
           {kind === "fund"
-            ? "Money for spending that comes in lumps, kept invested: it saves its amount up and carries its balance, debt included."
+            ? "A pot sets money apart, kept invested, and carries its balance, debt included: spending that comes in lumps, the emergency fund, a goal."
             : "A limit is for spending within the month."}
         </span>
       </div>
-      {shared && (
-        <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} hint="Needed when a line has more than one category." />
+      {named && (
+        <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} hint="Needed when a pot has no category or a line more than one." />
       )}
       <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-        <legend className="mb-1.5 p-0 text-[14px] leading-5 font-semibold">Categories</legend>
+        <legend className="mb-1.5 p-0 text-[14px] leading-5 font-semibold">
+          Categories{kind === "fund" && <span className="font-normal text-ink-muted"> · optional for a pot</span>}
+        </legend>
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
           {options.map((c) => {
             const n = note(c);
@@ -189,7 +202,11 @@ export function LineEditor({
             );
           })}
         </div>
-        {!shared && <span className="type-caption text-ink-muted">Tick more to share one {kind === "fund" ? "fund" : "limit"}, with a name for it.</span>}
+        {bare ? (
+          <span className="type-caption text-ink-muted">None ticked: money that leaves only when you move it, like the emergency fund or a goal.</span>
+        ) : (
+          !shared && <span className="type-caption text-ink-muted">Tick more to share one {kind === "fund" ? "pot" : "limit"}, with a name for it.</span>
+        )}
       </fieldset>
       <TextField
         label={kind === "fund" ? "Each month" : "Monthly limit"}
@@ -199,8 +216,20 @@ export function LineEditor({
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         error={amount.trim() && cents === null ? "Type an amount, like 500,00" : undefined}
-        hint={kind === "fund" ? "Invest it when the salary lands, wherever the fund is kept." : `From ${month} on; earlier months keep their lines.`}
+        hint={kind === "fund" ? (bare ? "Zero is fine: it can grow only with the money you move into it." : "Invest it when the salary lands, wherever the pot is kept.") : `From ${month} on; earlier months keep their lines.`}
       />
+      {kind === "fund" && (
+        <TextField
+          label="Target"
+          prefix="R$"
+          numeric
+          inputMode="decimal"
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          error={target.trim() && targetCents === null ? "Type an amount, like 15.000,00" : undefined}
+          hint="Optional. Once reached, the pot stops taking its monthly amount; spending below it asks again."
+        />
+      )}
       {kind === "limit" ? (
         <label className="flex cursor-pointer items-start gap-2.5">
           <Checkbox checked={rollover} onCheckedChange={(on) => setRollover(on === true)} className="mt-px" />
@@ -222,10 +251,10 @@ export function LineEditor({
               value={saved}
               onChange={(e) => setSaved(e.target.value)}
               error={saved.trim() && savedCents === null ? "Type an amount, like 750,00" : undefined}
-              hint="What is already invested for this. It starts the balance; pay yourself first does not change."
+              hint="What the Caixinhas already hold for this. It starts the balance; pay yourself first does not change."
             />
           )}
-          <p className="m-0 rounded-md bg-paper-sunken p-3 type-caption text-ink-muted">A fund carries its balance from month to month, debt included, so it never rolls over.</p>
+          <p className="m-0 rounded-md bg-paper-sunken p-3 type-caption text-ink-muted">A pot carries its balance from month to month, debt included, so it never rolls over.</p>
         </>
       )}
       {error && (
@@ -233,11 +262,11 @@ export function LineEditor({
           Could not save: {error}.
         </p>
       )}
-      {!error && problem && picked.size > 0 && (amount.trim() || shared) && <p className="m-0 type-caption text-ink-muted">{problem}</p>}
+      {!error && problem && (picked.size > 0 || bare) && (amount.trim() || named) && <p className="m-0 type-caption text-ink-muted">{problem}</p>}
       <SheetActions className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex gap-2">
           <Button type="submit" form={formId} variant="primary" size="sm" disabled={busy || Boolean(problem)}>
-            {line ? "Save line" : kind === "fund" ? "Add fund" : "Add line"}
+            {line ? "Save line" : kind === "fund" ? "Add pot" : "Add line"}
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={onDone}>
             Cancel
@@ -245,7 +274,7 @@ export function LineEditor({
         </span>
         {line && (
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void remove()}>
-            Remove {line.fund ? "fund" : "line"}
+            Remove {line.fund ? "pot" : "line"}
           </Button>
         )}
       </SheetActions>

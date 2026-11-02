@@ -114,7 +114,7 @@ func seedPortfolio(ctx context.Context, a *app.App, start, now time.Time) error 
 		h.basis = h.value
 	}
 	// Another lot of the same CDB, as each Caixinha contribution is: one
-	// group, with R$ 15.000 of it set apart as the emergency fund.
+	// group, holding the pots: the emergency fund among them.
 	reserve := &holding{id: "seed-reserva", item: "seed-nubank", inst: "Nubank", name: "CDB Nubank 100% CDI", kind: portfolio.KindFixedIncome, class: portfolio.ClassCDI, idx: portfolio.IndexerCDI, rate: 10000, value: 1500000, basis: 1500000}
 	monthly := map[portfolio.Class][2]float64{ // mean and spread of a month's return
 		portfolio.ClassCDI: {0.0095, 0}, portfolio.ClassIPCA: {0.009, 0.006}, portfolio.ClassGlobal: {0.013, 0.035}, portfolio.ClassBR: {0.008, 0.05},
@@ -191,11 +191,8 @@ func seedPortfolio(ctx context.Context, a *app.App, start, now time.Time) error 
 				return err
 			}
 		}
-		fund, err := portfolio.AmountReserve(money.BRLCents(1500000))
-		if err != nil {
-			return err
-		}
-		if err := a.Portfolio.UpdateGroup(ctx, portfolio.GroupID(report(reserve, day)), nil, &fund); err != nil {
+		holds := true // the Caixinhas hold the pots, the emergency fund among them
+		if err := a.Portfolio.UpdateGroup(ctx, portfolio.GroupID(report(reserve, day)), nil, &holds); err != nil {
 			return err
 		}
 		if _, err := a.Portfolio.Valuate(ctx, day); err != nil {
@@ -355,10 +352,11 @@ func seedBudget(ctx context.Context, a *app.App, start, now time.Time) error {
 	return nil
 }
 
-// seedLinesAndFunds makes Leisure and Shopping share one limit (ADR-0012)
-// and Health a fund that started with what was already saved for it
-// (ADR-0011), from the budget's first month on. Running it again finds
-// them there.
+// seedLinesAndFunds makes Leisure and Shopping share one limit (ADR-0012),
+// Health a fund that started with what was already saved for it
+// (ADR-0011), and the emergency fund a pot without categories, with a
+// target and what the Caixinhas already held for it (ADR-0014), from the
+// budget's first month on. Running it again finds them there.
 func seedLinesAndFunds(ctx context.Context, a *app.App, cats []categorize.Category, first budget.Month) error {
 	byName := map[string]ledger.CategoryID{}
 	for _, c := range cats {
@@ -376,10 +374,13 @@ func seedLinesAndFunds(ctx context.Context, a *app.App, cats []categorize.Catego
 	if err != nil {
 		return err
 	}
-	shared, fund := false, ""
+	shared, emergency, fund := false, false, ""
 	for _, l := range v.Lines {
 		if l.Name != nil && *l.Name == "Free to spend" {
 			shared = true
+		}
+		if l.Name != nil && *l.Name == "Emergency fund" {
+			emergency = true
 		}
 		if len(l.ByCategory) == 1 && l.ByCategory[0].Category == health.String() {
 			fund = l.ID
@@ -388,6 +389,16 @@ func seedLinesAndFunds(ctx context.Context, a *app.App, cats []categorize.Catego
 	if !shared {
 		line := budget.Line{Name: "Free to spend", Categories: []ledger.CategoryID{leisure, shopping}, Limit: money.BRLCents(65000), Rollover: true}
 		if _, err := a.Budget.AddLine(ctx, first, line); err != nil {
+			return err
+		}
+	}
+	if !emergency {
+		pot := budget.Line{Name: "Emergency fund", Limit: money.BRLCents(0), Kind: budget.KindFund, Target: money.BRLCents(1500000)}
+		id, err := a.Budget.AddLine(ctx, first, pot)
+		if err != nil {
+			return err
+		}
+		if err := a.Budget.Adjust(ctx, first, id, money.BRLCents(1500000)); err != nil {
 			return err
 		}
 	}

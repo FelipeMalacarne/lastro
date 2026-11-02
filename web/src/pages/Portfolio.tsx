@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Clock, PiggyBank, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Clock, PiggyBank, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -9,12 +9,12 @@ import { PriceChart } from "@/components/charts/PriceChart";
 import { Dividends, PriceAlert, Valuation, ValuationLine } from "@/components/PortfolioIncome";
 import { Notice } from "@/components/Notice";
 import { Panel } from "@/components/Panel";
-import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextField } from "@/components/TextField";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
-import { assetClasses, send, useResource, type AssetClass, type PortfolioOverview, type PositionGroup, type Reserve, type Thesis } from "@/lib/api";
-import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, parseBRL } from "@/lib/format";
+import { assetClasses, send, useResource, type AssetClass, type PortfolioOverview, type PositionGroup, type Thesis } from "@/lib/api";
+import { formatBRL, formatDay, formatMonth, formatPercent } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
 import { toast } from "@/lib/toast";
@@ -113,7 +113,7 @@ function Hero({ v }: { v: PortfolioOverview }) {
   const nw = v.netWorth;
   const rows: { label: string; caption: string; cents: number }[] = [
     { label: "Invested", caption: "The allocation below", cents: nw.investedCents },
-    { label: "Emergency fund", caption: "Apart from the allocation", cents: nw.emergencyCents },
+    ...(nw.potsCents ? [{ label: "Pots", caption: "Set apart on Budget, kept invested", cents: nw.potsCents }] : []),
     { label: "Cash in accounts", caption: "Checking, savings and the wallet", cents: nw.cashCents },
     { label: "Card bills", caption: "Owed on the cards", cents: nw.cardsCents },
     ...(nw.otherCents ? [{ label: "Outside Open Finance", caption: "Balances you typed in", cents: nw.otherCents }] : []),
@@ -450,22 +450,24 @@ function partOf(g: PositionGroup, cents: number): Part {
 const positionCols = "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_140px_110px_128px_72px]";
 
 function Positions({ v }: { v: PortfolioOverview }) {
-  // The opened row: a group can show in its class and in the emergency fund.
+  // The opened row: a group can show in its class and under the pots.
   const [open, setOpen] = useState<string | null>(null);
+  const pots = v.pots;
+  const claimed = pots.pots.filter((p) => p.balanceCents > 0);
   const sections = [
     ...assetClasses.map((k) => ({
       key: k.id as string,
       name: k.name,
       color: k.color,
-      parts: v.groups.filter((g) => g.class === k.id && g.valueCents > g.emergencyCents).map((g) => partOf(g, g.valueCents - g.emergencyCents)),
+      parts: v.groups.filter((g) => g.class === k.id && g.valueCents > g.potsCents).map((g) => partOf(g, g.valueCents - g.potsCents)),
     })),
-    { key: "emergency", name: "Emergency fund", color: "note-200" as const, parts: v.groups.filter((g) => g.emergencyCents > 0 || g.shortCents > 0).map((g) => partOf(g, g.emergencyCents)) },
-  ].filter((s) => s.parts.length > 0);
+    { key: "pots", name: "Pots", color: "note-200" as const, parts: v.groups.filter((g) => g.holdsPots && g.potsCents > 0).map((g) => partOf(g, g.potsCents)) },
+  ].filter((s) => s.parts.length > 0 || (s.key === "pots" && pots.claimCents > 0));
   return (
     <Panel
       title="Positions"
       bodyClassName="-mx-5"
-      footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Lots from the same bank, issuer, indexer and rate are one row; open it to see each contribution. “Since bought” is the value over what it cost. The emergency fund is the amount you set, taken from its group; the rest of the group counts in its class."
+      footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Lots from the same bank, issuer, indexer and rate are one row; open it to see each contribution. “Since bought” is the value over what it cost. The pots are what Budget's pots claim, taken from the groups that hold them; the rest of those groups counts in its class."
     >
       <div role="table" aria-label="Positions by class">
         <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", positionCols)}>
@@ -486,19 +488,26 @@ function Positions({ v }: { v: PortfolioOverview }) {
         {sections.map((s) => {
           const total = s.parts.reduce((t, p) => t + p.cents, 0);
           const basis = s.parts.reduce((t, p) => t + p.basis, 0);
+          const isPots = s.key === "pots";
           return (
             <div key={s.key} role="rowgroup">
               <div role="row" className={cn("grid min-h-10 items-center gap-x-4 border-b border-rule bg-paper px-5", positionCols)}>
-                <span role="cell" className="flex items-center gap-2">
-                  {s.key === "emergency" ? (
+                <span role="cell" className="flex flex-wrap items-center gap-x-2">
+                  {isPots ? (
                     <span className="inline-flex items-center gap-1.5 text-[14px] font-semibold">
-                      <ShieldCheck className="size-4 text-ink-muted" aria-hidden /> Emergency fund
+                      <PiggyBank className="size-4 text-ink-muted" aria-hidden /> Pots
                     </span>
                   ) : (
                     <CategoryTag name={s.name} color={s.color} />
                   )}
                   <span className="type-caption text-ink-muted">
-                    {s.key === "emergency" ? "not in the allocation" : `${v.investedCents ? Math.round((total / v.investedCents) * 100) : 0}% of invested`}
+                    {isPots ? (
+                      <>
+                        not in the allocation · <Link to="/budget">on Budget</Link>
+                      </>
+                    ) : (
+                      `${v.investedCents ? Math.round((total / v.investedCents) * 100) : 0}% of invested`
+                    )}
                   </span>
                 </span>
                 <span role="cell" className="hidden sm:block" />
@@ -510,10 +519,23 @@ function Positions({ v }: { v: PortfolioOverview }) {
                   {basis > 0 ? formatPercent(((total - basis) * 10000) / basis, { sign: "always" }) : ""}
                 </span>
               </div>
+              {isPots && pots.groups === 0 && (
+                <p className="m-0 border-b border-rule bg-paper-raised px-5 py-3 type-caption text-ink-muted">
+                  Budget's pots claim {formatBRL(pots.claimCents)}. Open the group that keeps them and turn on This group holds the pots. Until then their money counts in its class.
+                </p>
+              )}
               {s.parts.map((p) => {
                 const key = `${s.key}:${p.g.id}`;
                 return (
-                  <GroupRow key={key} p={p} emergency={s.key === "emergency"} open={open === key} onToggle={() => setOpen(open === key ? null : key)} onDone={() => setOpen(null)} />
+                  <GroupRow
+                    key={key}
+                    p={p}
+                    pots={isPots ? { claimed, claimCents: pots.claimCents, shortCents: pots.shortCents } : null}
+                    claimCents={pots.claimCents}
+                    open={open === key}
+                    onToggle={() => setOpen(open === key ? null : key)}
+                    onDone={() => setOpen(null)}
+                  />
                 );
               })}
             </div>
@@ -524,13 +546,32 @@ function Positions({ v }: { v: PortfolioOverview }) {
   );
 }
 
-function GroupRow({ p, emergency, open, onToggle, onDone }: { p: Part; emergency: boolean; open: boolean; onToggle: () => void; onDone: () => void }) {
+/** Under the pots, a group of the pool says what the pots claim of it and whether the pool is short. */
+type PotsPart = { claimed: PortfolioOverview["pots"]["pots"]; claimCents: number; shortCents: number };
+
+function GroupRow({
+  p,
+  pots,
+  claimCents,
+  open,
+  onToggle,
+  onDone,
+}: {
+  p: Part;
+  pots: PotsPart | null;
+  claimCents: number;
+  open: boolean;
+  onToggle: () => void;
+  onDone: () => void;
+}) {
   const g = p.g;
   const many = g.lots.length > 1;
-  const split = g.emergencyCents > 0 && g.emergencyCents < g.valueCents;
+  const split = g.potsCents > 0 && g.potsCents < g.valueCents;
   let caption = groupDetail(g) || g.kind;
-  if (emergency && g.reserve === "amount") caption = `${formatBRL(g.emergencyCents)} of ${formatBRL(g.valueCents)}${caption ? ` · ${caption}` : ""}`;
-  else if (!emergency && split) caption = `${caption} · ${formatBRL(g.emergencyCents)} of it is the emergency fund`;
+  if (pots) {
+    const names = pots.claimed.map((x) => `${x.name} ${formatBRL(x.balanceCents)}`).join(", ");
+    caption = `${formatBRL(g.potsCents)} of ${formatBRL(g.valueCents)}${names ? ` · ${names}` : ""}`;
+  } else if (g.holdsPots && g.potsCents > 0) caption = `${caption} · holds the pots, ${formatBRL(g.potsCents)} of it`;
   const quantity = g.ticker ? formatQuantity(String(g.lots.reduce((t, l) => t + Number(l.quantity), 0))) : "";
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
@@ -554,9 +595,9 @@ function GroupRow({ p, emergency, open, onToggle, onDone }: { p: Part; emergency
               {caption}
               <span className="sm:hidden"> · {g.institution}</span>
             </span>
-            {emergency && g.shortCents > 0 && (
+            {pots && pots.shortCents > 0 && (
               <span className="inline-flex items-center gap-1 type-caption text-warning">
-                <TriangleAlert className="size-3.5" aria-hidden /> {formatBRL(g.shortCents)} short of {formatBRL(g.reserveCents)}
+                <TriangleAlert className="size-3.5" aria-hidden /> {formatBRL(pots.shortCents)} short of the {formatBRL(pots.claimCents)} claimed
               </span>
             )}
           </span>
@@ -569,26 +610,23 @@ function GroupRow({ p, emergency, open, onToggle, onDone }: { p: Part; emergency
         </span>
         <span role="cell" className="flex flex-col items-end">
           <Amount cents={p.cents} sign="none" />
-          {!emergency && split && <span className="type-figure-sm text-ink-muted">of {formatBRL(g.valueCents)}</span>}
+          {!pots && split && <span className="type-figure-sm text-ink-muted">of {formatBRL(g.valueCents)}</span>}
           {g.returnBp !== null && <span className="type-figure-sm text-ink-muted sm:hidden">{formatPercent(g.returnBp, { sign: "always" })}</span>}
         </span>
         <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", g.returnBp !== null && g.returnBp < 0 ? "text-ink" : "text-ink-muted")}>
           {g.returnBp !== null ? formatPercent(g.returnBp, { sign: "always" }) : "—"}
         </span>
       </button>
-      {open && <GroupEditor g={g} onDone={onDone} />}
+      {open && <GroupEditor g={g} claimCents={claimCents} onDone={onDone} />}
     </div>
   );
 }
 
-function GroupEditor({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
+function GroupEditor({ g, claimCents, onDone }: { g: PositionGroup; claimCents: number; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState(g.reserve);
-  const [amount, setAmount] = useState(g.reserveCents ? inputBRL(g.reserveCents) : "");
-  const cents = parseBRL(amount);
-  const rest = mode === "amount" && cents ? Math.max(g.valueCents - cents, 0) : null;
-  async function save(body: { class?: string; reserve?: Reserve; reserveCents?: number }) {
+  const [holds, setHolds] = useState(g.holdsPots);
+  async function save(body: { class?: string; holdsPots?: boolean }) {
     setBusy(true);
     setError(null);
     try {
@@ -596,6 +634,7 @@ function GroupEditor({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
       onDone();
     } catch (e) {
       setError((e as Error).message);
+      if (body.holdsPots !== undefined) setHolds(!body.holdsPots);
     } finally {
       setBusy(false);
     }
@@ -607,7 +646,7 @@ function GroupEditor({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
         <span className="type-label text-ink-muted">Counts in</span>
         <div role="radiogroup" aria-label="Class" className="flex flex-wrap gap-1.5">
           {assetClasses.map((k) => {
-            const on = g.reserve !== "all" && g.class === k.id;
+            const on = g.class === k.id;
             return (
               <button
                 key={k.id}
@@ -629,56 +668,35 @@ function GroupEditor({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
         </div>
         <span className="type-caption text-ink-muted">
           {many ? `Applies to all ${g.lots.length} ${g.ticker ? "lots" : "contributions"}, and to the next ones that join this group.` : "Applies to the next lots of this product too."}
+          {g.holdsPots && " What is left after the pots counts here."}
         </span>
       </div>
 
-      <form
-        className="flex flex-col gap-2 border-t border-rule pt-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (cents) void save({ reserve: "amount", reserveCents: cents });
-        }}
-      >
+      <div className="flex flex-col gap-2 border-t border-rule pt-4">
         <span className="inline-flex items-center gap-1.5 type-label text-ink-muted">
-          <ShieldCheck className="size-3.5" aria-hidden /> Emergency fund
+          <PiggyBank className="size-3.5" aria-hidden /> Pots
         </span>
-        <SegmentedControl<Reserve>
-          label="Emergency fund"
-          className="self-start"
-          options={[
-            { value: "none", label: "None" },
-            { value: "amount", label: "An amount" },
-            { value: "all", label: "All of it" },
-          ]}
-          value={mode}
-          onChange={(m) => {
-            setMode(m);
-            if (m !== "amount") void save({ reserve: m });
-          }}
-        />
-        {mode === "amount" && (
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-            <TextField
-              label="Set apart from this group"
-              numeric
-              prefix="R$"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              error={amount && !cents ? "An amount, like 12.000,00" : undefined}
-              className="w-[200px]"
-            />
-            <Button type="submit" variant="primary" size="sm" disabled={busy || !cents}>
-              Save
-            </Button>
-          </div>
-        )}
+        <label className="flex max-w-[520px] cursor-pointer items-start justify-between gap-4">
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[14px] leading-5 font-semibold">This group holds the pots</span>
+            <span className="type-caption text-ink-muted">
+              {claimCents > 0 ? `Budget's pots claim ${formatBRL(claimCents)}. ` : ""}More than one group can hold them; the claim is then split by each one's value.
+            </span>
+          </span>
+          <Switch
+            checked={holds}
+            disabled={busy}
+            onCheckedChange={(on) => {
+              setHolds(on);
+              void save({ holdsPots: on });
+            }}
+          />
+        </label>
         {error && <p className="m-0 type-caption text-danger">Could not save: {error}.</p>}
-        <span className="max-w-[70ch] type-caption text-ink-muted">
-          The emergency fund is shown apart and never gets a share of a contribution.
-          {rest !== null && ` The other ${formatBRL(rest)} counts in ${classOf(g.class).name}.`}
-          {mode === "amount" && " When the group holds less than this, all of it is the emergency fund and the panel says how much is missing."}
+        <span className="type-caption text-ink-muted">
+          Saved the moment it is flipped. <Link to="/budget">See the pots on Budget</Link>
         </span>
-      </form>
+      </div>
 
       {many && <Lots g={g} />}
       {g.ticker && (g.kind === "stock" || g.kind === "bdr" || g.kind === "fii") && <Valuation ticker={g.ticker} />}

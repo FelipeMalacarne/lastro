@@ -125,7 +125,7 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		v.From = &f
 		p = t.Budget.Payday()
 		v.PayYourselfFirst.PlannedCents = t.Budget.PayYourselfFirst().Cents()
-		v.LimitsCents = t.Budget.Limits().Cents()
+		v.LimitsCents = t.Assigned.Cents()
 	}
 	v.Payday = p.Day()
 	v.PayYourselfFirst.Due = p.In(m).Format(time.DateOnly)
@@ -171,6 +171,7 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 			Rollover:       l.Rollover,
 			Fund:           l.IsFund(),
 			AdjustedCents:  st.Adjusted.Cents(),
+			AmountCents:    st.Amount.Cents(),
 			UsedBp:         st.Used.Bps(),
 			Pace:           st.Pace,
 			FixedCents:     st.Fixed.Cents(),
@@ -180,6 +181,10 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		if l.Name != "" {
 			name := l.Name
 			lv.Name = &name
+		}
+		if l.HasTarget() {
+			target := l.Target.Cents()
+			lv.TargetCents = &target
 		}
 		for _, c := range l.Categories {
 			lv.ByCategory = append(lv.ByCategory, LineCategoryView{
@@ -244,6 +249,65 @@ func (s *Service) Month(ctx context.Context, m Month) (MonthView, error) {
 		v.Summary.SavingsRateBp = (v.IncomeCents - spent) * 10000 / v.IncomeCents
 	}
 	return v, nil
+}
+
+// Pot is a pot's balance in a month, for the portfolio to set apart from
+// the pool (ADR-0014): what it carries, debt included, as the month
+// stands, or at its end for a past month.
+type Pot struct {
+	ID      LineID
+	Name    string // its own, or its one category's
+	Balance money.Money
+	Target  money.Money // zero for none
+}
+
+// Pots are the month's pots, by name; none when no
+// budget applies to it.
+func (s *Service) Pots(ctx context.Context, m Month) ([]Pot, error) {
+	saved, err := s.repo.Saved(ctx, m)
+	if err != nil || len(saved) == 0 {
+		return nil, wrap("pots", err)
+	}
+	cats, err := s.categorize.Categories(ctx)
+	if err != nil {
+		return nil, wrap("pots", err)
+	}
+	rows, err := s.ledger.CategoryMonths(ctx, saved[0].month.First(), m.First())
+	if err != nil {
+		return nil, wrap("pots", err)
+	}
+	adjusted, err := s.repo.Adjustments(ctx, m)
+	if err != nil {
+		return nil, wrap("pots", err)
+	}
+	spending, _ := spendingByMonth(rows, budgetedSet(cats))
+	names := make(map[ledger.CategoryID]string, len(cats))
+	for _, c := range cats {
+		names[c.ID] = c.Name
+	}
+	t := Track(saved, spending, adjusted, m, s.today(), nil)
+	var out []Pot
+	for _, st := range t.Lines {
+		l := st.Line
+		if !l.IsFund() {
+			continue
+		}
+		name := l.Name
+		if name == "" && len(l.Categories) == 1 {
+			name = names[l.Categories[0]]
+		}
+		out = append(out, Pot{ID: l.ID, Name: name, Balance: st.Left, Target: l.Target})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// wrap gives an error the budget's context; nil stays nil.
+func wrap(what string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("budget: %s: %w", what, err)
 }
 
 // recurringSince is how far back recurring charges are looked for.
@@ -459,7 +523,7 @@ func sameLines(a, b []Line) bool {
 	key := func(ls []Line) []string {
 		out := make([]string, len(ls))
 		for i, l := range ls {
-			out[i] = fmt.Sprintf("%v|%s|%d|%v", l.Categories, l.Name, l.Limit.Cents(), l.Rollover)
+			out[i] = fmt.Sprintf("%v|%s|%d|%v|%s|%d", l.Categories, l.Name, l.Limit.Cents(), l.Rollover, l.Kind, l.Target.Cents())
 		}
 		slices.Sort(out)
 		return out
@@ -603,8 +667,9 @@ func (s *Service) CopyLimits(ctx context.Context, to, from Month) (int, error) {
 	live := limitable(cats)
 	var lines []Line
 	for _, l := range src.Lines() {
+		n := len(l.Categories)
 		l.Categories = slices.DeleteFunc(l.Categories, func(c ledger.CategoryID) bool { return !live[c] })
-		if len(l.Categories) > 0 {
+		if len(l.Categories) > 0 || n == 0 { // a pot that never had a category is copied too
 			lines = append(lines, l)
 		}
 	}

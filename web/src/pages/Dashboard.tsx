@@ -227,7 +227,7 @@ function NetWorth() {
   const fromLabel = formatMonth(first.date.slice(0, 7), true);
   const rows = [
     { label: "Invested", cents: now.investedCents, to: "/portfolio" },
-    { label: "Emergency fund", cents: now.emergencyCents, to: "/portfolio" },
+    ...(now.potsCents ? [{ label: "Pots", cents: now.potsCents, to: "/budget" }] : []),
     { label: "Cash after card bills", cents: now.cashCents + now.cardsCents, to: "/transactions" },
     ...(now.otherCents ? [{ label: "Outside Open Finance", cents: now.otherCents, to: "/settings#manual" }] : []),
   ];

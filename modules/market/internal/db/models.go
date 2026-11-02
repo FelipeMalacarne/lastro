@@ -21,12 +21,13 @@ type BudgetAlertsSent struct {
 }
 
 type BudgetLine struct {
-	Month      time.Time
-	LimitCents int64
-	Rollover   bool
-	LineID     string
-	Name       *string
-	Fund       bool
+	Month       time.Time
+	LimitCents  int64
+	Rollover    bool
+	LineID      string
+	Name        *string
+	Fund        bool
+	TargetCents *int64
 }
 
 type BudgetLineCategory struct {
@@ -283,14 +284,14 @@ type PortfolioMovement struct {
 }
 
 type PortfolioNetWorth struct {
-	Date           time.Time
-	CashCents      int64
-	CardsCents     int64
-	InvestedCents  int64
-	EmergencyCents int64
-	BasisCents     int64
-	UpdatedAt      time.Time
-	OtherCents     int64
+	Date          time.Time
+	CashCents     int64
+	CardsCents    int64
+	InvestedCents int64
+	PotsCents     int64
+	BasisCents    int64
+	UpdatedAt     time.Time
+	OtherCents    int64
 }
 
 type PortfolioPosition struct {
@@ -317,9 +318,8 @@ type PortfolioPosition struct {
 type PortfolioPositionGroup struct {
 	ID            string
 	ClassOverride *string
-	Reserve       string
-	ReserveCents  int64
 	UpdatedAt     time.Time
+	HoldsPots     bool
 }
 
 type PortfolioPriceAlert struct {

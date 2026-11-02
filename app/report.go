@@ -95,8 +95,8 @@ func buildReport(in reportInput) ReportView {
 			cat = c.ByCategory[0].Category
 			name = in.names[cat]
 		}
-		if c.Name != nil && len(c.ByCategory) > 1 {
-			name = *c.Name // a line shared by several categories goes by its name
+		if c.Name != nil && len(c.ByCategory) != 1 {
+			name = *c.Name // a line shared by several categories, or a pot with none, goes by its name
 		}
 		if c.Fund { // not a limit: only a fund in the red is worth a word
 			if c.LeftCents < 0 {
@@ -274,9 +274,9 @@ func (a *App) Report(ctx context.Context, m budget.Month) (ReportView, error) {
 			in.start = &s
 			p := money.BRLCents(points[*end].BasisCents - points[*start].BasisCents)
 			in.putIn = &p
-			// Invested and the emergency fund are what the basis covers.
+			// Invested and the pots are what the basis covers.
 			last, first := points[*end], points[*start]
-			ret := money.BRLCents((last.InvestedCents + last.EmergencyCents - first.InvestedCents - first.EmergencyCents) - p.Cents())
+			ret := money.BRLCents((last.InvestedCents + last.PotsCents - first.InvestedCents - first.PotsCents) - p.Cents())
 			in.returns = &ret
 		}
 	}

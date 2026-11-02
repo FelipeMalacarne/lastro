@@ -55,7 +55,7 @@ type PYFView struct {
 // spending went.
 type LineView struct {
 	ID             string             `json:"id"`
-	Name           *string            `json:"name"`       // a shared line's; null for one that goes by its category's
+	Name           *string            `json:"name"`       // a shared line's or a pot's without categories; null for one that goes by its category's
 	ByCategory     []LineCategoryView `json:"byCategory"` // every category it covers, the most spent first
 	LimitCents     int64              `json:"limitCents"`
 	CarriedCents   int64              `json:"carriedCents"`
@@ -65,6 +65,11 @@ type LineView struct {
 	Rollover       bool               `json:"rollover"`
 	Fund           bool               `json:"fund"`          // carries its balance, debt included: available and left are its balance before and after spending
 	AdjustedCents  int64              `json:"adjustedCents"` // a fund's adjustment this month
+	// TargetCents is a pot's target, null for none (ADR-0014); AmountCents
+	// is what of its limit or monthly amount the line takes this month,
+	// less than limitCents only for a pot near its target.
+	TargetCents *int64 `json:"targetCents"`
+	AmountCents int64  `json:"amountCents"`
 	UsedBp         int64              `json:"usedBp"`
 	Pace           Pace               `json:"pace"`
 	Count          int                `json:"count"`
