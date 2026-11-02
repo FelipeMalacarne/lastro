@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { CircleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Panel } from "@/components/Panel";
 import { Sparkline } from "@/components/Sparkline";
 import { Button } from "@/components/ui/button";
 import { send, useResource } from "@/lib/api";
-import { formatBRL, formatDay, formatPercent } from "@/lib/format";
+import { formatBRL, formatDay, formatPercent, parsePercent } from "@/lib/format";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
 type PaymentView = { ticker: string; label: string; comDate: string; paymentDate: string | null; rateMicro: number; cents: number };
 type DividendsView = {
@@ -196,8 +198,10 @@ export function PriceAlert({ ticker }: { ticker: string }) {
       setBusy(false);
     }
   }
-  const bps = Math.round(Number(text.replace(",", ".")) * 100);
-  const valid = Number.isFinite(bps) && bps >= 50 && bps <= 5000;
+  const bps = parsePercent(text);
+  const valid = bps !== null && bps >= 50 && bps <= 5000;
+  const error = !valid && text.trim() ? "Type a percentage from 0,5 to 50, like 5" : null;
+  const captionId = useId();
   return (
     <form
       className="flex flex-col gap-2 border-t border-rule pt-3"
@@ -210,10 +214,17 @@ export function PriceAlert({ ticker }: { ticker: string }) {
       <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
         <label className="flex flex-col gap-1.5 text-[13px] leading-[18px] font-semibold">
           Tell me when it falls more than
-          <span className="flex h-9 w-[110px] items-center gap-1 rounded-sm border border-rule-strong bg-paper-raised px-2.5 font-figure text-[14px] font-normal focus-within:focus-ring">
+          <span
+            className={cn(
+              "flex h-9 w-[110px] items-center gap-1 rounded-sm border bg-paper-raised px-2.5 font-figure text-[14px] font-normal focus-within:focus-ring",
+              error ? "border-danger" : "border-rule-strong",
+            )}
+          >
             <input
               inputMode="decimal"
               aria-label="Percent"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={captionId}
               value={text}
               onChange={(e) => setText(e.target.value)}
               className="w-full min-w-0 border-0 bg-transparent text-right text-ink outline-none"
@@ -242,16 +253,23 @@ export function PriceAlert({ ticker }: { ticker: string }) {
           </Button>
         )}
       </div>
-      <span className="type-caption text-ink-muted">
-        {msg ??
-          (valid
-            ? `It shows on the dashboard with the thesis and goes to Telegram once.${
-                lastMove !== null && last
-                  ? ` Last close: ${formatPercent(lastMove, { sign: "always" })} on ${formatDay(last.date)}${current !== undefined && -lastMove >= current ? ", over the alert" : ""}.`
-                  : ""
-              }`
-            : "Between 0,5% and 50%.")}
-      </span>
+      {error ? (
+        <span id={captionId} className="flex items-center gap-1 type-caption text-danger">
+          <CircleAlert className="size-3.5" aria-hidden />
+          {error}
+        </span>
+      ) : (
+        <span id={captionId} className="type-caption text-ink-muted">
+          {msg ??
+            (valid
+              ? `It shows on the dashboard with the thesis and goes to Telegram once.${
+                  lastMove !== null && last
+                    ? ` Last close: ${formatPercent(lastMove, { sign: "always" })} on ${formatDay(last.date)}${current !== undefined && -lastMove >= current ? ", over the alert" : ""}.`
+                    : ""
+                }`
+              : "Between 0,5% and 50%.")}
+        </span>
+      )}
     </form>
   );
 }

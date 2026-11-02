@@ -25,9 +25,10 @@ func TestBuildReport(t *testing.T) {
 		prev:  &budget.MonthView{Summary: budget.SummaryView{SpentCents: 881300}},
 		names: map[string]string{"r": "Restaurants", "g": "Groceries"},
 		recurring: budget.RecurringView{Charges: []budget.RecurringCharge{
-			{Name: "Duolingo", MonthlyCents: 2990, New: true, First: "2026-09-08"},
-			{Name: "Netflix", MonthlyCents: 5590, Change: &budget.ChangeView{FromCents: 4490, ToCents: 5590, Since: "2026-09-12"}},
-			{Name: "Spotify", MonthlyCents: 2390, New: true, First: "2026-08-01"},
+			// As the recurring charges spell them; the notes read them as names, as the Dashboard does.
+			{Name: "DUOLINGO", MonthlyCents: 2990, New: true, First: "2026-09-08"},
+			{Name: "NETFLIX", MonthlyCents: 5590, Change: &budget.ChangeView{FromCents: 4490, ToCents: 5590, Since: "2026-09-12"}},
+			{Name: "SPOTIFY", MonthlyCents: 2390, New: true, First: "2026-08-01"},
 		}},
 		waiting: 3,
 		start:   cents(28019772), end: cents(28711012), putIn: cents(400000),
@@ -42,7 +43,7 @@ func TestBuildReport(t *testing.T) {
 	if r.Sentence != want {
 		t.Errorf("sentence:\n%s\nwant\n%s", r.Sentence, want)
 	}
-	if len(r.Notes) != 4 || !strings.HasPrefix(r.Notes[0], "Restaurants went R$ 204,30 over") || !strings.Contains(r.Notes[1], "Duolingo") || !strings.Contains(r.Notes[2], "Netflix went up") {
+	if len(r.Notes) != 4 || !strings.HasPrefix(r.Notes[0], "Restaurants went R$ 204,30 over") || r.Notes[1] != "A new charge: Duolingo, R$ 29,90 a month." || !strings.HasPrefix(r.Notes[2], "Netflix went up") {
 		t.Errorf("notes: %q (Spotify is not new in September)", r.Notes)
 	}
 	if r.ReturnsCents == nil || *r.ReturnsCents != 291240 || r.OffTarget != "IPCA+" || r.OffTargetBps != 300 {

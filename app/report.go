@@ -147,13 +147,13 @@ func buildReport(in reportInput) ReportView {
 	for _, c := range in.recurring.Charges {
 		switch {
 		case c.New && inMonth(c.First):
-			r.Notes = append(r.Notes, fmt.Sprintf("A new charge: %s, %s a month.", c.Name, money.BRLCents(c.MonthlyCents)))
+			r.Notes = append(r.Notes, fmt.Sprintf("A new charge: %s, %s a month.", budget.TitleCase(c.Name), money.BRLCents(c.MonthlyCents)))
 		case c.Change != nil && inMonth(c.Change.Since):
 			dir := "up"
 			if c.Change.ToCents < c.Change.FromCents {
 				dir = "down"
 			}
-			r.Notes = append(r.Notes, fmt.Sprintf("%s went %s to %s.", c.Name, dir, money.BRLCents(c.Change.ToCents)))
+			r.Notes = append(r.Notes, fmt.Sprintf("%s went %s to %s.", budget.TitleCase(c.Name), dir, money.BRLCents(c.Change.ToCents)))
 		}
 	}
 	if in.waiting > 0 {

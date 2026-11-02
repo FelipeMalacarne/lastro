@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, Clock, ExternalLink, TriangleAlert } from "lucide-react";
+import { Check, CircleAlert, Clock, ExternalLink, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { assetClasses, send, typeName, useResource, type AssetClass, type BudgetMonth, type Category, type PortfolioOverview, type Rule } from "@/lib/api";
-import { formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL } from "@/lib/format";
+import { useFlash } from "@/lib/flash";
+import { amountError, formatBRL, formatDay, formatMonth, formatPercent, inputBRL, monthOf, parseBRL, parsePercent, parseWhole, percentError } from "@/lib/format";
 import { Link } from "@/lib/router";
 import { SyncButton, nextSync, useSync } from "@/lib/sync";
 import { setTheme, useTheme, type ThemePreference } from "@/lib/theme";
@@ -259,7 +260,7 @@ function ManualAccounts() {
       )}
       <form onSubmit={add} className="flex flex-col gap-3 border-t border-rule pt-4">
         <span className="type-label text-ink-muted">Add an account</span>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <TextField label="Name" placeholder="e.g. Wallet, Brasilprev PGBL" value={name} onChange={(e) => setName(e.target.value)} className="min-w-0 flex-[1_1_220px]" />
           <div className="flex flex-col gap-1.5">
             <span className="text-[13px] leading-[18px] font-semibold">Kind</span>
@@ -273,8 +274,17 @@ function ManualAccounts() {
               ]}
             />
           </div>
-          <TextField label="Balance today" placeholder="R$ 0,00" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className="min-w-0 flex-[0_1_160px]" />
-          <Button type="submit" variant="primary" disabled={busy || !name.trim() || cents === null}>
+          <TextField
+            label="Balance today"
+            placeholder="R$ 0,00"
+            inputMode="decimal"
+            value={balance}
+            onChange={(e) => setBalance(e.target.value)}
+            className="min-w-0 flex-[0_1_160px]"
+            error={amountError(balance, "1.500,00")}
+          />
+          {/* The balance grows downwards with an error; the button keeps to the fields' line. */}
+          <Button type="submit" variant="primary" disabled={busy || !name.trim() || cents === null} className="mt-6">
             Add
           </Button>
         </div>
@@ -290,6 +300,8 @@ function BudgetSettings() {
   const month = monthOf(new Date());
   const res = useResource<BudgetMonth>(`/api/v1/budget?month=${month}`);
   const v = res.data;
+  // The form remounts with the saved values: "Saved" lives here, above it.
+  const [saved, flashSaved] = useFlash();
   return (
     <Section
       id="budget"
@@ -302,7 +314,7 @@ function BudgetSettings() {
     >
       {v ? (
         <>
-          <PayYourselfFirst key={`${v.payYourselfFirst.plannedCents}-${v.payday}`} v={v} />
+          <PayYourselfFirst key={`${v.payYourselfFirst.plannedCents}-${v.payday}`} v={v} saved={saved} onSaved={flashSaved} />
           <RolloverNew on={v.rolloverNew} />
         </>
       ) : (
@@ -338,13 +350,13 @@ function RolloverNew({ on }: { on: boolean }) {
   );
 }
 
-function PayYourselfFirst({ v }: { v: BudgetMonth }) {
+function PayYourselfFirst({ v, saved, onSaved }: { v: BudgetMonth; saved: boolean; onSaved: () => void }) {
   const [amount, setAmount] = useState(inputBRL(v.payYourselfFirst.plannedCents));
   const [payday, setPayday] = useState(String(v.payday));
-  const [state, setState] = useState<"idle" | "busy" | "saved" | string>("idle");
+  const [state, setState] = useState<"idle" | "busy" | string>("idle");
   const cents = parseBRL(amount);
-  const day = Number(payday);
-  const validDay = Number.isInteger(day) && day >= 1 && day <= 31;
+  const day = parseWhole(payday);
+  const validDay = day !== null && day >= 1 && day <= 31;
   const changed = cents !== v.payYourselfFirst.plannedCents || day !== v.payday;
 
   async function save() {
@@ -352,7 +364,8 @@ function PayYourselfFirst({ v }: { v: BudgetMonth }) {
     setState("busy");
     try {
       await send("PUT", `/api/v1/budget/${v.month}/pay-yourself-first`, { amountCents: cents, payday: day });
-      setState("saved");
+      setState("idle");
+      onSaved();
     } catch (e) {
       setState((e as Error).message);
     }
@@ -367,20 +380,20 @@ function PayYourselfFirst({ v }: { v: BudgetMonth }) {
       }}
     >
       <Row label="Pay yourself first" hint="A fixed line every month, set aside before any limit and never counted as spending. Done once transfers to your broker reach it.">
-        <TextField aria-label="Pay yourself first, in reais" prefix="R$" numeric inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-[160px]" error={amount && cents === null ? "Type an amount" : undefined} />
+        <TextField aria-label="Pay yourself first, in reais" prefix="R$" numeric inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-[160px]" error={amountError(amount)} />
       </Row>
       <Row label="Payday" hint="When the salary lands and pay yourself first is due. A day past the month's end means its last day.">
-        <TextField aria-label="Payday, day of the month" numeric inputMode="numeric" value={payday} onChange={(e) => setPayday(e.target.value)} suffix="of each month" className="w-[200px]" error={payday && !validDay ? "1 to 31" : undefined} />
+        <TextField aria-label="Payday, day of the month" numeric inputMode="numeric" value={payday} onChange={(e) => setPayday(e.target.value)} suffix="of each month" className="w-[200px]" error={payday && !validDay ? "Type a day, from 1 to 31" : undefined} />
       </Row>
       <div className="flex flex-wrap items-center gap-3 border-t border-rule pt-4">
         <Button type="submit" size="sm" variant="primary" disabled={state === "busy" || !changed || cents === null || !validDay}>
           Save
         </Button>
-        <span role="status" className={cn("type-caption", state !== "idle" && state !== "busy" && state !== "saved" ? "text-danger" : "text-ink-muted")}>
-          {state === "saved"
-            ? `Saved from ${formatMonth(v.month)} on.`
-            : state !== "idle" && state !== "busy"
-              ? `Could not save: ${state}.`
+        <span role="status" className={cn("type-caption", state !== "idle" && state !== "busy" ? "text-danger" : "text-ink-muted")}>
+          {state !== "idle" && state !== "busy"
+            ? `Could not save: ${state}.`
+            : saved
+              ? `Saved from ${formatMonth(v.month)} on.`
               : `From ${formatMonth(v.month)} on; earlier months keep theirs.`}
         </span>
       </div>
@@ -391,27 +404,27 @@ function PayYourselfFirst({ v }: { v: BudgetMonth }) {
 function Investments() {
   const res = useResource<PortfolioOverview>("/api/v1/portfolio");
   const v = res.data;
+  // The form remounts with the saved targets: "Saved" lives here, above it.
+  const [saved, flashSaved] = useFlash();
   return (
     <Section id="investments" title="Investments" intro="The targets the contribution planner aims for. It never suggests selling.">
-      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} /> : <Skeleton className="h-40" />}
+      {v ? <TargetsForm key={JSON.stringify(v.targets) + v.bandBp} v={v} saved={saved} onSaved={flashSaved} /> : <Skeleton className="h-40" />}
     </Section>
   );
 }
 
-function TargetsForm({ v }: { v: PortfolioOverview }) {
+function TargetsForm({ v, saved, onSaved }: { v: PortfolioOverview; saved: boolean; onSaved: () => void }) {
   const [values, setValues] = useState<Record<AssetClass, string>>(
     Object.fromEntries(assetClasses.map((k) => [k.id, String((v.targets[k.id] ?? 0) / 100).replace(".", ",")])) as Record<AssetClass, string>,
   );
   const [band, setBand] = useState(String(v.bandBp / 100).replace(".", ","));
-  const [state, setState] = useState<"idle" | "busy" | "saved" | string>("idle");
-  const bps = (t: string) => {
-    const n = Number(t.replace(",", "."));
-    return t.trim() !== "" && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
-  };
-  const parts = assetClasses.map((k) => bps(values[k.id]));
+  const [state, setState] = useState<"idle" | "busy" | string>("idle");
+  const parts = assetClasses.map((k) => parsePercent(values[k.id]));
+  const errors = assetClasses.map((k) => (values[k.id].trim() ? percentError(values[k.id], "25") : "Type a percentage, like 25"));
+  const readable = parts.every((p) => p !== null);
   const sum = parts.reduce<number>((s, p) => s + (p ?? 0), 0);
-  const bandBps = bps(band);
-  const valid = parts.every((p) => p !== null) && sum === 10000 && bandBps !== null && bandBps <= 1000;
+  const bandBps = parsePercent(band);
+  const valid = readable && sum === 10000 && bandBps !== null && bandBps <= 1000;
   const emergency = v.groups.filter((g) => g.reserve !== "none");
 
   async function save() {
@@ -421,7 +434,8 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
         targets: Object.fromEntries(assetClasses.map((k, i) => [k.id, parts[i]])),
         bandBp: bandBps,
       });
-      setState("saved");
+      setState("idle");
+      onSaved();
     } catch (e) {
       setState((e as Error).message);
     }
@@ -437,24 +451,55 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
       <Row
         label="Target allocation"
         hint={
-          <span className={cn("inline-flex items-center gap-1", sum === 10000 ? "text-inflow" : "text-warning")}>
-            {sum === 10000 ? <Check className="size-3.5" aria-hidden /> : <TriangleAlert className="size-3.5" aria-hidden />}
-            {sum === 10000 ? "Adds up to 100%" : `Adds up to ${formatPercent(sum)}: ${formatPercent(Math.abs(10000 - sum))} ${sum < 10000 ? "missing" : "too much"}`}
-            <span className="text-ink-muted">· the emergency fund stays out</span>
-          </span>
+          readable ? (
+            <span className={cn("inline-flex items-center gap-1", sum === 10000 ? "text-inflow" : "text-warning")}>
+              {sum === 10000 ? <Check className="size-3.5" aria-hidden /> : <TriangleAlert className="size-3.5" aria-hidden />}
+              {sum === 10000 ? "Adds up to 100%" : `Adds up to ${formatPercent(sum)}: ${formatPercent(Math.abs(10000 - sum))} ${sum < 10000 ? "missing" : "too much"}`}
+              <span className="text-ink-muted">· the emergency fund stays out</span>
+            </span>
+          ) : (
+            "The emergency fund stays out."
+          )
         }
       >
         <div className="grid w-full gap-2 sm:w-[460px] sm:grid-cols-2">
-          {assetClasses.map((k) => (
-            <label key={k.id} className="flex items-center justify-between gap-2">
-              <CategoryTag name={k.name} color={k.color} />
-              <TextField aria-label={`${k.name} target, percent`} numeric inputMode="decimal" value={values[k.id]} suffix="%" className="w-[84px]" onChange={(e) => setValues({ ...values, [k.id]: e.target.value })} />
-            </label>
+          {assetClasses.map((k, i) => (
+            <div key={k.id} className="flex flex-col gap-1">
+              <label className="flex items-center justify-between gap-2">
+                <CategoryTag name={k.name} color={k.color} />
+                <TextField
+                  aria-label={`${k.name} target, percent`}
+                  aria-describedby={errors[i] ? `target-${k.id}-error` : undefined}
+                  invalid={Boolean(errors[i])}
+                  numeric
+                  inputMode="decimal"
+                  value={values[k.id]}
+                  suffix="%"
+                  className="w-[84px]"
+                  onChange={(e) => setValues({ ...values, [k.id]: e.target.value })}
+                />
+              </label>
+              {errors[i] && (
+                <p id={`target-${k.id}-error`} className="m-0 flex items-center justify-end gap-1 type-caption text-danger">
+                  <CircleAlert className="size-3.5" aria-hidden />
+                  {errors[i]}
+                </p>
+              )}
+            </div>
           ))}
         </div>
       </Row>
       <Row label="Tolerance band" hint="A class further than this from its target gets new money first, or none.">
-        <TextField aria-label="Band, points either side" numeric inputMode="decimal" value={band} onChange={(e) => setBand(e.target.value)} suffix="points either side" className="w-[200px]" error={bandBps === null || bandBps > 1000 ? "0 to 10" : undefined} />
+        <TextField
+          aria-label="Band, points either side"
+          numeric
+          inputMode="decimal"
+          value={band}
+          onChange={(e) => setBand(e.target.value)}
+          suffix="points either side"
+          className="w-[200px]"
+          error={bandBps === null || bandBps > 1000 ? "Type points from 0 to 10, like 2,5" : undefined}
+        />
       </Row>
       <Row
         label="Emergency fund"
@@ -477,8 +522,8 @@ function TargetsForm({ v }: { v: PortfolioOverview }) {
         <Button type="submit" size="sm" variant="primary" disabled={!valid || state === "busy"}>
           Save targets
         </Button>
-        <span role="status" className={cn("type-caption", !["idle", "busy", "saved"].includes(state) ? "text-danger" : "text-ink-muted")}>
-          {state === "saved" ? "Saved. The next contribution aims for them." : !["idle", "busy"].includes(state) ? `Could not save: ${state}.` : ""}
+        <span role="status" className={cn("type-caption", !["idle", "busy"].includes(state) ? "text-danger" : "text-ink-muted")}>
+          {!["idle", "busy"].includes(state) ? `Could not save: ${state}.` : saved ? "Saved. The next contribution aims for them." : ""}
         </span>
       </div>
     </form>

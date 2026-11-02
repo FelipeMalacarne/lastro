@@ -2,6 +2,7 @@ package categorize
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,7 +23,8 @@ func TestCategoryEndpointsValidateFirst(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets"}`, "name and color are required"},
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets", "color": "purple"}`, "colour"},
-		{http.MethodPost, "/api/v1/categories", `{"name": "  ", "color": "note-5"}`, "category name"},
+		{http.MethodPost, "/api/v1/categories", `{"name": "  ", "color": "note-5"}`, `"message":"type a name"`},
+		{http.MethodPost, "/api/v1/categories", `{"name": "` + strings.Repeat("x", 41) + `", "color": "note-5"}`, `"message":"up to 40 characters"`},
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets", "color": "note-5", "icon": "dog"}`, "a JSON object"},
 		{http.MethodPost, "/api/v1/categories", `{"name": "Pets", "color": "note-5"} {}`, "a single JSON object"},
 		{http.MethodPost, "/api/v1/categories", `not json`, "a JSON object"},
@@ -55,6 +57,11 @@ func TestAPIError(t *testing.T) {
 		if !errors.As(apiError(tt.err), &he) || he.Status != tt.want {
 			t.Errorf("%v: got %v", tt.err, apiError(tt.err))
 		}
+	}
+	pets := "  Pets  and vet "
+	var taken *httpx.Error
+	if !errors.As(apiError(nameTakenBy(fmt.Errorf("%w: pets", ErrNameTaken), &pets)), &taken) || taken.Status != http.StatusConflict || taken.Message != "there is already a category called Pets and vet" {
+		t.Errorf("a taken name is named: %+v", taken)
 	}
 	other := errors.New("boom")
 	var he *httpx.Error
