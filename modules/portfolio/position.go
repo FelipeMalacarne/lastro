@@ -187,7 +187,7 @@ func (p *Position) Open() bool           { return p.closedAt == nil }
 
 // globalETFs are B3 ETFs that hold stocks abroad.
 var globalETFs = map[string]bool{
-	"IVVB11": true, "SPXI11": true, "WRLD11": true, "NASD11": true, "ACWI11": true, "URTH11": true,
+	"IVVB11": true, "SPXI11": true, "WRLD11": true, "MUND11": true, "NASD11": true, "ACWI11": true, "URTH11": true,
 	"EURP11": true, "XINA11": true, "ASIA11": true, "SMAC11": true, "TECK11": true, "USTK11": true,
 	"BNDX11": true, "GOLD11": true, "HASH11": true, "QBTC11": true, "BITH11": true, "ETHE11": true,
 }
