@@ -27,3 +27,23 @@ func TestGroupEndpointValidatesFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestAveragePriceEndpointValidatesFirst(t *testing.T) {
+	mux := http.NewServeMux()
+	New(nil, nil, nil, nil).RegisterRoutes(mux, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	path := "/api/v1/position-groups/0123456789abcdef/average-price"
+	tests := []struct{ body, want string }{
+		{`{}`, "priceCents is required"},
+		{`{"priceCents": 0}`, "more than R$ 0,00"},
+		{`{"priceCents": -13700}`, "more than R$ 0,00"},
+		{`{"priceCents": "137,00"}`, "a JSON object"},
+		{`{"price": 13700}`, "a JSON object"},
+	}
+	for _, tt := range tests {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, path, strings.NewReader(tt.body)))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+			t.Errorf("%s: got %d %s", tt.body, rec.Code, rec.Body.String())
+		}
+	}
+}

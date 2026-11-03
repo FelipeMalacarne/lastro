@@ -24,6 +24,10 @@ type OverviewView struct {
 	Growth     []GrowthPoint  `json:"growth"`
 	Benchmarks BenchmarksView `json:"benchmarks"`
 
+	// CostEstimated is whether some open stock or ETF's cost is still
+	// lastro's estimate, so the returns built on it are too.
+	CostEstimated bool `json:"costEstimated"`
+
 	Groups []GroupView  `json:"groups"`
 	Pots   PotsView     `json:"pots"`
 	Theses []ThesisView `json:"theses"`
@@ -49,6 +53,8 @@ type ClassView struct {
 	Status      Status `json:"status"`
 	Return12mBp *int64 `json:"return12mBp"`
 	Holdings    int    `json:"holdings"` // groups with money in the class
+	// CostEstimated is whether a group in the class costs lastro's estimate.
+	CostEstimated bool `json:"costEstimated"`
 }
 
 type GrowthPoint struct {
@@ -84,6 +90,15 @@ type GroupView struct {
 	ValueCents     int64     `json:"valueCents"`
 	BasisCents     int64     `json:"basisCents"` // the open lots, at cost
 	ReturnBp       *int64    `json:"returnBp"`   // since bought
+	// Priceable is whether its cost can be typed (a stock or ETF whose bank
+	// does not send it); CostEstimated whether it still is lastro's estimate,
+	// the value on FirstSeen; AveragePriceCents the cost of one unit, and
+	// CostTypedOn the day it was typed.
+	Priceable         bool    `json:"priceable"`
+	CostEstimated     bool    `json:"costEstimated"`
+	AveragePriceCents *int64  `json:"averagePriceCents"`
+	CostTypedOn       *string `json:"costTypedOn"`
+	FirstSeen         string  `json:"firstSeen"`
 	FirstMaturity  *string   `json:"firstMaturity"`
 	LastMaturity   *string   `json:"lastMaturity"`
 	AsOf           string    `json:"asOf"`

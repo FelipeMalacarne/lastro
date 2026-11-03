@@ -161,3 +161,17 @@ func (c Class) Name() string {
 	}
 	return string(c)
 }
+
+// AveragePrice is what one unit of a stock or ETF cost on average, as the
+// broker shows it.
+type AveragePrice struct{ m money.Money }
+
+// NewAveragePrice validates a price: reais, more than zero.
+func NewAveragePrice(m money.Money) (AveragePrice, error) {
+	if m.Currency() != money.BRL || !m.IsPositive() {
+		return AveragePrice{}, fmt.Errorf("%w: an average price is more than R$ 0,00", ErrInvalid)
+	}
+	return AveragePrice{m: m}, nil
+}
+
+func (a AveragePrice) Money() money.Money { return a.m }

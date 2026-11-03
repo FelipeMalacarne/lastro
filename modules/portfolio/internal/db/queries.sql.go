@@ -264,7 +264,7 @@ func (q *Queries) ListPositionGroups(ctx context.Context) ([]ListPositionGroupsR
 }
 
 const listPositions = `-- name: ListPositions :many
-SELECT external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents, basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents FROM portfolio.positions ORDER BY institution, name, external_id
+SELECT external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents, basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents, cost_shift_cents, cost_typed_at FROM portfolio.positions ORDER BY institution, name, external_id
 `
 
 func (q *Queries) ListPositions(ctx context.Context) ([]PortfolioPosition, error) {
@@ -295,6 +295,8 @@ func (q *Queries) ListPositions(ctx context.Context) ([]PortfolioPosition, error
 			&i.ClosedAt,
 			&i.UpdatedAt,
 			&i.RealizedCents,
+			&i.CostShiftCents,
+			&i.CostTypedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -564,35 +566,39 @@ func (q *Queries) SaveNetWorth(ctx context.Context, arg SaveNetWorthParams) erro
 const savePosition = `-- name: SavePosition :exec
 INSERT INTO portfolio.positions (
     external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents,
-    basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents,
+    cost_shift_cents, cost_typed_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 ON CONFLICT (external_id) DO UPDATE SET
     item_id = excluded.item_id, institution = excluded.institution, kind = excluded.kind, name = excluded.name,
     ticker = excluded.ticker, quantity_micro = excluded.quantity_micro, value_cents = excluded.value_cents,
     invested_cents = excluded.invested_cents, basis_cents = excluded.basis_cents, indexer = excluded.indexer,
     rate_bps = excluded.rate_bps, maturity = excluded.maturity, as_of = excluded.as_of, closed_at = excluded.closed_at,
-    updated_at = excluded.updated_at, realized_cents = excluded.realized_cents
+    updated_at = excluded.updated_at, realized_cents = excluded.realized_cents,
+    cost_shift_cents = excluded.cost_shift_cents, cost_typed_at = excluded.cost_typed_at
 `
 
 type SavePositionParams struct {
-	ExternalID    string
-	ItemID        string
-	Institution   string
-	Kind          string
-	Name          string
-	Ticker        *string
-	QuantityMicro int64
-	ValueCents    int64
-	InvestedCents *int64
-	BasisCents    int64
-	Indexer       string
-	RateBps       int32
-	Maturity      *time.Time
-	AsOf          time.Time
-	FirstSeen     time.Time
-	ClosedAt      *time.Time
-	UpdatedAt     time.Time
-	RealizedCents int64
+	ExternalID     string
+	ItemID         string
+	Institution    string
+	Kind           string
+	Name           string
+	Ticker         *string
+	QuantityMicro  int64
+	ValueCents     int64
+	InvestedCents  *int64
+	BasisCents     int64
+	Indexer        string
+	RateBps        int32
+	Maturity       *time.Time
+	AsOf           time.Time
+	FirstSeen      time.Time
+	ClosedAt       *time.Time
+	UpdatedAt      time.Time
+	RealizedCents  int64
+	CostShiftCents *int64
+	CostTypedAt    *time.Time
 }
 
 func (q *Queries) SavePosition(ctx context.Context, arg SavePositionParams) error {
@@ -615,6 +621,8 @@ func (q *Queries) SavePosition(ctx context.Context, arg SavePositionParams) erro
 		arg.ClosedAt,
 		arg.UpdatedAt,
 		arg.RealizedCents,
+		arg.CostShiftCents,
+		arg.CostTypedAt,
 	)
 	return err
 }
@@ -755,5 +763,36 @@ func (q *Queries) SaveValuation(ctx context.Context, arg SaveValuationParams) er
 		arg.ValueCents,
 		arg.BasisCents,
 	)
+	return err
+}
+
+const shiftNetWorthBasis = `-- name: ShiftNetWorthBasis :exec
+UPDATE portfolio.net_worth SET basis_cents = basis_cents + $1
+WHERE date >= $2::date
+`
+
+type ShiftNetWorthBasisParams struct {
+	ShiftCents int64
+	DateFrom   time.Time
+}
+
+func (q *Queries) ShiftNetWorthBasis(ctx context.Context, arg ShiftNetWorthBasisParams) error {
+	_, err := q.db.Exec(ctx, shiftNetWorthBasis, arg.ShiftCents, arg.DateFrom)
+	return err
+}
+
+const shiftValuationBasis = `-- name: ShiftValuationBasis :exec
+UPDATE portfolio.valuations SET basis_cents = basis_cents + $1
+WHERE class = $2 AND date >= $3::date
+`
+
+type ShiftValuationBasisParams struct {
+	ShiftCents int64
+	Class      string
+	DateFrom   time.Time
+}
+
+func (q *Queries) ShiftValuationBasis(ctx context.Context, arg ShiftValuationBasisParams) error {
+	_, err := q.db.Exec(ctx, shiftValuationBasis, arg.ShiftCents, arg.Class, arg.DateFrom)
 	return err
 }

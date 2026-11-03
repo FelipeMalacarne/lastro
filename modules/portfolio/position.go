@@ -64,6 +64,17 @@ type Position struct {
 	realized  money.Money
 	firstSeen time.Time
 	closedAt  *time.Time
+	// typed is the average price I typed in place of lastro's estimate, when
+	// the bank does not send what the position cost.
+	typed *TypedCost
+}
+
+// TypedCost is how far a typed average price moved a position's basis from
+// lastro's estimate (its value on the first sync), and when it was typed.
+// The shift is what going back to the estimate takes off.
+type TypedCost struct {
+	Shift money.Money
+	At    time.Time
 }
 
 // NewPosition starts following an investment. Its basis is what the bank
@@ -121,6 +132,9 @@ func (p *Position) Update(r Report, now time.Time) error {
 		return nil
 	}
 	old := p.basis.Cents()
+	if r.Invested != nil {
+		p.typed = nil // the bank's own figure wins over a typed price
+	}
 	switch {
 	case r.Invested != nil:
 		if in := r.Invested.Cents(); in < old && old > 0 {
@@ -147,11 +161,55 @@ func (p *Position) Update(r Report, now time.Time) error {
 			}
 			p.realize(cash - removed)
 			p.basis = money.BRLCents(old - removed)
+			if p.typed != nil {
+				// The units sold took their share of the typed shift.
+				p.typed.Shift = money.BRLCents(p.typed.Shift.Cents() * q1 / q0)
+			}
 		}
 	}
 	p.Report = r
 	p.closedAt = nil
 	return nil
+}
+
+// Priceable is whether its cost can be typed: the bank does not send what
+// was invested, and it has a ticker and units to multiply a price by.
+func (p *Position) Priceable() bool {
+	return p.Invested == nil && !p.Ticker.IsZero() && !p.Quantity.IsZero()
+}
+
+// CostEstimated is whether its basis is lastro's estimate: priceable, and no
+// price typed.
+func (p *Position) CostEstimated() bool { return p.Priceable() && p.typed == nil }
+
+// Typed is the average price typed for it, or nil.
+func (p *Position) Typed() *TypedCost { return p.typed }
+
+// RestoreTypedCost puts back a typed cost, for the repository.
+func (p *Position) RestoreTypedCost(t *TypedCost) { p.typed = t }
+
+// setCost makes cost its basis and returns how far the basis moved.
+func (p *Position) setCost(cost money.Money, at time.Time) money.Money {
+	delta := cost.Cents() - p.basis.Cents()
+	shift := delta
+	if p.typed != nil {
+		shift += p.typed.Shift.Cents()
+	}
+	p.basis = cost
+	p.typed = &TypedCost{Shift: money.BRLCents(shift), At: at}
+	return money.BRLCents(delta)
+}
+
+// clearCost goes back to lastro's estimate and returns how far the basis
+// moved.
+func (p *Position) clearCost() money.Money {
+	if p.typed == nil {
+		return money.BRLCents(0)
+	}
+	delta := -p.typed.Shift.Cents()
+	p.basis = money.BRLCents(p.basis.Cents() + delta)
+	p.typed = nil
+	return money.BRLCents(delta)
 }
 
 func (p *Position) realize(cents int64) {
