@@ -4,14 +4,16 @@ SELECT * FROM portfolio.positions ORDER BY institution, name, external_id;
 -- name: SavePosition :exec
 INSERT INTO portfolio.positions (
     external_id, item_id, institution, kind, name, ticker, quantity_micro, value_cents, invested_cents,
-    basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    basis_cents, indexer, rate_bps, maturity, as_of, first_seen, closed_at, updated_at, realized_cents,
+    cost_shift_cents, cost_typed_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 ON CONFLICT (external_id) DO UPDATE SET
     item_id = excluded.item_id, institution = excluded.institution, kind = excluded.kind, name = excluded.name,
     ticker = excluded.ticker, quantity_micro = excluded.quantity_micro, value_cents = excluded.value_cents,
     invested_cents = excluded.invested_cents, basis_cents = excluded.basis_cents, indexer = excluded.indexer,
     rate_bps = excluded.rate_bps, maturity = excluded.maturity, as_of = excluded.as_of, closed_at = excluded.closed_at,
-    updated_at = excluded.updated_at, realized_cents = excluded.realized_cents;
+    updated_at = excluded.updated_at, realized_cents = excluded.realized_cents,
+    cost_shift_cents = excluded.cost_shift_cents, cost_typed_at = excluded.cost_typed_at;
 
 -- name: ListPositionGroups :many
 SELECT id, class_override, holds_pots FROM portfolio.position_groups;
@@ -121,3 +123,11 @@ SELECT * FROM portfolio.histories ORDER BY institution, name, external_id;
 
 -- name: ListMovements :many
 SELECT * FROM portfolio.movements ORDER BY history_id, date, external_id;
+
+-- name: ShiftValuationBasis :exec
+UPDATE portfolio.valuations SET basis_cents = basis_cents + sqlc.arg(shift_cents)
+WHERE class = sqlc.arg(class) AND date >= sqlc.arg(date_from)::date;
+
+-- name: ShiftNetWorthBasis :exec
+UPDATE portfolio.net_worth SET basis_cents = basis_cents + sqlc.arg(shift_cents)
+WHERE date >= sqlc.arg(date_from)::date;

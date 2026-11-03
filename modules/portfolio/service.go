@@ -282,6 +282,42 @@ func (s *Service) UpdateGroup(ctx context.Context, id string, class *string, hol
 	return ErrNotFound
 }
 
+// SetAveragePrice types what one unit of a group's stock or ETF cost, for
+// the lots whose bank does not send it. Without a price (nil) it goes back to
+// lastro's estimate, the value on the first sync. Either way the stored
+// history moves with the basis, so no month's return jumps.
+func (s *Service) SetAveragePrice(ctx context.Context, id string, price *AveragePrice) error {
+	ps, err := s.repo.positions(ctx)
+	if err != nil {
+		return fmt.Errorf("portfolio: average price: %w", err)
+	}
+	settings, err := s.repo.groupSettings(ctx)
+	if err != nil {
+		return fmt.Errorf("portfolio: average price: %w", err)
+	}
+	for _, g := range GroupPositions(ps, settings) {
+		if g.ID != id {
+			continue
+		}
+		var shifts []CostShift
+		if price == nil {
+			shifts = g.ClearAveragePrice()
+		} else if shifts, err = g.SetAveragePrice(*price, s.now()); err != nil {
+			return err
+		}
+		// The stored days are São Paulo's, as Valuate keeps them.
+		for i, sh := range shifts {
+			y, m, d := sh.From.In(saoPaulo).Date()
+			shifts[i].From = time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+		}
+		if err := s.repo.saveCost(ctx, g.Lots, g.Class(), shifts, s.now()); err != nil {
+			return fmt.Errorf("portfolio: average price: %w", err)
+		}
+		return nil
+	}
+	return ErrNotFound
+}
+
 // Plan splits a contribution between the classes at today's values.
 func (s *Service) Plan(ctx context.Context, amount money.Money) (PlanView, error) {
 	t, err := s.Targets(ctx)

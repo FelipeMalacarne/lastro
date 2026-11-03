@@ -295,24 +295,26 @@ type PortfolioNetWorth struct {
 }
 
 type PortfolioPosition struct {
-	ExternalID    string
-	ItemID        string
-	Institution   string
-	Kind          string
-	Name          string
-	Ticker        *string
-	QuantityMicro int64
-	ValueCents    int64
-	InvestedCents *int64
-	BasisCents    int64
-	Indexer       string
-	RateBps       int32
-	Maturity      *time.Time
-	AsOf          time.Time
-	FirstSeen     time.Time
-	ClosedAt      *time.Time
-	UpdatedAt     time.Time
-	RealizedCents int64
+	ExternalID     string
+	ItemID         string
+	Institution    string
+	Kind           string
+	Name           string
+	Ticker         *string
+	QuantityMicro  int64
+	ValueCents     int64
+	InvestedCents  *int64
+	BasisCents     int64
+	Indexer        string
+	RateBps        int32
+	Maturity       *time.Time
+	AsOf           time.Time
+	FirstSeen      time.Time
+	ClosedAt       *time.Time
+	UpdatedAt      time.Time
+	RealizedCents  int64
+	CostShiftCents *int64
+	CostTypedAt    *time.Time
 }
 
 type PortfolioPositionGroup struct {

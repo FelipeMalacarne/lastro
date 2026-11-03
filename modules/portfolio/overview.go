@@ -3,6 +3,7 @@ package portfolio
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"sort"
 	"time"
 
@@ -102,14 +103,19 @@ func (s *Service) Overview(ctx context.Context) (OverviewView, error) {
 
 	// Each class against its target.
 	counts := map[Class]int{}
+	estimated := map[Class]bool{}
 	for _, g := range v.Groups {
 		if g.Amounts.Value.Cents() > g.Pots.Value.Cents() {
 			counts[g.Group.Class()]++
 		}
+		if g.Group.CostEstimated() {
+			estimated[g.Group.Class()] = true
+			out.CostEstimated = true
+		}
 	}
 	for _, c := range Classes {
 		a := v.Classes[c]
-		cv := ClassView{Class: c, ValueCents: a.Value.Cents(), BasisCents: a.Basis.Cents(), TargetBp: t.Allocation.Of(c).Bps(), Holdings: counts[c]}
+		cv := ClassView{Class: c, ValueCents: a.Value.Cents(), BasisCents: a.Basis.Cents(), TargetBp: t.Allocation.Of(c).Bps(), Holdings: counts[c], CostEstimated: estimated[c]}
 		if inv.Value.Cents() > 0 {
 			cv.NowBp = a.Value.Cents() * 10000 / inv.Value.Cents()
 		}
@@ -215,6 +221,25 @@ func groupView(g GroupValue) GroupView {
 	}
 	if b := gv.BasisCents; b > 0 {
 		gv.ReturnBp = ptr((gv.ValueCents - b) * 10000 / b)
+	}
+	gv.Priceable, gv.CostEstimated = g.Group.Priceable(), g.Group.CostEstimated()
+	if at := g.Group.TypedAt(); at != nil {
+		gv.CostTypedOn = ptr(day(at.In(saoPaulo)))
+	}
+	var units int64
+	first := p.FirstSeen()
+	for _, h := range g.Holdings {
+		units += h.Position.Quantity.Micro()
+		if h.Position.FirstSeen().Before(first) {
+			first = h.Position.FirstSeen()
+		}
+	}
+	gv.FirstSeen = day(first.In(saoPaulo))
+	if !p.Ticker.IsZero() && units > 0 {
+		// Rounded to the cent, so a typed price reads back as typed.
+		n := new(big.Int).Mul(big.NewInt(gv.BasisCents), big.NewInt(1_000_000))
+		n.Add(n, big.NewInt(units/2))
+		gv.AveragePriceCents = ptr(n.Quo(n, big.NewInt(units)).Int64())
 	}
 	var newest time.Time
 	for _, h := range g.Holdings {

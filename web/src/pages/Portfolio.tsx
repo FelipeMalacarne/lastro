@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Clock, PiggyBank, TriangleAlert } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Clock, PiggyBank, TriangleAlert } from "lucide-react";
 
 import { Amount } from "@/components/Amount";
 import { Badge } from "@/components/Badge";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton, SkeletonRows, SkeletonStat } from "@/components/ui/skeleton";
 import { assetClasses, send, useResource, type AssetClass, type PortfolioOverview, type PositionGroup, type Thesis } from "@/lib/api";
-import { formatBRL, formatDay, formatMonth, formatPercent } from "@/lib/format";
+import { formatBRL, formatDay, formatMonth, formatPercent, parseBRL } from "@/lib/format";
 import { useWide } from "@/lib/media";
 import { Link } from "@/lib/router";
 import { toast } from "@/lib/toast";
@@ -28,6 +28,11 @@ function since(d: string | null) {
   if (!d) return "";
   const [y] = d.split("-");
   return `${formatDay(d)} ${y}`;
+}
+
+/** "≈ +1,0%" when the return is measured from lastro's estimate of a cost. */
+function approx(estimated: boolean, text: string): string {
+  return estimated ? `≈ ${text}` : text;
 }
 
 /** Portfolio (canvas: "Portfolio"). */
@@ -138,11 +143,11 @@ function Hero({ v }: { v: PortfolioOverview }) {
                 <Amount cents={v.putIn12mCents} sign="none" />
               </Mini>
               <Mini label="Returns">
-                <Amount cents={v.returns12mCents ?? 0} sign="always" />
+                <Amount cents={v.returns12mCents ?? 0} sign="always" estimate={v.costEstimated} />
               </Mini>
               <Mini label="Return">
                 <span className={cn("type-figure", (v.return12mBp ?? 0) >= 0 ? "text-inflow" : "text-ink")}>
-                  {v.return12mBp !== null ? formatPercent(v.return12mBp, { sign: "always" }) : "—"}
+                  {v.return12mBp !== null ? approx(v.costEstimated, formatPercent(v.return12mBp, { sign: "always" })) : "—"}
                 </span>
                 {v.benchmarks.cdiBp !== null && <span className="type-caption text-ink-muted">CDI {formatPercent(v.benchmarks.cdiBp)}</span>}
               </Mini>
@@ -379,7 +384,7 @@ function Returns({ v }: { v: PortfolioOverview }) {
                 <CategoryTag name={k.name} color={k.color} />
               </span>
               <span role="cell" className={cn("text-right type-figure", r < 0 && "text-ink")}>
-                {formatPercent(r, { sign: "always" })}
+                {approx(c.costEstimated, formatPercent(r, { sign: "always" }))}
               </span>
               <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", cdiBp !== null && r >= cdiBp ? "text-inflow" : "text-ink-muted")}>
                 {cdiBp !== null ? pp(r - cdiBp) : "—"}
@@ -467,7 +472,7 @@ function Positions({ v }: { v: PortfolioOverview }) {
     <Panel
       title="Positions"
       bodyClassName="-mx-5"
-      footer="Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Lots from the same bank, issuer, indexer and rate are one row; open it to see each contribution. “Since bought” is the value over what it cost. The pots are what Budget's pots claim, taken from the groups that hold them; the rest of those groups counts in its class."
+      footer={`Quantities and values from the banks through Meu Pluggy; stocks and ETFs at the latest close when it is newer. Lots from the same bank, issuer, indexer and rate are one row; open it to see each contribution. “Since bought” is the value over what it cost. The pots are what Budget's pots claim, taken from the groups that hold them; the rest of those groups counts in its class.${v.costEstimated ? " A stock or ETF without a bank figure starts at its value on the day lastro first saw it. ≈ marks a return measured from that estimate." : ""}`}
     >
       <div role="table" aria-label="Positions by class">
         <div role="row" className={cn("grid h-8 items-center gap-x-4 border-y border-rule bg-paper-sunken px-5 type-label text-ink-muted", positionCols)}>
@@ -516,7 +521,7 @@ function Positions({ v }: { v: PortfolioOverview }) {
                   <Amount cents={total} sign="none" tone="muted" />
                 </span>
                 <span role="cell" className="hidden text-right type-figure-sm text-ink-muted sm:block">
-                  {basis > 0 ? formatPercent(((total - basis) * 10000) / basis, { sign: "always" }) : ""}
+                  {basis > 0 ? approx(s.parts.some((p) => p.g.costEstimated), formatPercent(((total - basis) * 10000) / basis, { sign: "always" })) : ""}
                 </span>
               </div>
               {isPots && pots.groups === 0 && (
@@ -572,6 +577,11 @@ function GroupRow({
     const names = pots.claimed.map((x) => `${x.name} ${formatBRL(x.balanceCents)}`).join(", ");
     caption = `${formatBRL(g.potsCents)} of ${formatBRL(g.valueCents)}${names ? ` · ${names}` : ""}`;
   } else if (g.holdsPots && g.potsCents > 0) caption = `${caption} · holds the pots, ${formatBRL(g.potsCents)} of it`;
+  if (!pots && g.priceable) {
+    if (g.costEstimated) caption = `${caption} · cost estimated from ${formatDay(g.firstSeen)}, the first sync`;
+    else if (g.costTypedOn && g.averagePriceCents !== null) caption = `${caption} · ${formatBRL(g.averagePriceCents)} average, typed by you`;
+  }
+  const returnText = g.returnBp !== null ? approx(g.costEstimated, formatPercent(g.returnBp, { sign: "always" })) : null;
   const quantity = g.ticker ? formatQuantity(String(g.lots.reduce((t, l) => t + Number(l.quantity), 0))) : "";
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
@@ -611,10 +621,10 @@ function GroupRow({
         <span role="cell" className="flex flex-col items-end">
           <Amount cents={p.cents} sign="none" />
           {!pots && split && <span className="type-figure-sm text-ink-muted">of {formatBRL(g.valueCents)}</span>}
-          {g.returnBp !== null && <span className="type-figure-sm text-ink-muted sm:hidden">{formatPercent(g.returnBp, { sign: "always" })}</span>}
+          {returnText !== null && <span className="type-figure-sm text-ink-muted sm:hidden">{returnText}</span>}
         </span>
         <span role="cell" className={cn("hidden text-right type-figure-sm sm:block", g.returnBp !== null && g.returnBp < 0 ? "text-ink" : "text-ink-muted")}>
-          {g.returnBp !== null ? formatPercent(g.returnBp, { sign: "always" }) : "—"}
+          {returnText ?? "—"}
         </span>
       </button>
       {open && <GroupEditor g={g} claimCents={claimCents} onDone={onDone} />}
@@ -672,6 +682,8 @@ function GroupEditor({ g, claimCents, onDone }: { g: PositionGroup; claimCents: 
         </span>
       </div>
 
+      {g.priceable && !g.holdsPots && <AveragePrice g={g} onDone={onDone} />}
+
       <div className="flex flex-col gap-2 border-t border-rule pt-4">
         <span className="inline-flex items-center gap-1.5 type-label text-ink-muted">
           <PiggyBank className="size-3.5" aria-hidden /> Pots
@@ -703,6 +715,136 @@ function GroupEditor({ g, claimCents, onDone }: { g: PositionGroup; claimCents: 
       {g.ticker && <PriceAlert ticker={g.ticker} />}
       {g.ticker && <Prices ticker={g.ticker} />}
     </div>
+  );
+}
+
+/** "70", "0,5": the units of a group's open lots. */
+function unitsOf(g: PositionGroup): number {
+  return g.lots.reduce((t, l) => t + Number(l.quantity), 0);
+}
+
+/** Cents as typed in a field: 13700 → "137,00". */
+function typedCents(cents: number): string {
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
+/**
+ * The average price of a stock or ETF whose bank does not send what it cost
+ * (canvas: "Positions: the average price of a stock or ETF"). Saving it
+ * moves the cost, and the stored history with it.
+ */
+function AveragePrice({ g, onDone }: { g: PositionGroup; onDone: () => void }) {
+  const typed = g.costTypedOn !== null && g.averagePriceCents !== null ? g.averagePriceCents : null;
+  const [text, setText] = useState(typed !== null ? typedCents(typed) : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const captionId = useId();
+  const ticker = g.ticker ?? g.name;
+  const path = `/api/v1/position-groups/${encodeURIComponent(g.id)}/average-price`;
+  const units = unitsOf(g);
+  const price = parseBRL(text);
+  const valid = price !== null && price > 0;
+  const fieldError = text.trim() && !valid ? "Type the price of one unit, like 137,00" : null;
+  const cost = valid ? Math.round(units * price) : 0;
+  // Undo puts back what it was: the typed price, or the estimate.
+  const back = () => (typed !== null ? send("PUT", path, { priceCents: typed }) : send("DELETE", path));
+
+  async function run(f: () => Promise<unknown>, done: () => void) {
+    setBusy(true);
+    setError(null);
+    try {
+      await f();
+      done();
+      onDone();
+    } catch (e) {
+      setError(`Could not save: ${(e as Error).message}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-2 border-t border-rule pt-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!valid) return;
+        void run(
+          () => send("PUT", path, { priceCents: price }),
+          () =>
+            toast({
+              id: "average-price",
+              text: (
+                <>
+                  <strong>{ticker}</strong> now costs {formatBRL(cost)}, {formatBRL(price)} a unit.
+                </>
+              ),
+              undo: back,
+            }),
+        );
+      }}
+    >
+      <span className="type-label text-ink-muted">Average price</span>
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+        <TextField
+          label="What one unit cost you, on average"
+          prefix="R$"
+          numeric
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          invalid={Boolean(fieldError)}
+          aria-describedby={captionId}
+          className="w-full sm:w-[200px]"
+        />
+        <Button type="submit" size="sm" disabled={!valid || busy} className="w-full sm:w-auto">
+          Save
+        </Button>
+        {typed !== null && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            className="w-full sm:w-auto"
+            onClick={() =>
+              void run(
+                () => send("DELETE", path),
+                () =>
+                  toast({
+                    id: "average-price",
+                    text: (
+                      <>
+                        <strong>{ticker}</strong> is back to the estimate from {formatDay(g.firstSeen)}.
+                      </>
+                    ),
+                    undo: back,
+                  }),
+              )
+            }
+          >
+            Use the estimate
+          </Button>
+        )}
+      </div>
+      {valid && (
+        <span className="type-figure-sm text-ink">
+          {formatQuantity(String(units))} {units === 1 ? "unit" : "units"} × {formatBRL(price)} = {formatBRL(cost)} at cost
+          {cost > 0 && ` · ${formatPercent(((g.valueCents - cost) * 10000) / cost, { sign: "always" })} since bought`}
+        </span>
+      )}
+      {fieldError || error ? (
+        <span id={captionId} className="flex items-center gap-1 type-caption text-danger">
+          <CircleAlert className="size-3.5" aria-hidden />
+          {fieldError ?? error}
+        </span>
+      ) : (
+        <span id={captionId} className="max-w-[70ch] type-caption text-ink-muted">
+          {typed !== null
+            ? `Typed on ${formatDay(g.costTypedOn!)}. Units bought later add at that day's price; units sold take their share of the cost.`
+            : `The bank does not send what stocks and ETFs cost, so lastro used ${g.averagePriceCents !== null ? `${formatBRL(g.averagePriceCents)} a unit, ` : ""}the price on ${formatDay(g.firstSeen)}, the day it first saw ${ticker}. Your broker's app shows the average price.`}
+        </span>
+      )}
+    </form>
   );
 }
 
