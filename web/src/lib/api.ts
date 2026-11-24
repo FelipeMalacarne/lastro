@@ -467,6 +467,16 @@ export type PositionGroup = {
   valueCents: number;
   basisCents: number;
   returnBp: number | null;
+  /**
+   * Whether its cost can be typed (a stock or ETF whose bank does not send
+   * it), whether it still is lastro's estimate (its value on firstSeen), the
+   * cost of one unit, and the day it was typed.
+   */
+  priceable: boolean;
+  costEstimated: boolean;
+  averagePriceCents: number | null;
+  costTypedOn: string | null;
+  firstSeen: string;
   firstMaturity: string | null;
   lastMaturity: string | null;
   asOf: string;
@@ -496,6 +506,8 @@ export type PortfolioOverview = {
   returns12mCents: number | null;
   return12mBp: number | null;
   since: string | null;
+  /** Some stock or ETF's cost is lastro's estimate, so the returns built on it are too. */
+  costEstimated: boolean;
   netWorth: NetWorthPoint;
   targets: Record<AssetClass, number>;
   bandBp: number;
@@ -508,6 +520,8 @@ export type PortfolioOverview = {
     status: BandStatus;
     return12mBp: number | null;
     holdings: number;
+    /** A group in the class costs lastro's estimate, so its returns are estimates too. */
+    costEstimated: boolean;
   }[];
   growth: { date: string; valueCents: number; basisCents: number }[];
   benchmarks: { from: string | null; cdiBp: number | null; ipcaBp: number | null; cdiUntil: string | null; ipcaUntil: string | null };

@@ -45,7 +45,11 @@ func (r *PostgresRepository) positions(ctx context.Context) ([]*Position, error)
 			m := money.BRLCents(*row.InvestedCents)
 			rep.Invested = &m
 		}
-		out = append(out, RestorePosition(rep, money.BRLCents(row.BasisCents), money.BRLCents(row.RealizedCents), row.FirstSeen, row.ClosedAt))
+		p := RestorePosition(rep, money.BRLCents(row.BasisCents), money.BRLCents(row.RealizedCents), row.FirstSeen, row.ClosedAt)
+		if row.CostShiftCents != nil && row.CostTypedAt != nil {
+			p.RestoreTypedCost(&TypedCost{Shift: money.BRLCents(*row.CostShiftCents), At: *row.CostTypedAt})
+		}
+		out = append(out, p)
 	}
 	return out, nil
 }
@@ -78,7 +82,34 @@ func positionParams(p *Position, now time.Time) db.SavePositionParams {
 		c := p.Invested.Cents()
 		arg.InvestedCents = &c
 	}
+	if t := p.Typed(); t != nil {
+		c, at := t.Shift.Cents(), t.At
+		arg.CostShiftCents, arg.CostTypedAt = &c, &at
+	}
 	return arg
+}
+
+// saveCost saves the lots whose cost was typed or cleared and moves the
+// stored history by the same amounts: the class's basis and the net worth's,
+// from the day each lot was first seen.
+func (r *PostgresRepository) saveCost(ctx context.Context, ps []*Position, class Class, shifts []CostShift, now time.Time) error {
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+		for _, p := range ps {
+			if err := q.SavePosition(ctx, positionParams(p, now)); err != nil {
+				return err
+			}
+		}
+		for _, sh := range shifts {
+			if err := q.ShiftValuationBasis(ctx, db.ShiftValuationBasisParams{ShiftCents: sh.Shift.Cents(), Class: string(class), DateFrom: sh.From}); err != nil {
+				return err
+			}
+			if err := q.ShiftNetWorthBasis(ctx, db.ShiftNetWorthBasisParams{ShiftCents: sh.Shift.Cents(), DateFrom: sh.From}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *PostgresRepository) groupSettings(ctx context.Context) (map[string]GroupSetting, error) {

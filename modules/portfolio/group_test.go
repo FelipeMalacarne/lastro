@@ -84,3 +84,121 @@ func TestGroupReclassify(t *testing.T) {
 		t.Errorf("an unknown class: %v", err)
 	}
 }
+
+// WRLD11 was first seen at R$ 153,61 a unit, its bank sending no cost; the
+// broker's average is R$ 137,00. Typing it moves the basis and says by how
+// much, so the stored history can move with it; clearing it puts the
+// estimate back.
+func TestAveragePrice(t *testing.T) {
+	seen := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	typed := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	q := func(s string) Quantity { x, _ := ParseQuantity(s); return x }
+	tk, _ := NewTicker("WRLD11")
+	etf := func(id string, units string, value int64) *Position {
+		p, err := NewPosition(Report{ExternalID: id, Institution: "Nubank", Kind: KindETF, Name: "WRLD11", Ticker: tk, Quantity: q(units), Value: money.BRLCents(value), AsOf: seen, Active: true}, seen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	price, err := NewAveragePrice(money.BRLCents(13700))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("one lot", func(t *testing.T) {
+		p := etf("a", "70", 1075270)
+		g := GroupPositions([]*Position{p}, nil)[0]
+		if !g.Priceable() || !g.CostEstimated() || g.TypedAt() != nil {
+			t.Fatalf("before: priceable %v, estimated %v", g.Priceable(), g.CostEstimated())
+		}
+		shifts, err := g.SetAveragePrice(price, typed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Basis().Cents() != 959000 || len(shifts) != 1 || shifts[0].Shift.Cents() != -116270 || !shifts[0].From.Equal(seen) {
+			t.Fatalf("basis %d, shifts %+v", p.Basis().Cents(), shifts)
+		}
+		if g.CostEstimated() || g.TypedAt() == nil || !g.TypedAt().Equal(typed) {
+			t.Errorf("after: estimated %v, typed %v", g.CostEstimated(), g.TypedAt())
+		}
+		// Typed again: the shift from the estimate adds up, the move is the
+		// difference.
+		again, _ := NewAveragePrice(money.BRLCents(14000))
+		shifts, _ = g.SetAveragePrice(again, typed)
+		if p.Basis().Cents() != 980000 || shifts[0].Shift.Cents() != 21000 || p.Typed().Shift.Cents() != -95270 {
+			t.Errorf("again: basis %d, shifts %+v, typed %+v", p.Basis().Cents(), shifts, p.Typed())
+		}
+		shifts = g.ClearAveragePrice()
+		if p.Basis().Cents() != 1075270 || len(shifts) != 1 || shifts[0].Shift.Cents() != 95270 || !g.CostEstimated() {
+			t.Errorf("cleared: basis %d, shifts %+v", p.Basis().Cents(), shifts)
+		}
+		if shifts := g.ClearAveragePrice(); len(shifts) != 0 {
+			t.Errorf("cleared twice: %+v", shifts)
+		}
+	})
+
+	t.Run("lots share the price by units", func(t *testing.T) {
+		a, b := etf("a", "50", 768050), etf("b", "20", 307220)
+		g := GroupPositions([]*Position{a, b}, nil)[0]
+		if _, err := g.SetAveragePrice(price, typed); err != nil {
+			t.Fatal(err)
+		}
+		if a.Basis().Cents() != 685000 || b.Basis().Cents() != 274000 {
+			t.Errorf("bases %d and %d", a.Basis().Cents(), b.Basis().Cents())
+		}
+	})
+
+	t.Run("a sale takes its share of the shift", func(t *testing.T) {
+		p := etf("a", "70", 1075270)
+		g := GroupPositions([]*Position{p}, nil)[0]
+		_, _ = g.SetAveragePrice(price, typed)
+		r := p.Report
+		r.Quantity, r.Value = q("35"), money.BRLCents(542885)
+		if err := p.Update(r, typed); err != nil {
+			t.Fatal(err)
+		}
+		if p.Basis().Cents() != 479500 || p.Typed().Shift.Cents() != -58135 {
+			t.Errorf("basis %d, typed %+v", p.Basis().Cents(), p.Typed())
+		}
+		g.ClearAveragePrice()
+		if p.Basis().Cents() != 537635 {
+			t.Errorf("cleared: basis %d, want half the estimate", p.Basis().Cents())
+		}
+	})
+
+	t.Run("the bank's figure wins", func(t *testing.T) {
+		p := etf("a", "70", 1075270)
+		g := GroupPositions([]*Position{p}, nil)[0]
+		_, _ = g.SetAveragePrice(price, typed)
+		r := p.Report
+		in := money.BRLCents(950000)
+		r.Invested = &in
+		if err := p.Update(r, typed); err != nil {
+			t.Fatal(err)
+		}
+		if p.Typed() != nil || p.Basis().Cents() != 950000 || g.Priceable() || g.CostEstimated() {
+			t.Errorf("typed %+v, basis %d", p.Typed(), p.Basis().Cents())
+		}
+		if _, err := g.SetAveragePrice(price, typed); !errors.Is(err, ErrInvalid) {
+			t.Errorf("priced a lot with a bank figure: %v", err)
+		}
+	})
+
+	t.Run("refused", func(t *testing.T) {
+		p := etf("a", "70", 1075270)
+		g := GroupPositions([]*Position{p}, map[string]GroupSetting{GroupID(p.Report): {HoldsPots: true}})[0]
+		if _, err := g.SetAveragePrice(price, typed); !errors.Is(err, ErrInvalid) {
+			t.Errorf("a group holding the pots: %v", err)
+		}
+		cdb, _ := NewPosition(Report{ExternalID: "cdb", Kind: KindFixedIncome, Name: "CDB", Indexer: IndexerCDI, Value: money.BRLCents(100000), AsOf: seen, Active: true}, seen)
+		if g := GroupPositions([]*Position{cdb}, nil)[0]; g.Priceable() || g.CostEstimated() {
+			t.Errorf("a CDB is priceable")
+		}
+		for _, c := range []int64{0, -100} {
+			if _, err := NewAveragePrice(money.BRLCents(c)); !errors.Is(err, ErrInvalid) {
+				t.Errorf("price %d: %v", c, err)
+			}
+		}
+	})
+}

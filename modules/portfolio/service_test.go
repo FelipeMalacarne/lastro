@@ -385,3 +385,101 @@ func TestSyncHistories(t *testing.T) {
 		t.Error("a history of another item is refused")
 	}
 }
+
+// WRLD11 seen on 27 Oct at R$ 10.752,70 for 70 units, its bank sending no
+// cost; on 3 Nov the broker's average, R$ 137,00, is typed. Its cost and the
+// stored days move together, so the gain since then does not change, and
+// going back to the estimate undoes both.
+func TestAveragePriceMovesTheHistory(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	s := New(NewRepository(pool), ledger.New(ledger.NewRepository(pool), nil), market.New(market.NewRepository(pool), nil, nil, nil, nil), nil)
+	day1 := time.Date(2026, 10, 27, 15, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 11, 3, 15, 0, 0, 0, time.UTC)
+	q, _ := ParseQuantity("70")
+	tk, _ := NewTicker("WRLD11")
+	wrld := func(value int64, at time.Time) []Report {
+		return []Report{{ExternalID: "wrld", Item: "it", Institution: "Nubank", Kind: KindETF, Ticker: tk, Name: "WRLD11", Quantity: q, Value: money.BRLCents(value), AsOf: at, Active: true}}
+	}
+	for _, d := range []struct {
+		at    time.Time
+		value int64
+	}{{day1, 1075270}, {day2, 1085770}} {
+		s.now = func() time.Time { return d.at }
+		if _, err := s.SyncPositions(ctx, "it", wrld(d.value, d.at)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Valuate(ctx, s.Today()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := GroupID(wrld(0, day1)[0])
+	globalBasis := func() []int64 {
+		vs, err := s.repo.valuations(ctx, day1.AddDate(0, -1, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []int64
+		for _, v := range vs {
+			if v.Class == string(ClassGlobal) {
+				out = append(out, v.Basis.Cents())
+			}
+		}
+		return out
+	}
+	overview := func() (OverviewView, GroupView) {
+		o, err := s.Overview(ctx)
+		if err != nil || len(o.Groups) != 1 {
+			t.Fatalf("overview %+v, %v", o, err)
+		}
+		return o, o.Groups[0]
+	}
+
+	before, g := overview()
+	if !before.CostEstimated || !g.Priceable || !g.CostEstimated || g.CostTypedOn != nil || g.FirstSeen != "2026-10-27" || *g.AveragePriceCents != 15361 {
+		t.Fatalf("before: %+v", g)
+	}
+	if b := globalBasis(); len(b) != 2 || b[0] != 1075270 || b[1] != 1075270 {
+		t.Fatalf("stored basis %v", b)
+	}
+
+	price, _ := NewAveragePrice(money.BRLCents(13700))
+	if err := s.SetAveragePrice(ctx, id, &price); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAveragePrice(ctx, "nope", &price); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown group: %v", err)
+	}
+	after, g := overview()
+	if after.CostEstimated || g.CostEstimated || g.CostTypedOn == nil || *g.CostTypedOn != "2026-11-03" || *g.AveragePriceCents != 13700 || g.BasisCents != 959000 || *g.ReturnBp != 1321 {
+		t.Errorf("after: %+v", g)
+	}
+	if b := globalBasis(); b[0] != 959000 || b[1] != 959000 {
+		t.Errorf("stored basis %v", b)
+	}
+	nws, err := s.repo.netWorth(ctx, day1.AddDate(0, -1, 0))
+	if err != nil || len(nws) != 2 || nws[0].Basis.Cents() != 959000 || nws[1].Basis.Cents() != 959000 {
+		t.Errorf("net worth %+v, %v", nws, err)
+	}
+	if *after.Returns12mCents != *before.Returns12mCents || *after.PutIn12mCents != *before.PutIn12mCents {
+		t.Errorf("returns since 27 Oct moved: %d to %d", *before.Returns12mCents, *after.Returns12mCents)
+	}
+
+	// A sync keeps the typed cost.
+	if _, err := s.SyncPositions(ctx, "it", wrld(1090000, day2)); err != nil {
+		t.Fatal(err)
+	}
+	if _, g = overview(); g.CostEstimated || g.BasisCents != 959000 {
+		t.Errorf("after a sync: %+v", g)
+	}
+
+	if err := s.SetAveragePrice(ctx, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, g = overview(); !g.CostEstimated || g.BasisCents != 1075270 || g.CostTypedOn != nil {
+		t.Errorf("estimate back: %+v", g)
+	}
+	if b := globalBasis(); b[0] != 1075270 || b[1] != 1075270 {
+		t.Errorf("stored basis back %v", b)
+	}
+}

@@ -105,6 +105,42 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, logger *slog.Logger) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// PUT /api/v1/position-groups/{id}/average-price {"priceCents": 13700}:
+	// what one unit cost, for a stock or ETF whose bank does not send it.
+	mux.HandleFunc("PUT /api/v1/position-groups/{id}/average-price", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			PriceCents *int64 `json:"priceCents"`
+		}
+		if err := decode(w, r, &in, "priceCents"); err != nil {
+			fail(w, r, err)
+			return
+		}
+		if in.PriceCents == nil {
+			fail(w, r, httpx.BadRequest("priceCents is required"))
+			return
+		}
+		price, err := NewAveragePrice(money.BRLCents(*in.PriceCents))
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		if err := s.SetAveragePrice(r.Context(), r.PathValue("id"), &price); err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// DELETE /api/v1/position-groups/{id}/average-price: back to lastro's
+	// estimate, the value on the first sync.
+	mux.HandleFunc("DELETE /api/v1/position-groups/{id}/average-price", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.SetAveragePrice(r.Context(), r.PathValue("id"), nil); err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// GET /api/v1/contribute?amount=300000: the split, in cents.
 	mux.HandleFunc("GET /api/v1/contribute", func(w http.ResponseWriter, r *http.Request) {
 		cents, err := strconv.ParseInt(r.URL.Query().Get("amount"), 10, 64)
